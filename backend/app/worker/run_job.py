@@ -13,6 +13,7 @@ File lớn:
 
 import asyncio
 import base64
+import functools
 import io
 import logging
 import os
@@ -38,6 +39,8 @@ log = logging.getLogger(__name__)
 DETECT_MIN_PAGES = int(os.getenv("DETECT_MIN_PAGES", "5"))
 DETECT_WINDOW = int(os.getenv("DETECT_WINDOW", "12"))
 DETECT_VERIFY = os.getenv("DETECT_VERIFY", "true").strip().lower() == "true"
+RENDER_DPI = int(os.getenv("AIHUB_RENDER_DPI", "200"))
+RENDER_MAX_SIZE = int(os.getenv("AIHUB_RENDER_MAX_SIZE", "2000"))
 MAX_PAGES = int(os.getenv("AIHUB_MAX_PAGES", "250"))
 EXTRACT_TIMEOUT = float(os.getenv("EXTRACT_TIMEOUT_SECONDS", "300"))
 
@@ -130,7 +133,10 @@ async def _pipeline(pdf_buf: io.BytesIO) -> tuple[list[dict], list[str]]:
         return [{"page_indices": [], "result": None, "error": f"too_many_pages:{n}",
                  "page_count": n, "skip_reason": "too_many_pages"}], []
 
-    images = await loop.run_in_executor(None, pdf_to_corrected_images, pdf_buf)
+    render = functools.partial(
+        pdf_to_corrected_images, dpi=RENDER_DPI, max_img_size=RENDER_MAX_SIZE
+    )
+    images = await loop.run_in_executor(None, render, pdf_buf)
     if not images:
         return [], []
     page_count = len(images)

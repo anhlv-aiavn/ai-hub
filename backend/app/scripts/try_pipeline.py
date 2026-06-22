@@ -137,9 +137,9 @@ def main() -> None:
     p.add_argument("pdf", help="Đường dẫn file PDF.")
     p.add_argument("--window", type=int, default=12,
                    help="Kích thước cửa sổ detect (trang). 0 = detect cả file 1 call. Mặc định 12.")
-    p.add_argument("--dpi", type=int, default=150, help="DPI render PDF (mặc định 150).")
-    p.add_argument("--max-size", type=int, default=1344,
-                   help="Cạnh dài tối đa ảnh gửi VLM (mặc định 1344; tăng để đọc Số phát hành mờ).")
+    p.add_argument("--dpi", type=int, default=200, help="DPI render PDF (mặc định 200).")
+    p.add_argument("--max-size", type=int, default=2000,
+                   help="Cạnh dài tối đa ảnh gửi VLM (mặc định 2000; tăng để đọc Số phát hành mờ).")
     p.add_argument("--detect-only", action="store_true", help="Chỉ chạy detect, in nhóm trang.")
     p.add_argument("--verify", action="store_true",
                    help="Sau detect, dùng VLM soi lại từng nhóm và tách cho đúng GCN.")
