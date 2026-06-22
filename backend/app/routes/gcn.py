@@ -45,11 +45,14 @@ async def list_gcn(
             {"filename": {"$regex": q, "$options": "i"}},
         ]
 
-    rows = await gcns().find(flt, _TABLE_PROJ).limit(limit).to_list(length=limit)
+    docs = await gcns().find(flt, _TABLE_PROJ).limit(limit).to_list(length=limit)
+    rows: list[dict] = []
+    for d in docs:
+        rows.extend(_expand(d))
     # Gom theo group_key (None xuống cuối), trong nhóm giữ thứ tự tạo.
     rows.sort(key=lambda r: (r.get("group_key") is None, r.get("group_key") or "",
                              str(r.get("created_at") or "")))
-    return {"gcn": [_row(r) for r in rows], "total": len(rows)}
+    return {"gcn": rows, "total": len(rows)}
 
 
 async def _collect_rows(batch_id, status, review) -> list[dict]:
@@ -199,21 +202,40 @@ def _safe(s: str) -> str:
     return keep or "gcn"
 
 
-def _row(r: dict) -> dict:
-    s = r.get("summary") or {}
-    rev = r.get("review") or {}
-    return {
-        "gcn_id": r["_id"],
-        "batch_id": r.get("batch_id"),
-        "filename": r.get("filename"),
+def _expand(doc: dict) -> list[dict]:
+    """1 doc (1 file) → NHIỀU dòng nếu file chứa nhiều GCN (theo gcn_rows worker lưu).
+    Chưa xong / không có GCN → 1 dòng cấp file."""
+    rev = doc.get("review") or {}
+    base = {
+        "gcn_id": doc["_id"],
+        "batch_id": doc.get("batch_id"),
+        "filename": doc.get("filename"),
         "display_name": rev.get("display_name"),
-        "status": r.get("status"),
+        "status": doc.get("status"),
         "review_status": rev.get("status", "unreviewed"),
-        "page_count": r.get("page_count", 0),
-        "group_key": r.get("group_key"),
-        "error": r.get("error"),
-        "summary": s,
+        "error": doc.get("error"),
+        "created_at": doc.get("created_at"),
     }
+    gcn_rows = doc.get("gcn_rows") or []
+    if not gcn_rows:
+        s = doc.get("summary") or {}
+        return [{**base, "row_id": doc["_id"], "cut_index": None,
+                 "page_count": doc.get("page_count", 0),
+                 "group_key": doc.get("group_key"), "summary": s}]
+
+    total = len(gcn_rows)
+    out = []
+    for i, g in enumerate(gcn_rows):
+        sph = g.get("so_phat_hanh") or ""
+        out.append({
+            **base,
+            "row_id": f"{doc['_id']}#{i}",
+            "cut_index": g.get("cut_index"),
+            "page_count": g.get("page_count", 0),
+            "group_key": sph or None,
+            "summary": {**g, "gcn_count": total, "gcn_pos": i + 1},
+        })
+    return out
 
 
 def _detail(doc: dict) -> dict:

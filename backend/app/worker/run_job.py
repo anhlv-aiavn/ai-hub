@@ -22,7 +22,7 @@ from PIL import Image
 
 from app import config, storage
 from app.bus import publish_sync
-from app.summary import collect_so_phat_hanhs, group_key_of, summarize
+from app.summary import collect_so_phat_hanhs, group_key_of, per_gcn, summarize
 from src.extentions.minio_helper import minio_client
 from src.extentions.mongo_helper import AsyncMongo
 from src.extentions.multimodal.detect_gcn import detect
@@ -250,7 +250,8 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
         "page_count": page_count, "skip_reason": skip_reason,
         "group_key": group_key_of(records),
         "extracted_so_phat_hanhs": collect_so_phat_hanhs(records),
-        "summary": summarize(records), "cuts": cuts,
+        "summary": summarize(records),
+        "gcn_rows": per_gcn(records, cuts), "cuts": cuts,
         "finished_at": datetime.now(timezone.utc),
     }
     await mongo.update_one(config.COLL_GCN, {"_id": gcn_id}, {"$set": update})

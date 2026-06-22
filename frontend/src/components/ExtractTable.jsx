@@ -100,8 +100,9 @@ export default function ExtractTable({ batchId, onPickBatch, onOpen }) {
                 </tr>
                 {items.map((r) => {
                   const s = r.summary || {};
+                  const pos = s.gcn_pos && s.gcn_count > 1 ? `${s.gcn_pos}/${s.gcn_count}` : (s.gcn_count || 1);
                   return (
-                    <tr key={r.gcn_id} className="et-row" onClick={() => onOpen?.(r.gcn_id)}>
+                    <tr key={r.row_id || r.gcn_id} className="et-row" onClick={() => onOpen?.(r.gcn_id)}>
                       <td className="et-name">{r.display_name || r.filename}</td>
                       <td><span className={`badge st-${r.status}`}>{STATUS_LABEL[r.status] || r.status}</span></td>
                       <td>{s.so_phat_hanh || r.group_key || "—"}</td>
@@ -110,7 +111,7 @@ export default function ExtractTable({ batchId, onPickBatch, onOpen }) {
                       <td className="et-chu">{(s.chu_su_dung || []).join(", ") || "—"}</td>
                       <td>{(s.to_ban_do || []).join(", ") || "—"}</td>
                       <td>{r.page_count || 0}</td>
-                      <td>{s.gcn_count || 0}</td>
+                      <td>{pos}</td>
                       <td><span className={`badge rv-${r.review_status}`}>{REVIEW_LABEL[r.review_status] || r.review_status}</span></td>
                     </tr>
                   );

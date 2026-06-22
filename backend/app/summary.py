@@ -77,3 +77,50 @@ def summarize(extractions: list[dict]) -> dict[str, Any]:
         "gcn_count": len(entries),
         "so_phat_hanhs": sphs,
     }
+
+
+def _entry_summary(entry: dict) -> dict:
+    gcn = entry.get("Giấy chứng nhận") if isinstance(entry, dict) else None
+    gcn = gcn if isinstance(gcn, dict) else {}
+    chu, to_ban_do, so_thua = [], [], []
+    for c in entry.get("Chủ sử dụng", []) or []:
+        if isinstance(c, dict) and c.get("Tên chủ"):
+            chu.append(str(c["Tên chủ"]))
+    for t in entry.get("Thửa đất", []) or []:
+        if not isinstance(t, dict):
+            continue
+        if t.get("Số hiệu tờ bản đồ"):
+            to_ban_do.append(str(t["Số hiệu tờ bản đồ"]))
+        if t.get("Số thứ tự thửa"):
+            so_thua.append(str(t["Số thứ tự thửa"]))
+    return {
+        "so_phat_hanh": str(gcn.get("Số phát hành") or ""),
+        "so_vao_so": str(gcn.get("Số vào sổ") or ""),
+        "ngay_cap": str(gcn.get("Ngày cấp") or ""),
+        "chu_su_dung": chu,
+        "to_ban_do": to_ban_do,
+        "so_thua": so_thua,
+    }
+
+
+def per_gcn(extractions: list[dict], cuts: list[dict] | None = None) -> list[dict]:
+    """1 hàng / 1 GCN (mỗi entry 'Đăng ký') — để bảng tách 1 file → nhiều giấy.
+    Gắn cut_index (record) + page_count của file cắt tương ứng."""
+    cutmap = {c.get("index"): c for c in (cuts or []) if isinstance(c, dict)}
+    out: list[dict] = []
+    for ri, rec in enumerate(extractions or []):
+        if not isinstance(rec, dict):
+            continue
+        res = rec.get("result")
+        entries = res.get("Đăng ký", []) if isinstance(res, dict) else []
+        cut = cutmap.get(ri)
+        pages = len(rec.get("page_indices") or [])
+        cut_pages = (cut or {}).get("page_count") or pages
+        for e in entries:
+            if not isinstance(e, dict):
+                continue
+            row = _entry_summary(e)
+            row["cut_index"] = ri if cut else None
+            row["page_count"] = cut_pages
+            out.append(row)
+    return out
