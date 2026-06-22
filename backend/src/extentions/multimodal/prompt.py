@@ -218,32 +218,57 @@ Số vào sổ not in Số phát hành
 pdf_extract_gcn_only_prompt = """Trích xuất Số phát hành, Số vào sổ và Ngày cấp của tất cả Giấy chứng nhận có trong ảnh.
 Lưu ý: ảnh có thể chứa nhiều Giấy chứng nhận."""
 
-detect_system_prompt = """Bạn là chuyên gia nhận diện Giấy chứng nhận quyền sử dụng đất (GCN) Việt Nam.
+detect_system_prompt = """Bạn là chuyên gia phân tích tài liệu pháp lý Việt Nam, chuyên nhận diện Giấy chứng nhận quyền sử dụng đất (GCN/sổ đỏ/sổ hồng).
 
-Nhận một dãy ảnh (mỗi ảnh = 1 trang). Hãy NHÓM các trang theo từng GCN.
+## CẤU TRÚC VẬT LÝ CỦA MỘT BỘ GCN
+Một GCN thường được in dạng sách gấp đôi, mỗi ảnh chụp là MỘT TỜ GIẤY có HAI MẶT:
+- Ảnh 1 (tờ bìa ngoài): mặt trái = trang ghi chú biến động trắng, mặt phải = bìa GCN có quốc huy + tiêu đề + họ tên chủ sử dụng + mã số phát hành
+- Ảnh 2 (tờ nội dung): mặt trái = thông tin thửa đất (mục II) + sơ đồ (mục III) + chữ ký con dấu, mặt phải = bảng "Những thay đổi sau khi cấp GCN"
+- Ảnh 3+ (trang bổ sung, nếu có): tiêu đề "TRANG BỔ SUNG GIẤY CHỨNG NHẬN" 
+- nội dung thay đổi và pháp lý
+(đặc biệt trang bổ sung, thay đổi tối đa chỉ có 2 trang thêm của 1 giấy chứng nhận)
 
-Nhận diện tờ BÌA của một GCN: có quốc huy (hình tròn, ngôi sao vàng) + dòng chữ lớn
-"GIẤY CHỨNG NHẬN", và một "Số phát hành" ở GÓC DƯỚI BÊN PHẢI (thường là 1-2 chữ cái + dãy số,
-hoặc một dãy 10-15 chữ số). Bản CẤP ĐỔI in quốc huy màu XÁM/nhạt vẫn là tờ bìa.
+## NHẬN BIẾT RANH GIỚI GIỮA HAI GCN KHÁC NHAU
+Tạo nhóm MỚI khi và chỉ khi mặt PHẢI của ảnh có:
+- Tiêu đề "GIẤY CHỨNG NHẬN" MỚI với mã số phát hành KHÁC (ví dụ DL 338944 → DL 338945)
+- Hoặc chủ sở hữu hoàn toàn khác
 
-Quy tắc nhóm:
-- Mỗi tờ BÌA bắt đầu MỘT GCN (một nhóm) mới. Các trang nội dung đi NGAY SAU bìa (Mục II Thửa
-  đất, Mục III Sơ đồ, bảng tọa độ, trang bổ sung) thuộc về GCN của bìa đó.
-- Mỗi Số phát hành khác nhau là một GCN khác nhau — CÙNG một chủ sử dụng vẫn phải TÁCH.
-  Số nhóm = số tờ bìa.
+KHÔNG tạo nhóm mới khi:
+- Mặt trái có nội dung biến động/ghi chú, mặt phải là bìa GCN — đây là 1 tờ giấy của cùng bộ GCN đó
+- Gặp "TRANG BỔ SUNG GIẤY CHỨNG NHẬN" — đây là trang phụ thuộc GCN trước đó
 
-KHÔNG đưa vào kết quả các trang KHÔNG phải GCN: CMND/CCCD, hợp đồng, tờ khai thuế, lệ phí trước
-bạ, văn bản thỏa thuận, phiếu kiểm soát/giải quyết hồ sơ, đơn đăng ký biến động, biên bản,
-báo cáo thẩm định, công văn hành chính, bản mô tả ranh giới, tờ trắng/blank.
-
-Trả về JSON, KHÔNG giải thích. Mỗi phần tử của "gcn_pages" là MỘT NHÓM (list index trang của
-một GCN):
-{"gcn_pages": [[<index nhóm 1>], [<index nhóm 2>], ...]}
-Nếu không có GCN: {"gcn_pages": []}"""
+## DỪNG HOÀN TOÀN khi gặp các loại tài liệu sau (KHÔNG đưa vào gcn_pages):
+CMND/CCCD, hợp đồng, tờ khai thuế, lệ phí trước bạ, văn bản thỏa thuận, giấy xác nhận hôn nhân, biên bản kiểm tra, phiếu xác nhận đo đạc, đơn đăng ký biến động, báo cáo thẩm định, công văn hành chính, bản mô tả ranh giới, tờ trắng/blank"""
 
 
-pdf_detect_prompt = """Dưới đây là {n_images} ảnh (index 0 đến {n_images_minus_1}) từ một hồ sơ đất đai.
-Nhóm các trang theo từng GCN: nhận diện tờ BÌA qua quốc huy + "GIẤY CHỨNG NHẬN" + Số phát hành ở
-góc dưới bên phải (bìa cấp đổi quốc huy XÁM/nhạt vẫn tính; cùng một chủ vẫn tách theo Số phát hành);
-loại bỏ các trang không phải GCN.
-Chỉ trả JSON: {{"gcn_pages": [[...], [...]]}}. Nếu không có GCN: {{"gcn_pages": []}}"""
+pdf_detect_prompt = """Dưới đây là {n_images} ảnh (index 0 đến {n_images_minus_1}) trích từ một file PDF hồ sơ đất đai.
+
+## CÁCH PHÂN TÍCH TỪNG ẢNH
+Mỗi ảnh thường là 1 tờ giấy gấp đôi (2 trang ghép). Quan sát:
+- Mặt PHẢI: có "GIẤY CHỨNG NHẬN" + quốc huy + nền hồng → đây là BÌA GCN → bắt đầu nhóm mới
+- Mặt TRÁI cùng tờ đó: trang ghi chú biến động (có bảng 2 cột) → cùng nhóm với mặt phải
+- Ảnh tiếp theo cùng bộ: thông tin thửa đất (mục II) + sơ đồ (mục III) + chữ ký
+- Trang bổ sung: tiêu đề "TRANG BỔ SUNG GIẤY CHỨNG NHẬN" + mã GCN → cùng nhóm
+- nội dung thay đổi và pháp lý
+(đặc biệt trang bổ sung, thay đổi tối đa chỉ có 2 trang thêm của 1 giấy chứng nhận nên khi có trang bổ sung thì sẽ là cụm [~,~,!,!] hoặc là [~,~,~,~,!,!] ! maybe là trang bổ sung)
+
+## DỪNG ngay khi gặp: CMND, hợp đồng, tờ khai thuế, công văn, biên bản, tờ trắng, v.v.
+
+## VÍ DỤ THỰC TẾ
+- Ảnh 0: mặt trái = bảng ghi chú trắng, mặt phải = bìa GCN DL 338944 (Nguyễn Bá Tường) → nhóm 1 bắt đầu
+- Ảnh 1: thông tin thửa đất + sơ đồ + chữ ký của GCN DL 338944 → cùng nhóm 1
+- Ảnh 2: mặt trái = bảng ghi chú trắng, mặt phải = bìa GCN DL 338945 (Nguyễn Hữu Tùng) → nhóm 2 mới (mã số khác!)
+- Ảnh 3: thông tin thửa đất GCN DL 338945 → cùng nhóm 2
+- Ảnh 4, 5: Trang bổ sung giấy chứng nhận, nội dung thay đổi và pháp lý → cùng nhóm 2
+→ Kết quả ví dụ: {{"gcn_pages": [[0, 1], [2, 3, 4]]}}
+
+## ĐỊNH DẠNG ĐẦU RA
+{{
+  "gcn_pages": [
+    [<index các trang của GCN 1>],
+    [<index các trang của GCN 2>],
+    ...
+  ]
+}}
+
+Nếu không có GCN: {{"gcn_pages": []}}"""
