@@ -28,7 +28,7 @@ import json
 import os
 import time
 
-from src.extentions.multimodal.detect_gcn import detect
+from src.extentions.multimodal.detect_gcn import detect, verify_split
 from src.extentions.multimodal.extract_gcn import extract
 from src.extentions.multimodal.make import pdf_to_corrected_images
 from src.extentions.multimodal.normalize_dang_ky import normalize_dang_ky
@@ -94,6 +94,19 @@ async def run(args) -> None:
         print(f"[i] DETECT ({time.time() - t1:.1f}s) → {len(groups)} nhóm GCN:")
         print(_dump(groups))
 
+        if args.verify:
+            t1v = time.time()
+            refined: list[list[int]] = []
+            for group in groups:
+                subs = await verify_split([images[i] for i in group])
+                mapped = [sorted(group[j] for j in s) for s in subs]
+                if len(mapped) > 1:
+                    print(f"[verify] tách nhóm {group} → {mapped}")
+                refined.extend(mapped)
+            groups = refined
+            print(f"[i] VERIFY ({time.time() - t1v:.1f}s) → {len(groups)} nhóm GCN:")
+            print(_dump(groups))
+
     if args.detect_only:
         return
 
@@ -126,6 +139,8 @@ def main() -> None:
     p.add_argument("--max-size", type=int, default=1344,
                    help="Cạnh dài tối đa ảnh gửi VLM (mặc định 1344; tăng để đọc Số phát hành mờ).")
     p.add_argument("--detect-only", action="store_true", help="Chỉ chạy detect, in nhóm trang.")
+    p.add_argument("--verify", action="store_true",
+                   help="Sau detect, dùng VLM soi lại từng nhóm và tách cho đúng GCN.")
     p.add_argument("--extract-pages", default=None,
                    help="Bỏ detect; extract đúng các trang này (vd '0,1,2').")
     p.add_argument("--thinking", action="store_true", help="Bật chain-of-thought khi extract.")

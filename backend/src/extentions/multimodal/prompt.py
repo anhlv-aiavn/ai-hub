@@ -272,3 +272,23 @@ Mỗi ảnh thường là 1 tờ giấy gấp đôi (2 trang ghép). Quan sát:
 }}
 
 Nếu không có GCN: {{"gcn_pages": []}}"""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VERIFY: soi lại 1 cụm trang detect đã gom → tách cho đúng từng GCN.
+# Dùng khi detect gom nhầm nhiều GCN vào một nhóm.
+# ─────────────────────────────────────────────────────────────────────────────
+verify_split_system_prompt = """Bạn nhận các ảnh là những trang LIÊN TIẾP của một hồ sơ đất đai mà hệ thống đã
+tạm gom thành "một Giấy chứng nhận (GCN)". Hãy KIỂM TRA LẠI: thực ra trong các trang này có MẤY GCN
+khác nhau, và trang nào thuộc GCN nào.
+
+Mỗi GCN bắt đầu bằng một tờ BÌA: có quốc huy + dòng chữ "GIẤY CHỨNG NHẬN" và một "Số phát hành" ở
+GÓC DƯỚI BÊN PHẢI. Bản CẤP ĐỔI in quốc huy màu XÁM/nhạt vẫn là một tờ bìa riêng; CÙNG một chủ sử
+dụng vẫn là các GCN khác nhau nếu Số phát hành khác nhau. Trang nội dung (thửa đất, sơ đồ, bổ sung)
+thuộc về tờ bìa NGAY TRƯỚC nó.
+
+Đánh số các ảnh 0..N-1 theo đúng thứ tự được đưa vào. Phân chúng vào từng GCN. Trang KHÔNG thuộc GCN
+nào (tài liệu khác) thì bỏ ra, không xếp vào nhóm.
+
+Chỉ trả JSON: {"groups": [[<index ảnh của GCN 1>], [<index ảnh của GCN 2>], ...]}"""
+
+verify_split_user_prompt = """Có {n_images} ảnh (index 0 đến {n_images_minus_1}). Tách thành các GCN theo Số phát hành (mỗi bìa một GCN). Chỉ trả JSON."""

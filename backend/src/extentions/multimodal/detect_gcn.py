@@ -2,8 +2,35 @@ import asyncio
 import io
 
 from src.extentions.multimodal.make import pdf_to_corrected_images
-from src.extentions.multimodal.prompt import detect_system_prompt, pdf_detect_prompt
+from src.extentions.multimodal.prompt import (
+    detect_system_prompt,
+    pdf_detect_prompt,
+    verify_split_system_prompt,
+    verify_split_user_prompt,
+)
 from src.extentions.multimodal.vlm_client import chat_json
+
+
+async def verify_split(images_b64: list[str]) -> list[list[int]]:
+    """Soi lại 1 cụm trang đã gom → tách thành các GCN đúng (index CỤC BỘ 0..N-1).
+
+    Dùng khi nghi detect gom nhầm nhiều GCN vào một nhóm. Trả list nhóm con; nếu model
+    không tách được thì trả nguyên cụm là 1 nhóm.
+    """
+    n = len(images_b64)
+    if n == 0:
+        return []
+    d = await chat_json(
+        system_prompt=verify_split_system_prompt,
+        user_text=verify_split_user_prompt.format(n_images=n, n_images_minus_1=n - 1),
+        images_b64=images_b64,
+    )
+    out: list[list[int]] = []
+    for g in d.get("groups") or []:
+        gg = sorted({j for j in g if isinstance(j, int) and 0 <= j < n})
+        if gg:
+            out.append(gg)
+    return out or [list(range(n))]
 
 
 async def detect(images_b64: list[str]) -> dict:
