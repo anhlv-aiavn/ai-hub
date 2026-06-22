@@ -11,11 +11,15 @@ from src.extentions.multimodal.prompt import (
 from src.extentions.multimodal.vlm_client import chat_json
 
 
-async def verify_split(images_b64: list[str]) -> list[list[int]]:
+async def verify_split(
+    images_b64: list[str], enable_thinking: bool | None = None
+) -> list[list[int]]:
     """Soi lại 1 cụm trang đã gom → tách thành các GCN đúng (index CỤC BỘ 0..N-1).
 
     Dùng khi nghi detect gom nhầm nhiều GCN vào một nhóm. Trả list nhóm con; nếu model
     không tách được thì trả nguyên cụm là 1 nhóm.
+
+    enable_thinking: None → theo env ENABLE_THINKING; True/False → ép bật/tắt.
     """
     n = len(images_b64)
     if n == 0:
@@ -24,6 +28,7 @@ async def verify_split(images_b64: list[str]) -> list[list[int]]:
         system_prompt=verify_split_system_prompt,
         user_text=verify_split_user_prompt.format(n_images=n, n_images_minus_1=n - 1),
         images_b64=images_b64,
+        enable_thinking=enable_thinking,
     )
     out: list[list[int]] = []
     for g in d.get("groups") or []:
@@ -33,9 +38,11 @@ async def verify_split(images_b64: list[str]) -> list[list[int]]:
     return out or [list(range(n))]
 
 
-async def detect(images_b64: list[str]) -> dict:
+async def detect(images_b64: list[str], enable_thinking: bool | None = None) -> dict:
     """Nhóm trang GCN từ list ảnh đã render. Sampling tất định (chat_json mặc định
     temperature=0).
+
+    enable_thinking: None → theo env ENABLE_THINKING; True/False → ép bật/tắt.
 
     Returns: {"gcn_pages": [[idx,...], [idx,...]]}  — mỗi phần tử là một nhóm/GCN.
     """
@@ -50,6 +57,7 @@ async def detect(images_b64: list[str]) -> dict:
         system_prompt=detect_system_prompt,
         user_text=user_text,
         images_b64=images_b64,
+        enable_thinking=enable_thinking,
     )
 
 

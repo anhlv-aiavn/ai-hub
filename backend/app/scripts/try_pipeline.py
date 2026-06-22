@@ -46,11 +46,13 @@ def _save_images(images: list[str], out_dir: str) -> None:
     print(f"[i] Đã lưu {len(images)} ảnh (đã xoay) vào {out_dir}")
 
 
-async def _windowed_detect(images: list[str], window: int) -> list[list[int]]:
+async def _windowed_detect(
+    images: list[str], window: int, thinking: bool | None = None
+) -> list[list[int]]:
     """Detect trả NHÓM trực tiếp (gcn_pages = list các nhóm). In raw từng cửa sổ."""
     n = len(images)
     if window <= 0 or n <= window:
-        d = await detect(images)
+        d = await detect(images, enable_thinking=thinking)
         print("[detect raw]")
         print(_dump(d.get("gcn_pages")))
         return d.get("gcn_pages") or []
@@ -58,7 +60,7 @@ async def _windowed_detect(images: list[str], window: int) -> list[list[int]]:
     wins = [(i, min(i + window, n)) for i in range(0, n, window)]
 
     async def _win(lo, hi):
-        d = await detect(images[lo:hi])
+        d = await detect(images[lo:hi], enable_thinking=thinking)
         print(f"[detect raw window {lo}-{hi}] {d.get('gcn_pages')}")
         out = []
         for g in d.get("gcn_pages") or []:
@@ -90,7 +92,7 @@ async def run(args) -> None:
         print(f"[i] Bỏ detect — extract trang chỉ định: {groups}")
     else:
         t1 = time.time()
-        groups = await _windowed_detect(images, args.window)
+        groups = await _windowed_detect(images, args.window, thinking=thinking)
         print(f"[i] DETECT ({time.time() - t1:.1f}s) → {len(groups)} nhóm GCN:")
         print(_dump(groups))
 
@@ -98,7 +100,7 @@ async def run(args) -> None:
             t1v = time.time()
             refined: list[list[int]] = []
             for group in groups:
-                subs = await verify_split([images[i] for i in group])
+                subs = await verify_split([images[i] for i in group], enable_thinking=thinking)
                 mapped = [sorted(group[j] for j in s) for s in subs]
                 if len(mapped) > 1:
                     print(f"[verify] tách nhóm {group} → {mapped}")
@@ -143,7 +145,8 @@ def main() -> None:
                    help="Sau detect, dùng VLM soi lại từng nhóm và tách cho đúng GCN.")
     p.add_argument("--extract-pages", default=None,
                    help="Bỏ detect; extract đúng các trang này (vd '0,1,2').")
-    p.add_argument("--thinking", action="store_true", help="Bật chain-of-thought khi extract.")
+    p.add_argument("--thinking", action="store_true",
+                   help="Bật chain-of-thought cho detect + verify + extract (không cờ → theo env ENABLE_THINKING).")
     p.add_argument("--normalize", action="store_true", help="Áp normalize_dang_ky lên kết quả.")
     p.add_argument("--save-images", default=None, help="Thư mục lưu ảnh trang đã xoay (PNG).")
     p.add_argument("--out", default=None, help="Ghi JSON kết quả ra file.")
