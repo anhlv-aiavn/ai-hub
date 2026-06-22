@@ -22,20 +22,18 @@ async function handle(res) {
 }
 
 // ── Lô ──────────────────────────────────────────────────────────────────────
-// Upload qua XHR để có tiến độ thực (file nặng không còn "treo" vô hình).
-// onProgress(pct 0..100, loadedBytes, totalBytes).
-export function createBatch({ files, name, onProgress }) {
+// Upload 1 file (XHR để có tiến độ byte thực). batchId rỗng = tạo lô mới.
+function uploadOne({ file, name, batchId, onBytes }) {
   return new Promise((resolve, reject) => {
     const form = new FormData();
     if (name) form.append("name", name);
-    for (const f of files) form.append("files", f);
+    if (batchId) form.append("batch_id", batchId);
+    form.append("files", file);
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/v1/batches");
     if (auth.apiKey) xhr.setRequestHeader("X-API-Key", auth.apiKey);
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress?.(Math.round((e.loaded / e.total) * 100), e.loaded, e.total);
-    };
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onBytes?.(e.loaded); };
     xhr.onload = () => {
       let body = null;
       try { body = JSON.parse(xhr.responseText); } catch { /* ignore */ }
@@ -45,6 +43,42 @@ export function createBatch({ files, name, onProgress }) {
     xhr.onerror = () => reject(new Error("Lỗi mạng khi tải lên"));
     xhr.send(form);
   });
+}
+
+// Upload TỪNG file một (cùng batch_id) → né giới hạn body nginx khi lô nặng, file
+// lỗi không kéo đổ cả lô. onProgress(pct 0..100, {index, count, name}).
+export async function createBatch({ files, name, onProgress }) {
+  const list = Array.from(files || []);
+  const total = list.reduce((s, f) => s + (f.size || 0), 0) || 1;
+  let doneBytes = 0;
+  let batchId = null;
+  let fileCount = 0;
+  const failed = [];
+
+  for (let i = 0; i < list.length; i++) {
+    const f = list[i];
+    onProgress?.(Math.round((doneBytes / total) * 100), { index: i + 1, count: list.length, name: f.name });
+    try {
+      const res = await uploadOne({
+        file: f,
+        name: batchId ? undefined : (name || undefined),
+        batchId,
+        onBytes: (loaded) => onProgress?.(
+          Math.round(((doneBytes + loaded) / total) * 100),
+          { index: i + 1, count: list.length, name: f.name },
+        ),
+      });
+      batchId = res.batch_id;
+      fileCount = res.file_count;
+    } catch (e) {
+      failed.push(f.name);
+    }
+    doneBytes += f.size || 0;
+  }
+
+  if (!batchId) throw new Error(failed.length ? `Tải lên thất bại: ${failed.join(", ")}` : "Không có tệp hợp lệ");
+  onProgress?.(100, { index: list.length, count: list.length });
+  return { batch_id: batchId, file_count: fileCount, failed };
 }
 export async function listBatches(limit = 50) {
   return handle(await fetch(`/v1/batches?limit=${limit}`, { headers: headers() }));

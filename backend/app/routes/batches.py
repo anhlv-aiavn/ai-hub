@@ -16,12 +16,24 @@ router = APIRouter(prefix="/v1/batches", tags=["batches"], dependencies=[Depends
 async def create_batch(
     files: list[UploadFile] = File(...),
     name: str | None = Form(default=None),
+    batch_id: str | None = Form(default=None),
 ):
+    """Tạo lô MỚI hoặc THÊM file vào lô có sẵn (truyền batch_id).
+
+    Frontend upload TỪNG file một (mỗi file một request) để né giới hạn body nginx
+    khi lô nặng và để file lỗi không kéo đổ cả lô. Request đầu không có batch_id →
+    tạo lô; các request sau truyền batch_id → nối thêm.
+    """
     if not files:
         raise HTTPException(status_code=400, detail="Không có tệp nào")
 
-    batch_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
+    appending = bool(batch_id)
+    if appending:
+        if not await batches().find_one({"_id": batch_id}, {"_id": 1}):
+            raise HTTPException(status_code=404, detail="Không tìm thấy lô để nối")
+    else:
+        batch_id = str(uuid.uuid4())
     created: list[str] = []
 
     for f in files:
@@ -56,14 +68,24 @@ async def create_batch(
     if not created:
         raise HTTPException(status_code=400, detail="Tệp rỗng/không hợp lệ")
 
-    await batches().insert_one({
-        "_id": batch_id,
-        "name": name or now.strftime("Lô %d/%m %H:%M"),
-        "created_at": now,
-        "file_count": len(created),
-        "status": "processing",
-    })
-    return {"batch_id": batch_id, "file_count": len(created), "gcn_ids": created}
+    if appending:
+        await batches().update_one(
+            {"_id": batch_id},
+            {"$inc": {"file_count": len(created)}, "$set": {"status": "processing"}},
+        )
+        b = await batches().find_one({"_id": batch_id}, {"file_count": 1})
+        total = (b or {}).get("file_count", len(created))
+    else:
+        await batches().insert_one({
+            "_id": batch_id,
+            "name": name or now.strftime("Lô %d/%m %H:%M"),
+            "created_at": now,
+            "file_count": len(created),
+            "status": "processing",
+        })
+        total = len(created)
+
+    return {"batch_id": batch_id, "file_count": total, "gcn_ids": created}
 
 
 @router.get("")

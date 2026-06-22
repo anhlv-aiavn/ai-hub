@@ -10,6 +10,7 @@ export default function CreateBatch({ onCreated }) {
   const [drag, setDrag] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pct, setPct] = useState(0);
+  const [step, setStep] = useState("");
   const ref = useRef(null);
 
   function addFiles(list) {
@@ -24,16 +25,20 @@ export default function CreateBatch({ onCreated }) {
 
   async function submit() {
     if (!files.length) return;
-    setBusy(true); setPct(0);
+    setBusy(true); setPct(0); setStep("");
     try {
       const b = await createBatch({
         files, name: name.trim() || undefined,
-        onProgress: (p) => setPct(p),
+        onProgress: (p, meta) => {
+          setPct(p);
+          if (meta?.count) setStep(`Tệp ${meta.index}/${meta.count}${meta.name ? ` · ${meta.name}` : ""}`);
+        },
       });
-      toastOk(`Đã tạo lô · ${b.file_count} giấy`);
+      if (b.failed?.length) toastErr(`Tạo lô · ${b.file_count} giấy. Lỗi ${b.failed.length} tệp: ${b.failed.join(", ")}`);
+      else toastOk(`Đã tạo lô · ${b.file_count} giấy`);
       setFiles([]); setName("");
       onCreated?.(b.batch_id);
-    } catch (e) { toastErr(e.message || e); } finally { setBusy(false); setPct(0); }
+    } catch (e) { toastErr(e.message || e); } finally { setBusy(false); setPct(0); setStep(""); }
   }
 
   const totalMB = (files.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1);
@@ -75,6 +80,7 @@ export default function CreateBatch({ onCreated }) {
               <div className="up-bar"><div className="up-fill" style={{ width: `${pct}%` }} /></div>
               <div className="up-label">
                 {pct < 100 ? `Đang tải lên… ${pct}%` : "Đang khởi tạo lô…"}
+                {step && <span className="up-step"> · {step}</span>}
               </div>
             </div>
           )}
