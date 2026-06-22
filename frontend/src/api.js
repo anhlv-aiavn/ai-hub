@@ -75,6 +75,16 @@ export function pageImageUrl(gcnId, n, w = 1100) {
   return `/v1/gcn/${gcnId}/page/${n}?${p.toString()}`;
 }
 
+// File cắt (PDF đã xoay thẳng) — preview riêng theo chỉ số cắt.
+export async function getCutPageInfo(gcnId, ci) {
+  return handle(await fetch(`/v1/gcn/${gcnId}/cut/${ci}/pageinfo`, { headers: headers() }));
+}
+export function cutPageImageUrl(gcnId, ci, n, w = 1100) {
+  const p = new URLSearchParams({ w: String(w) });
+  if (auth.apiKey) p.set("api_key", auth.apiKey);
+  return `/v1/gcn/${gcnId}/cut/${ci}/page/${n}?${p.toString()}`;
+}
+
 // Khung nhìn dạng hàng phẳng (đã áp hậu kiểm) — phục vụ xem/xuất/FME.
 export async function listRows({ batchId, status, review } = {}) {
   const p = new URLSearchParams();

@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from "react";
 import Icon from "./Icon.jsx";
+import GcnPdf from "./GcnPdf.jsx";
 import { listRows, listBatches, downloadCsv } from "../api.js";
 import { subscribeEvents } from "../events.js";
 import { toastOk, toastErr } from "../toast.js";
 
 const REVIEW = { "": "Mọi hậu kiểm", reviewed: "Đã duyệt", needs_review: "Cần xem", unreviewed: "Chưa kiểm" };
+const FILE_COLS = new Set(["Tệp gốc", "Tệp cắt"]);
 
-// Khung nhìn dạng HÀNG phẳng (đã áp hậu kiểm) — xem toàn bộ + tải CSV cho FME/Excel.
+// Khung nhìn dạng HÀNG phẳng (đã áp hậu kiểm) — xem toàn bộ + preview file gốc/cắt + tải CSV.
 export default function ExportView() {
   const [batches, setBatches] = useState([]);
   const [batchId, setBatchId] = useState("");
@@ -14,6 +16,7 @@ export default function ExportView() {
   const [cols, setCols] = useState([]);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [preview, setPreview] = useState(null); // {gcnId, cutIndex, title}
 
   async function refresh() {
     setLoading(true);
@@ -36,6 +39,27 @@ export default function ExportView() {
   async function csv() {
     try { await downloadCsv({ batchId: batchId || undefined, review: review || undefined }); toastOk("Đã tải CSV"); }
     catch (e) { toastErr(e.message || e); }
+  }
+
+  function cell(col, r) {
+    if (col === "Tệp gốc") {
+      if (!r._gcn_id) return "—";
+      return (
+        <button className="link-btn" onClick={() => setPreview({ gcnId: r._gcn_id, cutIndex: null, title: r["Tệp gốc"] })}>
+          <Icon name="fileText" size={13} /> {r["Tệp gốc"] || "Xem"}
+        </button>
+      );
+    }
+    if (col === "Tệp cắt") {
+      if (r._cut_index === null || r._cut_index === undefined) return <span className="muted">—</span>;
+      return (
+        <button className="link-btn" onClick={() => setPreview({ gcnId: r._gcn_id, cutIndex: r._cut_index, title: r["Tệp cắt"] })}>
+          <Icon name="scissors" size={13} /> {r["Tệp cắt"] || "Xem cắt"}
+        </button>
+      );
+    }
+    const v = r[col];
+    return v == null ? "" : String(v);
   }
 
   return (
@@ -64,7 +88,9 @@ export default function ExportView() {
           </thead>
           <tbody>
             {rows.map((r, i) => (
-              <tr key={i}>{cols.map((c) => <td key={c} title={r[c] == null ? "" : String(r[c])}>{r[c] == null ? "" : String(r[c])}</td>)}</tr>
+              <tr key={i}>{cols.map((c) => (
+                <td key={c} title={FILE_COLS.has(c) ? "" : (r[c] == null ? "" : String(r[c]))}>{cell(c, r)}</td>
+              ))}</tr>
             ))}
             {!rows.length && (
               <tr><td colSpan={cols.length || 1} className="muted center">
@@ -74,6 +100,20 @@ export default function ExportView() {
           </tbody>
         </table>
       </div>
+
+      {preview && (
+        <div className="modal-overlay" onClick={() => setPreview(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <b>{preview.cutIndex != null ? "File cắt" : "File gốc"} · {preview.title}</b>
+              <button className="icon-btn" onClick={() => setPreview(null)} aria-label="Đóng"><Icon name="x" size={16} /></button>
+            </div>
+            <div className="modal-body">
+              <GcnPdf gcnId={preview.gcnId} cutIndex={preview.cutIndex} page={1} onPageChange={() => {}} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

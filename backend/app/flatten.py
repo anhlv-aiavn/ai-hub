@@ -13,14 +13,15 @@ from typing import Any
 
 _TOKEN = re.compile(r"\[(\d+)\]|([^.\[\]]+)")
 
-# Thứ tự cột cố định (key = nhãn CSV). Bộ ba khóa lên đầu: Số phát hành + Số tờ + Số thửa.
+# Thứ tự cột cố định (key = nhãn CSV). File cắt + File gốc lên đầu, rồi bộ ba khóa.
 COLUMNS = [
+    "Tệp cắt", "Tệp gốc",
     "Số phát hành", "Số hiệu tờ bản đồ", "Số thứ tự thửa",
     "Diện tích", "Địa chỉ thửa", "Mục đích sử dụng",
     "Số vào sổ", "Ngày cấp", "Mã vạch",
     "Chủ sử dụng", "Số chủ",
     "Thông tin nhà ở", "Biến động gần nhất", "Số biến động",
-    "Tên hiển thị", "Tệp", "Trạng thái", "Hậu kiểm",
+    "Tên hiển thị", "Trạng thái", "Hậu kiểm",
     "Số trang", "gcn_id",
 ]
 
@@ -76,58 +77,71 @@ def _entries(extractions: list) -> list[dict]:
 
 
 def flatten_doc(doc: dict) -> list[dict]:
-    """1 mongo gcn doc → list hàng (1/entry). Nếu không có entry → 1 hàng rỗng giữ metadata."""
+    """1 mongo gcn doc → list hàng (1/thửa). Mỗi hàng kèm File gốc + File cắt (nếu có).
+    Helper field `_gcn_id` / `_cut_index` (gạch dưới) chỉ dùng để UI preview — không vào CSV."""
     review = doc.get("review") or {}
     ext = apply_overrides(doc.get("extractions"), review.get("overrides"))
-    entries = _entries(ext)
+    cuts = {c.get("index"): c for c in (doc.get("cuts") or []) if isinstance(c, dict)}
+    gcn_id = doc.get("_id") or ""
 
     base = {
+        "Tệp gốc": doc.get("filename") or "",
         "Tên hiển thị": review.get("display_name") or "",
-        "Tệp": doc.get("filename") or "",
         "Trạng thái": doc.get("status") or "",
         "Hậu kiểm": review.get("status") or "unreviewed",
         "Số trang": doc.get("page_count") or 0,
-        "gcn_id": doc.get("_id") or "",
+        "gcn_id": gcn_id,
+        "_gcn_id": gcn_id,
     }
-    if not entries:
-        return [{**{c: "" for c in COLUMNS}, **base}]
 
     rows = []
-    for e in entries:
-        gcn = e.get("Giấy chứng nhận") or {}
-        chu = [c for c in (e.get("Chủ sử dụng") or []) if isinstance(c, dict)]
-        thua = [t for t in (e.get("Thửa đất") or []) if isinstance(t, dict)]
-        nha = [n for n in (e.get("Thông tin nhà ở") or []) if isinstance(n, dict)]
-        bd = [b for b in (e.get("Biến động") or []) if isinstance(b, dict)]
-
-        # Phần GCN dùng chung cho mọi thửa của entry.
-        common = {
-            **base,
-            "Số phát hành": gcn.get("Số phát hành", ""),
-            "Mã vạch": gcn.get("Mã vạch", ""),
-            "Số vào sổ": gcn.get("Số vào sổ", ""),
-            "Ngày cấp": gcn.get("Ngày cấp", ""),
-            "Chủ sử dụng": _join([c.get("Tên chủ") for c in chu]),
-            "Số chủ": len(chu),
-            "Thông tin nhà ở": _join([n.get("Loại tài sản gắn liền với đất") for n in nha]),
-            "Biến động gần nhất": (bd[-1].get("Nội dung biến động", "") if bd else ""),
-            "Số biến động": len(bd),
-        }
-
-        if not thua:
-            rows.append({**{c: "" for c in COLUMNS}, **common})
+    for ri, rec in enumerate(ext):
+        if not isinstance(rec, dict):
             continue
+        res = rec.get("result")
+        entries = res.get("Đăng ký", []) if isinstance(res, dict) else []
+        cut = cuts.get(ri)
+        recbase = {
+            **base,
+            "Tệp cắt": (cut or {}).get("name") or "",
+            "_cut_index": ri if cut else None,
+        }
+        for e in entries:
+            if not isinstance(e, dict):
+                continue
+            gcn = e.get("Giấy chứng nhận") or {}
+            chu = [c for c in (e.get("Chủ sử dụng") or []) if isinstance(c, dict)]
+            thua = [t for t in (e.get("Thửa đất") or []) if isinstance(t, dict)]
+            nha = [n for n in (e.get("Thông tin nhà ở") or []) if isinstance(n, dict)]
+            bd = [b for b in (e.get("Biến động") or []) if isinstance(b, dict)]
 
-        # 1 hàng / thửa (Số tờ + Số thửa).
-        for t in thua:
-            muc_dich = [m.get("Loại mục đích") for m in (t.get("Mục đích sử dụng") or [])
-                        if isinstance(m, dict) and m.get("Loại mục đích")]
-            rows.append({
-                **common,
-                "Số thứ tự thửa": t.get("Số thứ tự thửa", ""),
-                "Số hiệu tờ bản đồ": t.get("Số hiệu tờ bản đồ", ""),
-                "Diện tích": t.get("Diện tích", ""),
-                "Địa chỉ thửa": t.get("Địa chỉ", ""),
-                "Mục đích sử dụng": _join(muc_dich),
-            })
+            common = {
+                **recbase,
+                "Số phát hành": gcn.get("Số phát hành", ""),
+                "Mã vạch": gcn.get("Mã vạch", ""),
+                "Số vào sổ": gcn.get("Số vào sổ", ""),
+                "Ngày cấp": gcn.get("Ngày cấp", ""),
+                "Chủ sử dụng": _join([c.get("Tên chủ") for c in chu]),
+                "Số chủ": len(chu),
+                "Thông tin nhà ở": _join([n.get("Loại tài sản gắn liền với đất") for n in nha]),
+                "Biến động gần nhất": (bd[-1].get("Nội dung biến động", "") if bd else ""),
+                "Số biến động": len(bd),
+            }
+            if not thua:
+                rows.append({**{c: "" for c in COLUMNS}, **common})
+                continue
+            for t in thua:
+                muc_dich = [m.get("Loại mục đích") for m in (t.get("Mục đích sử dụng") or [])
+                            if isinstance(m, dict) and m.get("Loại mục đích")]
+                rows.append({
+                    **common,
+                    "Số thứ tự thửa": t.get("Số thứ tự thửa", ""),
+                    "Số hiệu tờ bản đồ": t.get("Số hiệu tờ bản đồ", ""),
+                    "Diện tích": t.get("Diện tích", ""),
+                    "Địa chỉ thửa": t.get("Địa chỉ", ""),
+                    "Mục đích sử dụng": _join(muc_dich),
+                })
+
+    if not rows:
+        return [{**{c: "" for c in COLUMNS}, **base, "Tệp cắt": ""}]
     return rows

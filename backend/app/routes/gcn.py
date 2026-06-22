@@ -119,6 +119,33 @@ async def page_info(gcn_id: str):
     return {"pages": doc.get("page_count", 0)}
 
 
+def _find_cut(doc: dict, ci: int) -> dict:
+    for c in doc.get("cuts") or []:
+        if isinstance(c, dict) and c.get("index") == ci:
+            return c
+    raise HTTPException(status_code=404, detail="Không tìm thấy file cắt")
+
+
+@router.get("/{gcn_id}/cut/{ci}/pageinfo")
+async def cut_pageinfo(gcn_id: str, ci: int):
+    doc = await gcns().find_one({"_id": gcn_id}, {"cuts": 1})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
+    cut = _find_cut(doc, ci)
+    return {"pages": cut.get("page_count", 0)}
+
+
+@router.get("/{gcn_id}/cut/{ci}/page/{n}")
+async def cut_page(gcn_id: str, ci: int, n: int, w: int = 1100, _=Depends(require_key)):
+    doc = await gcns().find_one({"_id": gcn_id}, {"cuts": 1})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
+    cut = _find_cut(doc, ci)
+    png = await storage.render_page(cut["s3_key"], n, w)
+    return Response(content=png, media_type="image/png",
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
 class ReviewIn(BaseModel):
     display_name: str | None = None
     overrides: dict | None = None
@@ -202,5 +229,6 @@ def _detail(doc: dict) -> dict:
         "extractions": doc.get("extractions", []),
         "summary": doc.get("summary", {}),
         "review": doc.get("review", {}),
+        "cuts": doc.get("cuts", []),
         "created_at": doc.get("created_at"),
     }

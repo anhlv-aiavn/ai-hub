@@ -838,8 +838,7 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .rc-entry { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
   background: var(--surface); box-shadow: var(--shadow-sm); }
 .rc-entry-head { background: var(--accent-50); color: var(--brand); padding: 10px 14px; font-size: 13.5px;
-  display: flex; align-items: center; gap: 7px; border-bottom: 1px solid var(--border);
-  position: sticky; top: 100px; z-index: 1; }
+  display: flex; align-items: center; gap: 7px; border-bottom: 1px solid var(--border); }
 .rc-entry-head .ico { vertical-align: -2px; }
 .rc-block { padding: 11px 14px; border-top: 1px solid var(--border); }
 .rc-block:first-of-type { border-top: none; }
@@ -866,3 +865,20 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .up-fill { height: 100%; background: var(--accent); border-radius: 999px; transition: width .2s ease; }
 .up-label { font-size: 12.5px; color: var(--brand); font-weight: 600; }
 .up-label .muted { font-weight: 400; }
+
+/* nút-link trong bảng (preview file) */
+.link-btn { display: inline-flex; align-items: center; gap: 5px; background: none; border: none;
+  color: var(--accent); font: inherit; font-size: 12.5px; cursor: pointer; padding: 0; max-width: 100%; }
+.link-btn:hover { text-decoration: underline; }
+.link-btn .ico { flex: 0 0 auto; }
+
+/* modal preview file */
+.modal-overlay { position: fixed; inset: 0; z-index: var(--z-overlay); background: rgba(33,32,26,.46);
+  display: flex; align-items: center; justify-content: center; padding: 24px; }
+.modal-card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  width: min(1080px, 96vw); max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.modal-head b { color: var(--brand); font-size: 14px; }
+.modal-body { padding: 12px; min-height: 0; overflow: auto; }
+.modal-body .pdf-pane { height: 76vh; }
