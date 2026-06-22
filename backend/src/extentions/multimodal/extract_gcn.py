@@ -1,5 +1,6 @@
 import asyncio
 import io
+import os
 import re
 
 from src.extentions.multimodal.make import pdf_to_corrected_images
@@ -10,6 +11,10 @@ from src.extentions.multimodal.prompt import (
     pdf_extract_prompt,
 )
 from src.extentions.multimodal.vlm_client import ENABLE_THINKING, chat_json
+
+# Tắt mặc định: retry-thinking khi Số phát hành sai form. Sau dùng model tốt hơn
+# trám vào sẽ có ý nghĩa hơn — bật lại bằng EXTRACT_RETRY_THINKING=true.
+EXTRACT_RETRY_THINKING = os.getenv("EXTRACT_RETRY_THINKING", "false").strip().lower() == "true"
 
 
 _PURE_DIGITS_RE = re.compile(r"^\d{10,15}$")
@@ -156,7 +161,7 @@ async def extract(
     result = await _extract_once(images_b64, enable_thinking)
 
     used_thinking = ENABLE_THINKING if enable_thinking is None else enable_thinking
-    if not used_thinking and _bad_sph_count(result) > 0:
+    if EXTRACT_RETRY_THINKING and not used_thinking and _bad_sph_count(result) > 0:
         retry = await _extract_once(images_b64, enable_thinking=True)
         if _bad_sph_count(retry) < _bad_sph_count(result):
             return retry
