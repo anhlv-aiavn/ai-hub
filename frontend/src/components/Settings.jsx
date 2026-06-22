@@ -20,7 +20,6 @@ export default function Settings({ onClose }) {
         <span>Khóa truy cập (API key)</span>
         <input className="text-input" type="password" value={key}
           onChange={(e) => setKey(e.target.value)} placeholder="Liên hệ Sobagi để được cấp khóa" />
-        <small className="muted">Để trống nếu console không bật bảo vệ.</small>
       </label>
       <button className="primary" onClick={save}><Icon name="check" size={15} /> Lưu</button>
     </div>

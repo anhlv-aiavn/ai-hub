@@ -44,7 +44,7 @@ export default function CreateBatch({ onCreated }) {
       <p className="muted">Thả vào nhiều Giấy Chứng Nhận (PDF). Hệ thống tự phát hiện GCN, bóc tách,
         và gom tờ bổ sung theo Số phát hành.</p>
 
-      <input className="text-input" placeholder="Tên lô (tùy chọn)" value={name}
+      <input className="text-input" placeholder="Tên lô" value={name}
         onChange={(e) => setName(e.target.value)} />
 
       <div className={`dropzone ${drag ? "over" : ""} ${files.length ? "has" : ""}`}
@@ -55,8 +55,7 @@ export default function CreateBatch({ onCreated }) {
         <input ref={ref} type="file" accept="application/pdf" multiple style={{ display: "none" }}
           onChange={(e) => addFiles(e.target.files)} />
         <Icon name="upload" size={26} />
-        <div className="dz-title">Kéo thả nhiều PDF vào đây, hoặc bấm để chọn</div>
-        <div className="dz-sub">Chỉ định dạng PDF</div>
+        <div className="dz-title">Kéo thả PDF vào đây, hoặc bấm để chọn</div>
       </div>
 
       {files.length > 0 && (
@@ -75,8 +74,7 @@ export default function CreateBatch({ onCreated }) {
             <div className="upload-progress">
               <div className="up-bar"><div className="up-fill" style={{ width: `${pct}%` }} /></div>
               <div className="up-label">
-                {pct < 100 ? `Đang tải lên máy chủ… ${pct}%` : "Đã tải xong — đang khởi tạo lô…"}
-                <span className="muted"> · đừng đóng tab</span>
+                {pct < 100 ? `Đang tải lên… ${pct}%` : "Đang khởi tạo lô…"}
               </div>
             </div>
           )}
