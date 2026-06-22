@@ -35,6 +35,10 @@ async def chat_json(
     user_text: str,
     images_b64: list[str],
     enable_thinking: bool | None = None,
+    temperature: float = 1.0,
+    top_p: float = 0.4,
+    top_k: int = 40,
+    repetition_penalty: float = 1.2,
 ) -> dict:
     """Gọi VLM, ép response_format JSON, trả về dict đã parse.
 
@@ -42,6 +46,8 @@ async def chat_json(
         None  → dùng env ENABLE_THINKING (mặc định)
         True  → bật chain-of-thought (dùng để retry lần 2 khi không khớp)
         False → tắt
+    temperature/top_p/top_k/repetition_penalty: sampling. Detect nên dùng
+    temperature thấp (~0) để ổn định, tất định; extract giữ mặc định.
     """
     use_thinking = ENABLE_THINKING if enable_thinking is None else enable_thinking
     extra = (
@@ -59,10 +65,10 @@ async def chat_json(
         model=f"openai/{VLLM_MODEL_NAME}",
         api_base=VLLM_BASE_URL,
         api_key=VLLM_API_KEY,
-        temperature=1,
-        top_p=0.4,
-        top_k=40,
-        repetition_penalty=1.2,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        repetition_penalty=repetition_penalty,
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": system_prompt},
