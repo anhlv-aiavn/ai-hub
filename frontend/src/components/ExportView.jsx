@@ -10,7 +10,7 @@ const REVIEW = { "": "Mọi hậu kiểm", reviewed: "Đã duyệt", needs_revie
 export default function ExportView() {
   const [batches, setBatches] = useState([]);
   const [batchId, setBatchId] = useState("");
-  const [review, setReview] = useState("reviewed");
+  const [review, setReview] = useState("");
   const [cols, setCols] = useState([]);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
