@@ -136,8 +136,9 @@ Examples output for Số vào sổ giấy chứng nhận:
 - .....
 
 Chú ý các biến động.
-Chú ý mỗi chủ sử dụng là một đối tượng không chung đụng và tạm không liên quan đến biến động. Ví dụ Bà Vũ Thị Thu Hồng và chồng: Ông Nguyễn Sung => thì Vũ Thị Thu Hồng là 1 chủ sử dụng, Nguyễn Sung là 1 chủ sử dụng khác.
+Chú ý mỗi chủ sử dụng là một đối tượng không chung đụng và tạm không liên quan đến biến động. Ví dụ Bà Vũ Thị Thu Hồng và chồng: Ông Nguyễn Sung => thì Vũ Thị Thu Hồng là 1 chủ sử dụng, Nguyễn Sung là 1 chủ sử dụng khác ~ Các người khác cũng thế
 Chú ý nếu có biến động hãy để nó vào nội dung biến động, không đưa lên các thông tin cơ bản của giấy chứng nhận. Bạn có mục tiêu là trích xuất sự thật, không suy diễn.
+Không nhầm số vào sổ với số phát hành.
 """
 
 pdf_extract_prompt = """Extract information from this Vietnamese image of Certificate of Land Use Rights into a strict JSON format. Maybe have thửa đất tại xã Ứng Hòa, Hà Tây - (Hà Nội mới).
