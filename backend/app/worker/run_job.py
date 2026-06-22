@@ -37,9 +37,6 @@ log = logging.getLogger(__name__)
 
 DETECT_MIN_PAGES = int(os.getenv("DETECT_MIN_PAGES", "5"))
 DETECT_WINDOW = int(os.getenv("DETECT_WINDOW", "12"))
-# Overlap giữa các cửa sổ ≥ độ dài GCN tối đa (2 trang chính + ~4 tờ bổ sung) →
-# mỗi GCN chắc chắn nằm TRỌN trong ít nhất 1 cửa sổ, không bị mốc cắt đôi.
-DETECT_OVERLAP = int(os.getenv("DETECT_OVERLAP", "6"))
 MAX_PAGES = int(os.getenv("AIHUB_MAX_PAGES", "250"))
 EXTRACT_TIMEOUT = float(os.getenv("EXTRACT_TIMEOUT_SECONDS", "300"))
 
@@ -56,28 +53,9 @@ def _vlm_sem() -> asyncio.Semaphore:
 
 # ── Pipeline ────────────────────────────────────────────────────────────────
 
-def _merge_overlapping(groups: list[list[int]]) -> list[list[int]]:
-    """Gộp các nhóm có TRANG CHUNG (cùng 1 GCN bị nhiều cửa sổ thấy một phần/toàn bộ);
-    nhóm rời nhau (GCN khác nhau) giữ riêng. Trả nhóm sorted, không trùng, theo thứ tự trang."""
-    sets = [set(g) for g in groups if g]
-    changed = True
-    while changed:
-        changed = False
-        out: list[set] = []
-        for s in sets:
-            hit = next((t for t in out if t & s), None)
-            if hit is not None:
-                hit |= s
-                changed = True
-            else:
-                out.append(set(s))
-        sets = out
-    return sorted((sorted(s) for s in sets), key=lambda g: g[0] if g else 0)
-
-
 async def _detect_groups(images: list[str]) -> list[list[int]]:
-    """Nhóm trang theo từng GCN. File ngắn → 1 call; file dài → cửa sổ CHỒNG LẤN
-    detect song song + gộp theo trang chung (GCN vắt mốc không bị tách đôi)."""
+    """Nhóm trang theo từng GCN. File ngắn → 1 call; file dài → chia cửa sổ
+    DETECT_WINDOW trang (không chồng lấn), detect song song, offset về toàn cục."""
     n = len(images)
     if n < DETECT_MIN_PAGES:
         return [list(range(n))]
@@ -92,12 +70,9 @@ async def _detect_groups(images: list[str]) -> list[list[int]]:
         except Exception as e:  # noqa: BLE001
             log.exception("detect lỗi: %s", e)
             d = {}
-        groups = d.get("gcn_pages") or [list(range(n))]
-        return _merge_overlapping(groups)
+        return d.get("gcn_pages") or [list(range(n))]
 
-    # Cửa sổ chồng lấn: stride = WINDOW - OVERLAP. Detect song song, offset về toàn cục.
-    stride = max(1, DETECT_WINDOW - DETECT_OVERLAP)
-    wins = [(s, min(s + DETECT_WINDOW, n)) for s in range(0, n, stride)]
+    wins = [(i, min(i + DETECT_WINDOW, n)) for i in range(0, n, DETECT_WINDOW)]
 
     async def _win(lo: int, hi: int) -> list[list[int]]:
         try:
@@ -113,7 +88,7 @@ async def _detect_groups(images: list[str]) -> list[list[int]]:
         return out
 
     parts = await asyncio.gather(*(_win(lo, hi) for lo, hi in wins))
-    return _merge_overlapping([g for part in parts for g in part])
+    return [g for part in parts for g in part]
 
 
 async def _pipeline(pdf_buf: io.BytesIO) -> tuple[list[dict], list[str]]:
