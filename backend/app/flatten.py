@@ -2,7 +2,9 @@
 
 - Áp `review.overrides` (sửa tay khi hậu kiểm) lên bản sao `extractions` trước khi phẳng
   → hàng phản ánh dữ liệu ĐÃ DUYỆT, raw vẫn giữ nguyên trong Mongo.
-- Grain: 1 hàng / 1 entry "Đăng ký" (1 GCN). Chủ/Thửa/Mục đích gộp bằng " ; ".
+- Grain: 1 hàng / 1 THỬA (theo Số hiệu tờ bản đồ + Số thứ tự thửa). Các trường GCN
+  (Số phát hành, Số vào sổ, Ngày cấp, Chủ sử dụng) lặp lại; mục đích gộp theo từng thửa.
+  GCN không có thửa → 1 hàng giữ metadata + thông tin GCN.
 """
 
 import copy
@@ -11,14 +13,14 @@ from typing import Any
 
 _TOKEN = re.compile(r"\[(\d+)\]|([^.\[\]]+)")
 
-# Thứ tự cột cố định (key = nhãn CSV).
+# Thứ tự cột cố định (key = nhãn CSV). Bộ ba khóa lên đầu: Số phát hành + Số tờ + Số thửa.
 COLUMNS = [
-    "Tên hiển thị", "Tệp", "Trạng thái", "Hậu kiểm",
-    "Số phát hành", "Mã vạch", "Số vào sổ", "Ngày cấp",
+    "Số phát hành", "Số hiệu tờ bản đồ", "Số thứ tự thửa",
+    "Diện tích", "Địa chỉ thửa", "Mục đích sử dụng",
+    "Số vào sổ", "Ngày cấp", "Mã vạch",
     "Chủ sử dụng", "Số chủ",
-    "Số thứ tự thửa", "Số hiệu tờ bản đồ", "Diện tích", "Địa chỉ thửa",
-    "Mục đích sử dụng", "Số thửa",
     "Thông tin nhà ở", "Biến động gần nhất", "Số biến động",
+    "Tên hiển thị", "Tệp", "Trạng thái", "Hậu kiểm",
     "Số trang", "gcn_id",
 ]
 
@@ -97,14 +99,9 @@ def flatten_doc(doc: dict) -> list[dict]:
         thua = [t for t in (e.get("Thửa đất") or []) if isinstance(t, dict)]
         nha = [n for n in (e.get("Thông tin nhà ở") or []) if isinstance(n, dict)]
         bd = [b for b in (e.get("Biến động") or []) if isinstance(b, dict)]
-        first_thua = thua[0] if thua else {}
-        muc_dich = []
-        for t in thua:
-            for m in (t.get("Mục đích sử dụng") or []):
-                if isinstance(m, dict) and m.get("Loại mục đích"):
-                    muc_dich.append(m["Loại mục đích"])
 
-        rows.append({
+        # Phần GCN dùng chung cho mọi thửa của entry.
+        common = {
             **base,
             "Số phát hành": gcn.get("Số phát hành", ""),
             "Mã vạch": gcn.get("Mã vạch", ""),
@@ -112,14 +109,25 @@ def flatten_doc(doc: dict) -> list[dict]:
             "Ngày cấp": gcn.get("Ngày cấp", ""),
             "Chủ sử dụng": _join([c.get("Tên chủ") for c in chu]),
             "Số chủ": len(chu),
-            "Số thứ tự thửa": first_thua.get("Số thứ tự thửa", ""),
-            "Số hiệu tờ bản đồ": first_thua.get("Số hiệu tờ bản đồ", ""),
-            "Diện tích": first_thua.get("Diện tích", ""),
-            "Địa chỉ thửa": first_thua.get("Địa chỉ", ""),
-            "Mục đích sử dụng": _join(muc_dich),
-            "Số thửa": len(thua),
             "Thông tin nhà ở": _join([n.get("Loại tài sản gắn liền với đất") for n in nha]),
             "Biến động gần nhất": (bd[-1].get("Nội dung biến động", "") if bd else ""),
             "Số biến động": len(bd),
-        })
+        }
+
+        if not thua:
+            rows.append({**{c: "" for c in COLUMNS}, **common})
+            continue
+
+        # 1 hàng / thửa (Số tờ + Số thửa).
+        for t in thua:
+            muc_dich = [m.get("Loại mục đích") for m in (t.get("Mục đích sử dụng") or [])
+                        if isinstance(m, dict) and m.get("Loại mục đích")]
+            rows.append({
+                **common,
+                "Số thứ tự thửa": t.get("Số thứ tự thửa", ""),
+                "Số hiệu tờ bản đồ": t.get("Số hiệu tờ bản đồ", ""),
+                "Diện tích": t.get("Diện tích", ""),
+                "Địa chỉ thửa": t.get("Địa chỉ", ""),
+                "Mục đích sử dụng": _join(muc_dich),
+            })
     return rows
