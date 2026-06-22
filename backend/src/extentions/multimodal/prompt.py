@@ -244,6 +244,15 @@ Một GCN thường được in dạng sách gấp đôi, mỗi ảnh chụp là
 Mỗi GCN thường = 1 tờ BÌA (Số phát hành) + 1 tờ NỘI DUNG (Mục II Thửa đất + Mục III Sơ đồ).
 Tờ NỘI DUNG thuộc về tờ BÌA NGAY TRƯỚC nó. Tới tờ bìa kế tiếp (Số phát hành khác) → GCN mới.
 
+## CÁCH LÀM CHẮC CHẮN (làm theo đúng thứ tự)
+1. Quét lần lượt từng ảnh, ĐÁNH DẤU mọi ảnh là tờ BÌA: có quốc huy + dòng chữ "GIẤY CHỨNG NHẬN
+   QUYỀN SỬ DỤNG ĐẤT", và một Số phát hành ở góc dưới phải. Bìa CẤP ĐỔI in màu XÁM/nhạt vẫn là BÌA.
+2. MỖI tờ bìa mở một nhóm MỚI. Các ảnh nội dung (Mục II/III, sơ đồ) nằm SAU một bìa và TRƯỚC bìa kế
+   tiếp thì thuộc nhóm của bìa đó.
+3. CẢNH BÁO: nếu thấy 2 (hay nhiều) tờ bìa GẦN NHAU đều có quốc huy + "GIẤY CHỨNG NHẬN" (dù xám,
+   dù cùng một công ty/người) → ĐÓ LÀ NHIỀU GCN. Mỗi bìa một nhóm. ĐỪNG dồn nội dung của chúng vào
+   chung một nhóm. Số nhóm = số tờ bìa.
+
 KHÔNG tạo nhóm mới khi:
 - Mặt trái có nội dung biến động/ghi chú, mặt phải là bìa GCN — đây là 1 tờ giấy của cùng bộ GCN đó
 - Gặp "TRANG BỔ SUNG GIẤY CHỨNG NHẬN" — đây là trang phụ thuộc GCN trước đó

@@ -22,6 +22,7 @@ Mỗi lần sửa prompt trong src/extentions/multimodal/prompt.py → chạy l�
 import argparse
 import asyncio
 import base64
+import functools
 import io
 import json
 import os
@@ -72,8 +73,9 @@ async def run(args) -> None:
     thinking = True if args.thinking else None
 
     t0 = time.time()
-    images = await asyncio.get_running_loop().run_in_executor(None, pdf_to_corrected_images, pdf_buf)
-    print(f"[i] Render + xoay: {len(images)} trang ({time.time() - t0:.1f}s)")
+    render = functools.partial(pdf_to_corrected_images, dpi=args.dpi, max_img_size=args.max_size)
+    images = await asyncio.get_running_loop().run_in_executor(None, render, pdf_buf)
+    print(f"[i] Render + xoay: {len(images)} trang @ dpi={args.dpi} max={args.max_size} ({time.time() - t0:.1f}s)")
     if args.save_images:
         _save_images(images, args.save_images)
 
@@ -115,6 +117,9 @@ def main() -> None:
     p.add_argument("pdf", help="Đường dẫn file PDF.")
     p.add_argument("--window", type=int, default=12,
                    help="Kích thước cửa sổ detect (trang). 0 = detect cả file 1 call. Mặc định 12.")
+    p.add_argument("--dpi", type=int, default=150, help="DPI render PDF (mặc định 150).")
+    p.add_argument("--max-size", type=int, default=1344,
+                   help="Cạnh dài tối đa ảnh gửi VLM (mặc định 1344; tăng để đọc Số phát hành mờ).")
     p.add_argument("--detect-only", action="store_true", help="Chỉ chạy detect, in nhóm trang.")
     p.add_argument("--extract-pages", default=None,
                    help="Bỏ detect; extract đúng các trang này (vd '0,1,2').")
