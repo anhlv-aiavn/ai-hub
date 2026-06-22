@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from app import storage
 from app.db import gcns
 from app.deps import require_key
-from app.flatten import COLUMNS as FLAT_COLUMNS, apply_overrides, flatten_doc
+from app.flatten import COLUMNS as FLAT_COLUMNS, effective_extractions, flatten_doc
 from app.summary import collect_so_phat_hanhs, group_key_of, per_gcn, summarize
 
 router = APIRouter(prefix="/v1/gcn", tags=["gcn"], dependencies=[Depends(require_key)])
@@ -155,12 +155,14 @@ class ReviewIn(BaseModel):
     overrides: dict | None = None
     status: str | None = None  # unreviewed | needs_review | reviewed
     reviewer: str | None = None
+    deleted: list[int] | None = None  # chỉ số bản ghi GCN bị xoá khi hậu kiểm
 
 
 @router.put("/{gcn_id}")
 async def put_review(gcn_id: str, body: ReviewIn):
     proj = {"review": 1}
-    if body.overrides is not None:  # cần raw để tính lại cột dẫn xuất
+    recompute = body.overrides is not None or body.deleted is not None
+    if recompute:  # cần raw để tính lại cột dẫn xuất
         proj.update({"extractions": 1, "cuts": 1})
     doc = await gcns().find_one({"_id": gcn_id}, proj)
     if not doc:
@@ -170,6 +172,8 @@ async def put_review(gcn_id: str, body: ReviewIn):
         review["display_name"] = body.display_name
     if body.overrides is not None:
         review["overrides"] = body.overrides
+    if body.deleted is not None:
+        review["deleted"] = sorted({int(i) for i in body.deleted})
     if body.status is not None:
         review["status"] = body.status
     if body.reviewer is not None:
@@ -177,15 +181,19 @@ async def put_review(gcn_id: str, body: ReviewIn):
     review["at"] = datetime.now(timezone.utc)
 
     update: dict = {"review": review}
-    # Sửa tay (overrides) phải phản chiếu vào cột tóm tắt/group_key của bảng list,
-    # nếu không bảng vẫn hiện giá trị raw cũ. Tính lại từ extractions đã áp override.
-    if body.overrides is not None:
-        ext = apply_overrides(doc.get("extractions"), review.get("overrides"))
+    # Sửa tay (overrides) / xoá GCN phải phản chiếu vào bảng list, nếu không bảng
+    # vẫn hiện giá trị raw cũ. Tính lại từ extractions đã áp override + bỏ bản xoá.
+    if recompute:
+        deleted = review.get("deleted") or []
+        ext = effective_extractions(doc.get("extractions"), review.get("overrides"), deleted)
+        cuts = [c for c in (doc.get("cuts") or [])
+                if not (isinstance(c, dict) and c.get("index") in deleted)]
         update.update({
             "group_key": group_key_of(ext),
             "extracted_so_phat_hanhs": collect_so_phat_hanhs(ext),
             "summary": summarize(ext),
-            "gcn_rows": per_gcn(ext, doc.get("cuts") or []),
+            "gcn_rows": per_gcn(ext, cuts),
+            "cuts": cuts,
         })
 
     await gcns().update_one({"_id": gcn_id}, {"$set": update})

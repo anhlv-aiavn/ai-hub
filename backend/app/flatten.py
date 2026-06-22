@@ -61,6 +61,19 @@ def apply_overrides(extractions: list, overrides: dict | None) -> list:
     return data
 
 
+def effective_extractions(extractions: list, overrides: dict | None,
+                          deleted: list | None = None) -> list:
+    """extractions sau hậu kiểm: áp overrides + loại các bản ghi bị xoá.
+    Bản xoá được thay bằng tombstone (result=None) để GIỮ VỊ TRÍ — cut_index/
+    overrides theo index không bị lệch; downstream bỏ qua vì không có entry."""
+    data = apply_overrides(extractions, overrides)
+    for i in deleted or []:
+        if isinstance(i, int) and 0 <= i < len(data) and isinstance(data[i], dict):
+            data[i] = {"page_indices": data[i].get("page_indices") or [],
+                       "result": None, "_deleted": True}
+    return data
+
+
 def _join(vals: list) -> str:
     return " ; ".join(str(v).strip() for v in vals if v not in (None, "", []))
 
@@ -82,7 +95,7 @@ def flatten_doc(doc: dict) -> list[dict]:
     """1 mongo gcn doc → list hàng (1/thửa). Mỗi hàng kèm File gốc + File cắt (nếu có).
     Helper field `_gcn_id` / `_cut_index` (gạch dưới) chỉ dùng để UI preview — không vào CSV."""
     review = doc.get("review") or {}
-    ext = apply_overrides(doc.get("extractions"), review.get("overrides"))
+    ext = effective_extractions(doc.get("extractions"), review.get("overrides"), review.get("deleted"))
     cuts = {c.get("index"): c for c in (doc.get("cuts") or []) if isinstance(c, dict)}
     gcn_id = doc.get("_id") or ""
 

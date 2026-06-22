@@ -29,6 +29,7 @@ export default function Reconcile({ gcnId, onBack }) {
   const [doc, setDoc] = useState(null);
   const [work, setWork] = useState([]);          // bản làm việc của extractions
   const [overrides, setOverrides] = useState({}); // path → value đã sửa
+  const [deleted, setDeleted] = useState([]);    // chỉ số bản ghi GCN đã xoá
   const [name, setName] = useState("");
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState("");
@@ -42,6 +43,7 @@ export default function Reconcile({ gcnId, onBack }) {
       setDoc(d);
       setWork(structuredClone(d.extractions || []));
       setOverrides((d.review && d.review.overrides) || {});
+      setDeleted((d.review && d.review.deleted) || []);
       setName((d.review && d.review.display_name) || d.group_key || "");
       setPage(1);
     }).catch((e) => toastErr(e.message || e));
@@ -63,20 +65,33 @@ export default function Reconcile({ gcnId, onBack }) {
       await putReview(gcnId, {
         display_name: name.trim() || null,
         overrides,
+        deleted,
         status: status || undefined,
       });
       toastOk(status === "reviewed" ? "Đã duyệt" : "Đã lưu");
     } catch (e) { toastErr(e.message || e); } finally { setBusy(""); }
   }
 
+  async function removeGcn(ri) {
+    if (!window.confirm("Xoá giấy chứng nhận này khỏi hồ sơ? (raw vẫn được giữ để truy lại)")) return;
+    const nd = [...new Set([...deleted, ri])].sort((a, b) => a - b);
+    setBusy("del");
+    try {
+      await putReview(gcnId, { display_name: name.trim() || null, overrides, deleted: nd });
+      setDeleted(nd);
+      toastOk("Đã xoá giấy chứng nhận");
+    } catch (e) { toastErr(e.message || e); } finally { setBusy(""); }
+  }
+
   const entries = useMemo(() => {
     const out = [];
     (work || []).forEach((rec, ri) => {
+      if (deleted.includes(ri)) return;
       const list = rec?.result?.["Đăng ký"];
       if (Array.isArray(list)) list.forEach((entry, ei) => out.push({ ri, ei, entry, rec }));
     });
     return out;
-  }, [work]);
+  }, [work, deleted]);
 
   // Render một khối của entry. Chủ sử dụng: đảo cột ưu tiên. Thửa đất: tách từng
   // thửa (trường chính + bảng Mục đích riêng). Còn lại: cây mặc định.
@@ -144,12 +159,22 @@ export default function Reconcile({ gcnId, onBack }) {
           {!entries.length && <div className="muted">Không có dữ liệu bóc tách.</div>}
           {entries.map(({ ri, ei, entry, rec }) => {
             const range = pageRange(rec?.page_indices);
+            const firstPage = Math.min(...(rec?.page_indices || [0]).filter(Number.isInteger)) + 1;
             return (
             <div className="rc-entry" key={`${ri}-${ei}`}>
               <div className="rc-entry-head">
                 <Icon name="fileText" size={15} />
                 Số phát hành: <b>{entry?.["Giấy chứng nhận"]?.["Số phát hành"] || "—"}</b>
-                {range && <span className="rc-range">Trang gốc {range}</span>}
+                {range && (
+                  <button type="button" className="rc-range" title="Tới trang gốc đầu của giấy này"
+                    onClick={() => { setPdfOpen(true); setPage(firstPage); }}>
+                    Trang gốc {range}
+                  </button>
+                )}
+                <button type="button" className="rc-del" disabled={busy} title="Xoá giấy chứng nhận này"
+                  onClick={() => removeGcn(ri)}>
+                  <Icon name="trash" size={14} />
+                </button>
               </div>
               {Object.entries(entry).map(([block, val]) => (
                 <div className="rc-block" key={block}>
