@@ -42,7 +42,7 @@ DETECT_VERIFY = os.getenv("DETECT_VERIFY", "true").strip().lower() == "true"
 RENDER_DPI = int(os.getenv("AIHUB_RENDER_DPI", "200"))
 RENDER_MAX_SIZE = int(os.getenv("AIHUB_RENDER_MAX_SIZE", "2000"))
 MAX_PAGES = int(os.getenv("AIHUB_MAX_PAGES", "250"))
-EXTRACT_TIMEOUT = float(os.getenv("EXTRACT_TIMEOUT_SECONDS", "600"))
+EXTRACT_TIMEOUT = float(os.getenv("EXTRACT_TIMEOUT_SECONDS", "3000"))
 
 # Semaphore TOÀN CỤC cho mọi call VLM (detect+extract). Tạo lazy trong event loop worker.
 _VLM_SEM: asyncio.Semaphore | None = None
