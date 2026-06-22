@@ -25,7 +25,7 @@ from app.bus import publish_sync
 from app.summary import collect_so_phat_hanhs, group_key_of, per_gcn, summarize
 from src.extentions.minio_helper import minio_client
 from src.extentions.mongo_helper import AsyncMongo
-from src.extentions.multimodal.detect_gcn import detect
+from src.extentions.multimodal.detect_gcn import detect, verify_split
 from src.extentions.multimodal.extract_gcn import extract
 from src.extentions.multimodal.make import (
     count_pdf_pages_from_bytes,
@@ -37,6 +37,7 @@ log = logging.getLogger(__name__)
 
 DETECT_MIN_PAGES = int(os.getenv("DETECT_MIN_PAGES", "5"))
 DETECT_WINDOW = int(os.getenv("DETECT_WINDOW", "12"))
+DETECT_VERIFY = os.getenv("DETECT_VERIFY", "true").strip().lower() == "true"
 MAX_PAGES = int(os.getenv("AIHUB_MAX_PAGES", "250"))
 EXTRACT_TIMEOUT = float(os.getenv("EXTRACT_TIMEOUT_SECONDS", "300"))
 
@@ -55,10 +56,12 @@ def _vlm_sem() -> asyncio.Semaphore:
 
 async def _detect_groups(images: list[str]) -> list[list[int]]:
     """Nhóm trang theo từng GCN. File ngắn → 1 call; file dài → chia cửa sổ
-    DETECT_WINDOW trang (không chồng lấn), detect song song, offset về toàn cục."""
+    DETECT_WINDOW trang (không chồng lấn), detect song song, offset về toàn cục.
+    Sau detect (nếu DETECT_VERIFY) chạy VLM verify soi lại từng nhóm để tách
+    đúng GCN (chống detect gom nhầm nhiều giấy vào một nhóm)."""
     n = len(images)
     if n < DETECT_MIN_PAGES:
-        return [list(range(n))]
+        return await _verify_groups(images, [list(range(n))])
 
     async def _one(imgs: list[str]) -> dict:
         async with _vlm_sem():
@@ -70,7 +73,8 @@ async def _detect_groups(images: list[str]) -> list[list[int]]:
         except Exception as e:  # noqa: BLE001
             log.exception("detect lỗi: %s", e)
             d = {}
-        return d.get("gcn_pages") or [list(range(n))]
+        groups = d.get("gcn_pages") or [list(range(n))]
+        return await _verify_groups(images, groups)
 
     wins = [(i, min(i + DETECT_WINDOW, n)) for i in range(0, n, DETECT_WINDOW)]
 
@@ -88,6 +92,31 @@ async def _detect_groups(images: list[str]) -> list[list[int]]:
         return out
 
     parts = await asyncio.gather(*(_win(lo, hi) for lo, hi in wins))
+    groups = [g for part in parts for g in part]
+    return await _verify_groups(images, groups)
+
+
+async def _verify_groups(images: list[str], groups: list[list[int]]) -> list[list[int]]:
+    """Soi lại MỖI nhóm bằng VLM verify, tách thành các GCN đúng. Index cục bộ
+    (0..len(group)-1) trả về được ánh xạ ngược về index toàn cục. Verify song song,
+    có trần VLM toàn cục. Lỗi 1 nhóm → giữ nguyên nhóm đó."""
+    if not DETECT_VERIFY or not groups:
+        return groups
+
+    async def _one(group: list[int]) -> list[list[int]]:
+        if len(group) <= 1:
+            return [group]
+        try:
+            async with _vlm_sem():
+                subs = await verify_split([images[i] for i in group])
+        except Exception as e:  # noqa: BLE001
+            log.warning("verify_split nhóm %s lỗi: %s", group, e)
+            return [group]
+        mapped = [sorted(group[j] for j in s if 0 <= j < len(group)) for s in subs]
+        mapped = [m for m in mapped if m]
+        return mapped or [group]
+
+    parts = await asyncio.gather(*(_one(g) for g in groups))
     return [g for part in parts for g in part]
 
 

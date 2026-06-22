@@ -37,6 +37,7 @@ services:
       MAX_IN_FLIGHT: ${MAX_IN_FLIGHT:-24}
       AIHUB_MAX_PAGES: ${AIHUB_MAX_PAGES:-250}
       DETECT_WINDOW: ${DETECT_WINDOW:-12}
+      DETECT_VERIFY: ${DETECT_VERIFY:-true}
     ports: ["18002:8000"]
 
   worker:
