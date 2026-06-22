@@ -6,42 +6,11 @@ from src.extentions.multimodal.prompt import detect_system_prompt, pdf_detect_pr
 from src.extentions.multimodal.vlm_client import chat_json
 
 
-def groups_from_detect(
-    gcn_pages: list[int], start_pages: list[int], n: int,
-) -> list[list[int]]:
-    """Gom nhóm GCN bằng CODE từ output detect (gcn_pages + start_pages).
-
-    - gcn_pages: mọi trang thuộc GCN (đã loại trang rác).
-    - start_pages: trang BẮT ĐẦU mỗi GCN (tờ bìa).
-    Mỗi start mở 1 nhóm, ôm các trang gcn_pages từ start đó tới ngay trước start kế.
-    Trang gcn_pages nằm trước start đầu tiên → gắn vào nhóm đầu.
-    """
-    gset = sorted({p for p in gcn_pages if isinstance(p, int) and 0 <= p < n})
-    if not gset:
-        return []
-    starts = sorted({p for p in start_pages if isinstance(p, int) and 0 <= p < n})
-    if not starts:
-        return [gset]
-    groups: list[list[int]] = []
-    for i, s in enumerate(starts):
-        end = starts[i + 1] if i + 1 < len(starts) else n
-        grp = [p for p in gset if s <= p < end]
-        if grp:
-            groups.append(grp)
-    head = [p for p in gset if p < starts[0]]
-    if head:
-        if groups:
-            groups[0] = sorted(head + groups[0])
-        else:
-            groups = [head]
-    return groups
-
-
 async def detect(images_b64: list[str]) -> dict:
-    """Nhận diện trang GCN từ list ảnh đã render. Sampling tất định (chat_json
-    mặc định temperature=0).
+    """Nhóm trang GCN từ list ảnh đã render. Sampling tất định (chat_json mặc định
+    temperature=0).
 
-    Returns: {"gcn_pages": [idx,...], "start_pages": [idx,...]}
+    Returns: {"gcn_pages": [[idx,...], [idx,...]]}  — mỗi phần tử là một nhóm/GCN.
     """
     if not images_b64:
         return {"gcn_pages": []}

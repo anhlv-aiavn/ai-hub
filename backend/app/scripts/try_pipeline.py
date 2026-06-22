@@ -28,7 +28,7 @@ import json
 import os
 import time
 
-from src.extentions.multimodal.detect_gcn import detect, groups_from_detect
+from src.extentions.multimodal.detect_gcn import detect
 from src.extentions.multimodal.extract_gcn import extract
 from src.extentions.multimodal.make import pdf_to_corrected_images
 from src.extentions.multimodal.normalize_dang_ky import normalize_dang_ky
@@ -47,23 +47,25 @@ def _save_images(images: list[str], out_dir: str) -> None:
 
 
 async def _windowed_detect(images: list[str], window: int) -> list[list[int]]:
-    """Detect (gcn_pages + start_pages) → gom nhóm bằng code. In raw từng cửa sổ."""
+    """Detect trả NHÓM trực tiếp (gcn_pages = list các nhóm). In raw từng cửa sổ."""
     n = len(images)
     if window <= 0 or n <= window:
         d = await detect(images)
         print("[detect raw]")
-        print(_dump({"gcn_pages": d.get("gcn_pages"), "start_pages": d.get("start_pages")}))
-        return groups_from_detect(d.get("gcn_pages") or [], d.get("start_pages") or [], n)
+        print(_dump(d.get("gcn_pages")))
+        return d.get("gcn_pages") or []
 
     wins = [(i, min(i + window, n)) for i in range(0, n, window)]
 
     async def _win(lo, hi):
         d = await detect(images[lo:hi])
-        m = hi - lo
-        gp = [p for p in (d.get("gcn_pages") or []) if isinstance(p, int) and 0 <= p < m]
-        sp = [p for p in (d.get("start_pages") or []) if isinstance(p, int) and 0 <= p < m]
-        print(f"[detect raw window {lo}-{hi}] gcn_pages(local)={gp} start_pages(local)={sp}")
-        return [[lo + p for p in g] for g in groups_from_detect(gp, sp, m)]
+        print(f"[detect raw window {lo}-{hi}] {d.get('gcn_pages')}")
+        out = []
+        for g in d.get("gcn_pages") or []:
+            gg = sorted({lo + j for j in g if isinstance(j, int) and 0 <= j < (hi - lo)})
+            if gg:
+                out.append(gg)
+        return out
 
     parts = await asyncio.gather(*(_win(lo, hi) for lo, hi in wins))
     return [g for part in parts for g in part]
