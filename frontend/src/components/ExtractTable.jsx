@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
 import { listGcn, listBatches } from "../api.js";
 import { subscribeEvents } from "../events.js";
+
+const PENDING = new Set(["queued", "processing"]);
 
 const STATUS_LABEL = {
   queued: "Chờ", processing: "Đang xử lý", done: "Xong", error: "Lỗi", skip: "Bỏ qua",
@@ -16,25 +18,35 @@ export default function ExtractTable({ batchId, onPickBatch, onOpen }) {
   const [status, setStatus] = useState("");
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
+  const [hasPending, setHasPending] = useState(false);
+  const refreshRef = useRef(() => {});
 
   async function refresh() {
     setLoading(true);
     try {
       const d = await listGcn({ batchId, status: status || undefined, q: q.trim() || undefined });
-      setRows(d.gcn || []);
+      const list = d.gcn || [];
+      setRows(list);
+      setHasPending(list.some((r) => PENDING.has(r.status)));
     } catch { /* bỏ qua */ } finally { setLoading(false); }
   }
+  useEffect(() => { refreshRef.current = refresh; });
 
   useEffect(() => { listBatches().then((d) => setBatches(d.batches || [])).catch(() => {}); }, []);
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [batchId, status]);
 
-  // Live: mọi event gcn/batch → refresh nhẹ (debounce).
+  // Live: SSE đẩy tức thì + polling dự phòng khi còn giấy đang chạy (chắc ăn).
   useEffect(() => {
     let t = null;
-    const un = subscribeEvents(() => { clearTimeout(t); t = setTimeout(refresh, 600); });
+    const un = subscribeEvents(() => { clearTimeout(t); t = setTimeout(() => refreshRef.current(), 500); });
     return () => { un(); clearTimeout(t); };
-    // eslint-disable-next-line
-  }, [batchId, status, q]);
+  }, []);
+
+  useEffect(() => {
+    if (!hasPending) return;
+    const id = setInterval(() => refreshRef.current(), 3000);
+    return () => clearInterval(id);
+  }, [hasPending]);
 
   // Gom theo group_key (Số phát hành). Hàng cùng nhóm dính nhau, có vạch phân nhóm.
   const groups = useMemo(() => {
