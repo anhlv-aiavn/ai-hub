@@ -228,10 +228,21 @@ Một GCN thường được in dạng sách gấp đôi, mỗi ảnh chụp là
 - nội dung thay đổi và pháp lý
 (đặc biệt trang bổ sung, thay đổi tối đa chỉ có 2 trang thêm của 1 giấy chứng nhận)
 
-## NHẬN BIẾT RANH GIỚI GIỮA HAI GCN KHÁC NHAU
-Tạo nhóm MỚI khi và chỉ khi mặt PHẢI của ảnh có:
-- Tiêu đề "GIẤY CHỨNG NHẬN" MỚI với mã số phát hành KHÁC (ví dụ DL 338944 → DL 338945)
-- Hoặc chủ sở hữu hoàn toàn khác
+## QUY TẮC VÀNG: MỖI "Số phát hành" = MỘT GCN RIÊNG
+- "Số phát hành" in ở GÓC DƯỚI BÊN PHẢI mỗi tờ BÌA (dạng: DĐ 999053, DD 999740, CU 123456,
+  AA 00827763, hoặc dãy 10-15 chữ số). Mỗi bìa có một Số phát hành riêng.
+- Cứ gặp một tờ BÌA (quốc huy + chữ "GIẤY CHỨNG NHẬN" + Số phát hành ở góc dưới phải) →
+  BẮT ĐẦU MỘT NHÓM MỚI. ĐÚNG kể cả khi:
+  • Quốc huy/chữ bị MỜ, XÁM, hoặc là bản PHOTO/CẤP ĐỔI (GCN cấp đổi thường in màu xám nhạt,
+    KHÔNG đỏ tươi như bản gốc) — vẫn là một GCN RIÊNG.
+  • CÙNG MỘT chủ sử dụng với GCN trước (một công ty/người có NHIỀU GCN là chuyện bình thường;
+    KHÔNG được vì cùng chủ mà gộp chung).
+- TUYỆT ĐỐI KHÔNG gộp 2 tờ bìa có Số phát hành KHÁC NHAU vào cùng một nhóm. Có bao nhiêu Số
+  phát hành khác nhau thì có bấy nhiêu nhóm.
+
+## CẤU TRÚC MỖI GCN (rất đều)
+Mỗi GCN thường = 1 tờ BÌA (Số phát hành) + 1 tờ NỘI DUNG (Mục II Thửa đất + Mục III Sơ đồ).
+Tờ NỘI DUNG thuộc về tờ BÌA NGAY TRƯỚC nó. Tới tờ bìa kế tiếp (Số phát hành khác) → GCN mới.
 
 KHÔNG tạo nhóm mới khi:
 - Mặt trái có nội dung biến động/ghi chú, mặt phải là bìa GCN — đây là 1 tờ giấy của cùng bộ GCN đó
@@ -254,13 +265,23 @@ Mỗi ảnh thường là 1 tờ giấy gấp đôi (2 trang ghép). Quan sát:
 
 ## DỪNG ngay khi gặp: CMND, hợp đồng, tờ khai thuế, công văn, biên bản, tờ trắng, v.v.
 
-## VÍ DỤ THỰC TẾ
-- Ảnh 0: mặt trái = bảng ghi chú trắng, mặt phải = bìa GCN DL 338944 (Nguyễn Bá Tường) → nhóm 1 bắt đầu
-- Ảnh 1: thông tin thửa đất + sơ đồ + chữ ký của GCN DL 338944 → cùng nhóm 1
-- Ảnh 2: mặt trái = bảng ghi chú trắng, mặt phải = bìa GCN DL 338945 (Nguyễn Hữu Tùng) → nhóm 2 mới (mã số khác!)
-- Ảnh 3: thông tin thửa đất GCN DL 338945 → cùng nhóm 2
-- Ảnh 4, 5: Trang bổ sung giấy chứng nhận, nội dung thay đổi và pháp lý → cùng nhóm 2
-→ Kết quả ví dụ: {{"gcn_pages": [[0, 1], [2, 3, 4]]}}
+## VÍ DỤ 1 — hai chủ khác nhau
+- Ảnh 0: bìa GCN DL 338944 (Nguyễn Bá Tường) → nhóm 1
+- Ảnh 1: thửa đất + sơ đồ của DL 338944 → cùng nhóm 1
+- Ảnh 2: bìa GCN DL 338945 (Nguyễn Hữu Tùng) → nhóm 2 (mã số khác!)
+- Ảnh 3: thửa đất GCN DL 338945 → cùng nhóm 2
+- Ảnh 4, 5: Trang bổ sung của DL 338945 → cùng nhóm 2
+→ {{"gcn_pages": [[0, 1], [2, 3, 4, 5]]}}
+
+## VÍ DỤ 2 — NHIỀU GCN cùng MỘT công ty, bản cấp đổi quốc huy XÁM (rất hay gặp)
+- Ảnh 0: bìa GCN ĐỎ, Số phát hành DĐ 999053 (Công ty Tâm Việt Farm) → nhóm 1
+- Ảnh 1: Mục II thửa + Mục III sơ đồ của DĐ 999053 → cùng nhóm 1
+- Ảnh 2: bìa GCN XÁM (cấp đổi), Số phát hành DĐ 999740, vẫn Công ty Tâm Việt Farm → nhóm 2 (Số phát hành khác!)
+- Ảnh 3: Mục II/III của DĐ 999740 → cùng nhóm 2
+- Ảnh 4: bìa GCN XÁM, Số phát hành DĐ 999742 → nhóm 3 (Số phát hành khác!)
+- Ảnh 5: Mục II/III của DĐ 999742 → cùng nhóm 3
+→ {{"gcn_pages": [[0, 1], [2, 3], [4, 5]]}}
+(Lưu ý: 3 GCN cùng một công ty vẫn là 3 nhóm vì 3 Số phát hành khác nhau; bìa xám/cấp đổi vẫn tính.)
 
 ## ĐỊNH DẠNG ĐẦU RA
 {{
