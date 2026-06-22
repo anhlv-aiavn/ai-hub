@@ -9,12 +9,43 @@ from src.extentions.multimodal.prompt import (
     pdf_extract_gcn_only_prompt,
     pdf_extract_prompt,
 )
-from src.extentions.multimodal.vlm_client import chat_json
+from src.extentions.multimodal.vlm_client import ENABLE_THINKING, chat_json
 
 
 _PURE_DIGITS_RE = re.compile(r"^\d{10,15}$")
 _LETTER_DIGIT_RE = re.compile(r"^([A-Z01]{1,4})\s*([\dOI]+)$")
 _DATE_RE = re.compile(r"\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})\b")
+
+# Form hợp lệ của Số phát hành (sau normalize):
+#   - bản cũ:  1-4 chữ in hoa + 5+ số      (vd "DD 999053", "AA 00827763")
+#   - bản mới: thuần số 8-15 chữ số        (vd "0103040010", "010119545602779")
+_VALID_SPH_LETTER = re.compile(r"^[A-ZĐ]{1,4} ?\d{5,}$")
+_VALID_SPH_DIGITS = re.compile(r"^\d{8,15}$")
+
+
+def _is_valid_so_phat_hanh(value) -> bool:
+    if not isinstance(value, str):
+        return False
+    s = value.strip().upper()
+    if not s:
+        return False
+    return bool(_VALID_SPH_DIGITS.fullmatch(s) or _VALID_SPH_LETTER.fullmatch(s))
+
+
+def _bad_sph_count(result: dict) -> int:
+    """Số entry có Số phát hành thiếu/sai form. Không có entry nào → coi như 1 (miss)."""
+    if not isinstance(result, dict):
+        return 1
+    entries = result.get("Đăng ký") or []
+    if not entries:
+        return 1
+    bad = 0
+    for e in entries:
+        gcn = e.get("Giấy chứng nhận") if isinstance(e, dict) else None
+        sph = gcn.get("Số phát hành") if isinstance(gcn, dict) else None
+        if not _is_valid_so_phat_hanh(sph):
+            bad += 1
+    return bad
 
 
 def _normalize_date(value: str) -> str:
@@ -98,17 +129,7 @@ def _normalize_result(result: dict) -> dict:
     return result
 
 
-async def extract(
-    images_b64: list[str],
-    enable_thinking: bool | None = None,
-) -> dict:
-    """Trích xuất thông tin GCN từ list ảnh (đã được detect group lại).
-
-    enable_thinking: None=theo env, True=ép bật chain-of-thought (dùng cho retry).
-    """
-    if not images_b64:
-        return {}
-
+async def _extract_once(images_b64: list[str], enable_thinking: bool | None) -> dict:
     result = await chat_json(
         system_prompt=extract_system_prompt,
         user_text=pdf_extract_prompt,
@@ -116,6 +137,30 @@ async def extract(
         enable_thinking=enable_thinking,
     )
     return _normalize_result(result)
+
+
+async def extract(
+    images_b64: list[str],
+    enable_thinking: bool | None = None,
+) -> dict:
+    """Trích xuất thông tin GCN từ list ảnh (đã được detect group lại).
+
+    enable_thinking: None=theo env, True=ép bật chain-of-thought (dùng cho retry).
+
+    Nếu Số phát hành extract ra THIẾU/SAI FORM mà lần đầu chưa bật thinking →
+    retry MỘT lần với thinking=True; giữ kết quả nào ít lỗi Số phát hành hơn.
+    """
+    if not images_b64:
+        return {}
+
+    result = await _extract_once(images_b64, enable_thinking)
+
+    used_thinking = ENABLE_THINKING if enable_thinking is None else enable_thinking
+    if not used_thinking and _bad_sph_count(result) > 0:
+        retry = await _extract_once(images_b64, enable_thinking=True)
+        if _bad_sph_count(retry) < _bad_sph_count(result):
+            return retry
+    return result
 
 
 def _normalize_gcn_only_result(result: dict) -> dict:
