@@ -23,7 +23,7 @@ Chủ sử dụng:
   - 'Loại đối tượng': Dữ liệu kiểu str, chọn một trong các giá trị:  \n- 'Cá nhân' – quyền thuộc về một người.  \n- 'Vợ chồng' – văn bản đề cập ông và vợ (bà).  \n- 'Hộ gia đình' – nhiều người đứng tên.  \n- 'Đồng sử dụng' – văn bản có cụm 'Đồng sử dụng'.  \n- 'Cộng đồng dân cư' – đối tượng là cộng đồng cụ thể.  \n- 'Tổ chức' – quyền thuộc về tổ chức, cơ quan.
   - 'Tên chủ': Tên người, là chủ sở hữu đất và các tài sản gắn liền với đất.
   - 'Năm sinh': Kiểu dữ liệu - int, Năm sinh của chủ sử dụng đất.
-  - 'Giới tính': Nam thì điền True, Nữ thì điền False. 
+  - 'Giới tính': Nam thì điền Nam, Nữ thì điền Nữ. 
   - 'Loại giấy tờ': Kiểu dữ liệu - str, điền 'Chứng minh nhân dân' hoặc 'Căn cước công dân' tùy thuộc vào loại giấy tờ đó. 
   - 'Số giấy tờ': Số CMND hoặc CCCD (thường là 9 hoặc 12 chữ số). Tránh nhầm với số điện thoại.
   - 'Ngày cấp': Ngày tháng năm cấp giấy tờ, chuyển về định dạng dd/mm/yyyy.
