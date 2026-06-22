@@ -45,7 +45,7 @@ services:
     build: ./frontend
     restart: unless-stopped
     depends_on: [api]
-    ports: ["18082:80"]
+    ports: ["3000:80"]
 
 volumes:
   mongo_data:

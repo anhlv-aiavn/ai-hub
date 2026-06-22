@@ -20,7 +20,7 @@ MinIO dùng kho **có sẵn** `storage.ai-hub.tumiki.org`; model VLM dùng endpo
 | dịch vụ | host |
 |---|---|
 | API | 18002 → 8000 |
-| Web | 18082 → 80 |
+| Web | 3000 → 80 |
 | Mongo | 27018 |
 | Redis | 56381 |
 
@@ -31,7 +31,7 @@ không chạy trong compose.
 ```bash
 cp .env.example .env          # mặc định đã trỏ MinIO + model thật; chỉnh nếu cần
 docker compose up -d --build  # bucket `ai-hub` + index Mongo tạo tự động lúc API khởi động
-# UI: http://<host>:18082
+# UI: http://<host>:3000
 ```
 
 ## Luồng dữ liệu
