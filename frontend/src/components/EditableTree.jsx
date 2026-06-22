@@ -2,6 +2,21 @@ import React from "react";
 
 const isObj = (v) => v && typeof v === "object";
 
+// Ô nhập lá: textarea TỰ GIÃN cao theo nội dung + WRAP — địa chỉ / nội dung biến
+// động dài không còn bị bóp một dòng. Rộng linh hoạt theo ô chứa (CSS).
+function Leaf({ value, path, onLeaf }) {
+  const ref = React.useRef(null);
+  const str = value == null ? "" : String(value);
+  const fit = (el) => { if (el) { el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; } };
+  React.useLayoutEffect(() => { fit(ref.current); }, [str]);
+  return (
+    <textarea
+      ref={ref} className="ev-input" rows={1} value={str} title={str}
+      onChange={(e) => { onLeaf(path, e.target.value); fit(e.target); }}
+    />
+  );
+}
+
 // Đặt giá trị tại đường dẫn "a.b[0].c" trong bản sao (mutate). path "" = thay cả gốc.
 export function setAt(root, path, val) {
   if (!path) return val;
@@ -34,10 +49,7 @@ export default function EditableTree({ value, path, onLeaf }) {
                     <td key={c}>
                       {isObj(row[c])
                         ? <EditableTree value={row[c]} path={`${path}[${i}].${c}`} onLeaf={onLeaf} />
-                        : <input className="ev-input" value={row[c] == null ? "" : String(row[c])}
-                            title={row[c] == null ? "" : String(row[c])}
-                            size={Math.min(48, Math.max(8, String(row[c] ?? "").length + 1))}
-                            onChange={(e) => onLeaf(`${path}[${i}].${c}`, e.target.value)} />}
+                        : <Leaf value={row[c]} path={`${path}[${i}].${c}`} onLeaf={onLeaf} />}
                     </td>
                   ))}
                 </tr>
@@ -70,9 +82,5 @@ export default function EditableTree({ value, path, onLeaf }) {
       </div>
     );
   }
-  return (
-    <input className="ev-input" value={value == null ? "" : String(value)}
-      title={value == null ? "" : String(value)}
-      onChange={(e) => onLeaf(path, e.target.value)} />
-  );
+  return <Leaf value={value} path={path} onLeaf={onLeaf} />;
 }
