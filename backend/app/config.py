@@ -17,10 +17,15 @@ COLL_GCN = "gcn"
 # ── MinIO (kho riêng AI-HUB) — biến ENDPOINT_URL_MINIO/… do minio_helper đọc ─
 AIHUB_BUCKET = os.getenv("AIHUB_BUCKET", "ai-hub")
 
-# ── Redis (hàng đợi RQ + bus SSE) ───────────────────────────────────────────
+# ── Redis (bus SSE) ─────────────────────────────────────────────────────────
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
-RQ_QUEUE = os.getenv("RQ_QUEUE", "aihub")
 EVENT_CHANNEL = os.getenv("EVENT_CHANNEL", "aihub:events")
+
+# ── Worker concurrency (in-flight batching cho vLLM) ────────────────────────
+# Số call VLM đồng thời tối đa (detect+extract) — bơm để vLLM dynamic-batch.
+MAX_VLM_CONCURRENT = int(os.getenv("MAX_VLM_CONCURRENT", "8"))
+# Số file in-flight tối đa (bound RAM ảnh render).
+MAX_IN_FLIGHT = int(os.getenv("MAX_IN_FLIGHT", str(MAX_VLM_CONCURRENT * 3)))
 
 # ── Auth tùy chọn: nếu set → bắt buộc X-API-Key (Sobagi cấp key) ─────────────
 API_KEY = os.getenv("AIHUB_API_KEY", "").strip()

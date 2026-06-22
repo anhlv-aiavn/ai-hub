@@ -2,7 +2,6 @@
 fastapi
 uvicorn[standard]
 python-multipart
-rq
 redis
 
 # DB + storage

@@ -32,6 +32,11 @@ services:
       VLLM_API_KEY: ${VLLM_API_KEY:-EMPTY}
       ENABLE_THINKING: ${ENABLE_THINKING:-false}
       AIHUB_API_KEY: ${AIHUB_API_KEY:-}
+      # Worker: in-flight batching cho vLLM + giới hạn trang
+      MAX_VLM_CONCURRENT: ${MAX_VLM_CONCURRENT:-8}
+      MAX_IN_FLIGHT: ${MAX_IN_FLIGHT:-24}
+      AIHUB_MAX_PAGES: ${AIHUB_MAX_PAGES:-250}
+      DETECT_WINDOW: ${DETECT_WINDOW:-10}
     ports: ["18002:8000"]
 
   worker:

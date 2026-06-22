@@ -1,13 +1,21 @@
-"""Xử lý 1 GCN (1 PDF): tải PDF từ MinIO → detect_and_extract (VLM .199) →
-normalize → ghi extractions/group_key/summary vào Mongo → publish event SSE.
+"""Xử lý 1 GCN (1 PDF): tải PDF từ MinIO → detect (windowed) + extract (song song,
+có trần VLM toàn cục) → normalize → cắt file (tái dùng ảnh đã render) → ghi Mongo + SSE.
 
-RQ gọi `process_gcn(gcn_id)` (đồng bộ); bên trong chạy asyncio.run cho pipeline async.
-Tạo Mongo client MỚI trong mỗi job (tránh chia sẻ event loop giữa các job)."""
+Concurrency:
+- Worker (app/worker/main.py) chạy NHIỀU file in-flight cùng lúc.
+- `_VLM_SEM` (semaphore toàn cục) bao MỌI call detect + extract → bơm nhiều request
+  đồng thời cho vLLM dynamic-batch nhưng có trần `MAX_VLM_CONCURRENT`.
+
+File lớn:
+- > AIHUB_MAX_PAGES (mặc định 250) → skip (an toàn RAM/thời gian).
+- Detect chia cửa sổ DETECT_WINDOW trang, detect SONG SONG từng cửa sổ rồi ghép
+  nhóm (tránh nhồi quá nhiều ảnh vào 1 call VLM)."""
 
 import asyncio
 import base64
 import io
 import logging
+import os
 from datetime import datetime, timezone
 
 from PIL import Image
@@ -17,15 +25,111 @@ from app.bus import publish_sync
 from app.summary import collect_so_phat_hanhs, group_key_of, summarize
 from src.extentions.minio_helper import minio_client
 from src.extentions.mongo_helper import AsyncMongo
-from src.extentions.multimodal.make import pdf_to_corrected_images
+from src.extentions.multimodal.detect_gcn import detect
+from src.extentions.multimodal.extract_gcn import extract
+from src.extentions.multimodal.make import (
+    count_pdf_pages_from_bytes,
+    pdf_to_corrected_images,
+)
 from src.extentions.multimodal.normalize_dang_ky import normalize_extractions
-from src.extentions.multimodal.pipeline import detect_and_extract
 
 log = logging.getLogger(__name__)
 
+DETECT_MIN_PAGES = int(os.getenv("DETECT_MIN_PAGES", "5"))
+DETECT_WINDOW = int(os.getenv("DETECT_WINDOW", "10"))
+MAX_PAGES = int(os.getenv("AIHUB_MAX_PAGES", "250"))
+EXTRACT_TIMEOUT = float(os.getenv("EXTRACT_TIMEOUT_SECONDS", "300"))
+
+# Semaphore TOÀN CỤC cho mọi call VLM (detect+extract). Tạo lazy trong event loop worker.
+_VLM_SEM: asyncio.Semaphore | None = None
+
+
+def _vlm_sem() -> asyncio.Semaphore:
+    global _VLM_SEM
+    if _VLM_SEM is None:
+        _VLM_SEM = asyncio.Semaphore(config.MAX_VLM_CONCURRENT)
+    return _VLM_SEM
+
+
+# ── Pipeline ────────────────────────────────────────────────────────────────
+
+async def _detect_groups(images: list[str]) -> list[list[int]]:
+    """Nhóm trang theo từng GCN. File ngắn → 1 call; file dài → windowed song song."""
+    n = len(images)
+    if n < DETECT_MIN_PAGES:
+        return [list(range(n))]
+
+    async def _one(imgs: list[str]) -> dict:
+        async with _vlm_sem():
+            return await detect(imgs)
+
+    if n <= DETECT_WINDOW:
+        try:
+            d = await _one(images)
+        except Exception as e:  # noqa: BLE001
+            log.exception("detect lỗi: %s", e)
+            d = {}
+        return d.get("gcn_pages") or [list(range(n))]
+
+    # Windowed: chia cửa sổ, detect song song, offset index về toàn cục.
+    wins = [(i, min(i + DETECT_WINDOW, n)) for i in range(0, n, DETECT_WINDOW)]
+
+    async def _win(lo: int, hi: int) -> list[list[int]]:
+        try:
+            d = await _one(images[lo:hi])
+        except Exception as e:  # noqa: BLE001
+            log.exception("detect window %d-%d lỗi: %s", lo, hi, e)
+            d = {}
+        out = []
+        for g in d.get("gcn_pages") or []:
+            gg = [lo + j for j in g if isinstance(j, int) and 0 <= j < (hi - lo)]
+            if gg:
+                out.append(gg)
+        return out
+
+    parts = await asyncio.gather(*(_win(lo, hi) for lo, hi in wins))
+    return [g for part in parts for g in part]
+
+
+async def _pipeline(pdf_buf: io.BytesIO) -> tuple[list[dict], list[str]]:
+    """Trả (records, images). images = ảnh đã xoay thẳng (tái dùng để cắt file)."""
+    loop = asyncio.get_running_loop()
+    n = await loop.run_in_executor(None, count_pdf_pages_from_bytes, pdf_buf)
+    if n == 0:
+        return [], []
+    if n > MAX_PAGES:
+        return [{"page_indices": [], "result": None, "error": f"too_many_pages:{n}",
+                 "page_count": n, "skip_reason": "too_many_pages"}], []
+
+    images = await loop.run_in_executor(None, pdf_to_corrected_images, pdf_buf)
+    if not images:
+        return [], []
+    page_count = len(images)
+    groups = await _detect_groups(images)
+    if not groups:
+        return [], images
+
+    async def _run(group: list[int]) -> dict:
+        base = {"page_indices": group, "result": None, "error": None,
+                "page_count": page_count, "skip_reason": None}
+        imgs = [images[i] for i in group if 0 <= i < len(images)]
+        try:
+            async with _vlm_sem():
+                base["result"] = await asyncio.wait_for(extract(imgs), timeout=EXTRACT_TIMEOUT)
+        except asyncio.TimeoutError:
+            base["error"] = f"timeout>{EXTRACT_TIMEOUT}s"
+        except Exception as e:  # noqa: BLE001
+            log.exception("extract lỗi pages %s: %s", group, e)
+            base["error"] = str(e)
+        return base
+
+    records = await asyncio.gather(*(_run(g) for g in groups))
+    return records, images
+
+
+# ── Cắt file (tái dùng ảnh đã render) ───────────────────────────────────────
 
 def _images_to_pdf(b64_list: list[str]) -> bytes | None:
-    """Ghép list ảnh base64 PNG (đã xoay thẳng) thành 1 PDF nhiều trang."""
     pages = []
     for b in b64_list:
         try:
@@ -49,20 +153,13 @@ def _entry_sph(rec: dict) -> str | None:
     return None
 
 
-async def _build_cuts(gcn_id: str, batch_id, pdf_buf: io.BytesIO, records: list) -> list[dict]:
-    """Mỗi GCN nhóm (page_indices) → 1 PDF cắt đã xoay thẳng, upload MinIO.
-    Render lại ảnh corrected (pdfium+onnx, KHÔNG gọi VLM) → cắt theo page_indices."""
-    loop = asyncio.get_running_loop()
-    pdf_buf.seek(0)
-    imgs = await loop.run_in_executor(None, pdf_to_corrected_images, pdf_buf)
-    if not imgs:
-        return []
+async def _build_cuts(gcn_id: str, batch_id, images: list[str], records: list) -> list[dict]:
     cuts: list[dict] = []
     for ri, rec in enumerate(records):
         pages = rec.get("page_indices") if isinstance(rec, dict) else None
         if not pages:
             continue
-        group = [imgs[j] for j in pages if isinstance(j, int) and 0 <= j < len(imgs)]
+        group = [images[j] for j in pages if isinstance(j, int) and 0 <= j < len(images)]
         pdf_bytes = _images_to_pdf(group)
         if not pdf_bytes:
             continue
@@ -77,33 +174,19 @@ async def _build_cuts(gcn_id: str, batch_id, pdf_buf: io.BytesIO, records: list)
     return cuts
 
 
-def process_gcn(gcn_id: str) -> str:
-    return asyncio.run(_process(gcn_id))
+# ── Orchestration cho 1 doc đã được worker claim ────────────────────────────
 
-
-async def _emit(mongo: AsyncMongo, gcn_id: str, status: str, **extra) -> None:
-    publish_sync({"type": "gcn", "gcn_id": gcn_id, "status": status, **extra})
-
-
-async def _process(gcn_id: str) -> str:
-    mongo = AsyncMongo()
-    doc = await mongo.find_one(config.COLL_GCN, {"_id": gcn_id})
-    if not doc:
-        await mongo.close_connection()
-        return "not_found"
-
+async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
+    """Xử lý 1 gcn doc (đã set processing bởi worker). Dùng chung mongo client."""
+    gcn_id = doc["_id"]
     batch_id = doc.get("batch_id")
-    await mongo.update_one(
-        config.COLL_GCN, {"_id": gcn_id},
-        {"$set": {"status": "processing", "started_at": datetime.now(timezone.utc)}},
-    )
     publish_sync({"type": "gcn", "gcn_id": gcn_id, "batch_id": batch_id, "status": "processing"})
 
     try:
         pdf_buf = await minio_client.async_get_object(config.AIHUB_BUCKET, doc["s3_key"])
-        records = await detect_and_extract(pdf_buf)
+        records, images = await _pipeline(pdf_buf)
     except Exception as e:  # noqa: BLE001
-        log.exception("process_gcn %s failed: %s", gcn_id, e)
+        log.exception("process %s lỗi: %s", gcn_id, e)
         await mongo.update_one(
             config.COLL_GCN, {"_id": gcn_id},
             {"$set": {"status": "error", "error": str(e),
@@ -112,7 +195,6 @@ async def _process(gcn_id: str) -> str:
         publish_sync({"type": "gcn", "gcn_id": gcn_id, "batch_id": batch_id,
                       "status": "error", "error": str(e)})
         await _rollup(mongo, batch_id)
-        await mongo.close_connection()
         return "error"
 
     records = records or []
@@ -124,49 +206,39 @@ async def _process(gcn_id: str) -> str:
     has_error = any(r.get("error") for r in records if isinstance(r, dict))
 
     if skip_reason:
-        status = "skip"
-        err = first.get("error")
+        status, err = "skip", first.get("error")
     elif not records or has_error:
         status = "error"
         err = next((r.get("error") for r in records if r.get("error")), None) or "no_gcn_detected"
     else:
-        status = "done"
-        err = None
+        status, err = "done", None
 
-    # File cắt: chỉ dựng khi extract thành công (skip/lỗi → không có file cắt).
     cuts: list[dict] = []
     if status == "done":
         try:
-            cuts = await _build_cuts(gcn_id, batch_id, pdf_buf, records)
+            cuts = await _build_cuts(gcn_id, batch_id, images, records)
         except Exception as e:  # noqa: BLE001
             log.warning("build_cuts %s lỗi: %s", gcn_id, e)
 
     update = {
-        "status": status,
-        "error": err,
-        "extractions": records,
-        "page_count": page_count,
-        "skip_reason": skip_reason,
+        "status": status, "error": err, "extractions": records,
+        "page_count": page_count, "skip_reason": skip_reason,
         "group_key": group_key_of(records),
         "extracted_so_phat_hanhs": collect_so_phat_hanhs(records),
-        "summary": summarize(records),
-        "cuts": cuts,
+        "summary": summarize(records), "cuts": cuts,
         "finished_at": datetime.now(timezone.utc),
     }
     await mongo.update_one(config.COLL_GCN, {"_id": gcn_id}, {"$set": update})
     publish_sync({"type": "gcn", "gcn_id": gcn_id, "batch_id": batch_id,
                   "status": status, "group_key": update["group_key"]})
     await _rollup(mongo, batch_id)
-    await mongo.close_connection()
     return status
 
 
 async def _rollup(mongo: AsyncMongo, batch_id) -> None:
-    """Cập nhật trạng thái lô theo số GCN còn queued/processing."""
     if not batch_id:
         return
-    db = mongo.db
-    pending = await db[config.COLL_GCN].count_documents(
+    pending = await mongo.db[config.COLL_GCN].count_documents(
         {"batch_id": batch_id, "status": {"$in": ["queued", "processing"]}}
     )
     status = "done" if pending == 0 else "processing"

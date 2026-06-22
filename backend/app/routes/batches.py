@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from app import config, storage
 from app.db import batches, gcns
 from app.deps import require_key
-from app.worker.queue import enqueue_gcn
 
 router = APIRouter(prefix="/v1/batches", tags=["batches"], dependencies=[Depends(require_key)])
 
@@ -51,7 +50,7 @@ async def create_batch(
                        "status": "unreviewed", "reviewer": None, "at": None},
             "created_at": now,
         })
-        enqueue_gcn(gcn_id)
+        # Không cần enqueue: worker tự poll & claim doc status=queued từ Mongo.
         created.append(gcn_id)
 
     if not created:

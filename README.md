@@ -10,8 +10,11 @@ MinIO dùng kho **có sẵn** `storage.ai-hub.tumiki.org`; model VLM dùng endpo
 `gemma-4-26B-A4B-NVFP4` (`14.232.240.254:30000`).
 
 ## Kiến trúc
-- **backend/** FastAPI (motor + aioboto3) + RQ worker (SimpleWorker, không fork).
+- **backend/** FastAPI (motor + aioboto3) + worker async (streaming pool, poll Mongo).
   - `app/` API + worker; `src/` = engine GCN vendor (giữ import `from src.extentions…`).
+  - Worker chạy NHIỀU file in-flight + 1 semaphore VLM toàn cục (`MAX_VLM_CONCURRENT`)
+    → tận dụng vLLM dynamic-batch. File lớn: detect chia cửa sổ song song; giới hạn
+    `AIHUB_MAX_PAGES` (mặc định 250).
 - **frontend/** React/Vite (nginx) — tái dùng component Parsany (Icon, Dropzone, EditableTree,
   PdfViewer→GcnPdf, style.css teal/ivory).
 - **compose**: api · worker · mongo · minio · redis · frontend.
@@ -35,8 +38,8 @@ docker compose up -d --build  # bucket `ai-hub` + index Mongo tạo tự động
 ```
 
 ## Luồng dữ liệu
-1. `POST /v1/batches` (nhiều PDF) → MinIO + `gcn`(queued) + enqueue RQ.
-2. worker `process_gcn`: tải PDF → `detect_and_extract` → normalize → ghi
+1. `POST /v1/batches` (nhiều PDF) → MinIO + `gcn`(queued). Worker tự poll & claim.
+2. worker `process_doc`: tải PDF → render+xoay → detect(windowed) + extract(song song) → normalize → ghi
    `extractions / group_key / summary` → publish SSE.
 3. `GET /v1/gcn` bảng trích xuất (gom theo Số phát hành); `GET /v1/gcn/{id}` chi tiết;
    `/page/{n}` ảnh trang; `PUT /v1/gcn/{id}` hậu kiểm; `/download` tải zip (PDF + JSON).
