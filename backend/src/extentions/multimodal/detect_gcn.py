@@ -1,19 +1,14 @@
 import asyncio
 import io
-import os
 
 from src.extentions.multimodal.make import pdf_to_corrected_images
 from src.extentions.multimodal.prompt import detect_system_prompt, pdf_detect_prompt
 from src.extentions.multimodal.vlm_client import chat_json
 
-# Detect là phân nhóm có cấu trúc → cần TẤT ĐỊNH. Mặc định temperature≈0 (greedy),
-# top_p=1 để bỏ ngẫu nhiên (tránh mỗi lần ra một nhóm khác nhau).
-DETECT_TEMPERATURE = float(os.getenv("DETECT_TEMPERATURE", "0.0"))
-DETECT_TOP_P = float(os.getenv("DETECT_TOP_P", "1.0"))
-
 
 async def detect(images_b64: list[str]) -> dict:
-    """Phân loại trang GCN từ list ảnh đã render.
+    """Phân loại trang GCN từ list ảnh đã render. Dùng sampling tất định (mặc định
+    chat_json: temperature=0) để nhóm ổn định, không đổi mỗi lần.
 
     Returns: {"gcn_pages": [[idx,...], [idx,...]]}
     """
@@ -28,8 +23,6 @@ async def detect(images_b64: list[str]) -> dict:
         system_prompt=detect_system_prompt,
         user_text=user_text,
         images_b64=images_b64,
-        temperature=DETECT_TEMPERATURE,
-        top_p=DETECT_TOP_P,
     )
 
 
