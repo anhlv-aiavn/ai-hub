@@ -57,6 +57,32 @@ export function pageImageUrl(gcnId, n, w = 1100) {
   return `/v1/gcn/${gcnId}/page/${n}?${p.toString()}`;
 }
 
+// Khung nhìn dạng hàng phẳng (đã áp hậu kiểm) — phục vụ xem/xuất/FME.
+export async function listRows({ batchId, status, review } = {}) {
+  const p = new URLSearchParams();
+  if (batchId) p.set("batch_id", batchId);
+  if (status) p.set("status", status);
+  if (review) p.set("review", review);
+  return handle(await fetch(`/v1/gcn/rows?${p.toString()}`, { headers: headers() }));
+}
+
+// Tải CSV (BOM UTF-8) theo bộ lọc hiện tại.
+export async function downloadCsv({ batchId, status, review } = {}) {
+  const p = new URLSearchParams();
+  if (batchId) p.set("batch_id", batchId);
+  if (status) p.set("status", status);
+  if (review) p.set("review", review);
+  if (auth.apiKey) p.set("api_key", auth.apiKey);
+  const res = await fetch(`/v1/gcn/export.csv?${p.toString()}`, { headers: headers() });
+  if (!res.ok) throw new Error(`xuất CSV lỗi: ${res.status}`);
+  const blob = await res.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "ai-hub-export.csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 // Hậu kiểm: ghi review (đặt tên / overrides / trạng thái).
 export async function putReview(id, body) {
   return handle(await fetch(`/v1/gcn/${id}`, {

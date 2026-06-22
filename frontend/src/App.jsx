@@ -5,11 +5,13 @@ import Toaster from "./components/Toaster.jsx";
 import CreateBatch from "./components/CreateBatch.jsx";
 import ExtractTable from "./components/ExtractTable.jsx";
 import Reconcile from "./components/Reconcile.jsx";
+import ExportView from "./components/ExportView.jsx";
 import Settings from "./components/Settings.jsx";
 
 const TABS = [
   ["create", "Tạo việc"],
   ["table", "Bảng trích xuất"],
+  ["export", "Xuất dữ liệu"],
 ];
 
 export default function App() {
@@ -50,6 +52,7 @@ export default function App() {
             ? <Reconcile gcnId={openGcn} onBack={() => setOpenGcn(null)} />
             : <ExtractTable batchId={batchId} onPickBatch={setBatchId} onOpen={setOpenGcn} />
         )}
+        {tab === "export" && <ExportView />}
       </main>
       <Toaster />
     </div>

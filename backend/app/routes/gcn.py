@@ -1,5 +1,6 @@
 """GCN: bảng trích xuất (list/table), chi tiết, ảnh trang đối soát, hậu kiểm, tải bộ."""
 
+import csv
 import io
 import json
 import zipfile
@@ -12,6 +13,7 @@ from pydantic import BaseModel
 from app import storage
 from app.db import gcns
 from app.deps import require_key
+from app.flatten import COLUMNS as FLAT_COLUMNS, flatten_doc
 
 router = APIRouter(prefix="/v1/gcn", tags=["gcn"], dependencies=[Depends(require_key)])
 
@@ -48,6 +50,47 @@ async def list_gcn(
     rows.sort(key=lambda r: (r.get("group_key") is None, r.get("group_key") or "",
                              str(r.get("created_at") or "")))
     return {"gcn": [_row(r) for r in rows], "total": len(rows)}
+
+
+async def _collect_rows(batch_id, status, review) -> list[dict]:
+    flt: dict = {}
+    if batch_id:
+        flt["batch_id"] = batch_id
+    if status:
+        flt["status"] = status
+    if review:
+        flt["review.status"] = review
+    docs = await gcns().find(flt).to_list(length=5000)
+    docs.sort(key=lambda r: (r.get("group_key") is None, r.get("group_key") or "",
+                             str(r.get("created_at") or "")))
+    rows: list[dict] = []
+    for d in docs:
+        rows.extend(flatten_doc(d))
+    return rows
+
+
+@router.get("/rows")
+async def gcn_rows(batch_id: str | None = None, status: str | None = None,
+                   review: str | None = None):
+    """Khung nhìn dạng HÀNG phẳng (đã áp hậu kiểm) — phục vụ xem/xuất/FME."""
+    rows = await _collect_rows(batch_id, status, review)
+    return {"columns": FLAT_COLUMNS, "rows": rows}
+
+
+@router.get("/export.csv")
+async def export_csv(batch_id: str | None = None, status: str | None = None,
+                     review: str | None = None, _=Depends(require_key)):
+    rows = await _collect_rows(batch_id, status, review)
+    buf = io.StringIO()
+    buf.write("﻿")  # BOM để Excel đọc UTF-8 đúng
+    writer = csv.DictWriter(buf, fieldnames=FLAT_COLUMNS, extrasaction="ignore")
+    writer.writeheader()
+    for r in rows:
+        writer.writerow({c: r.get(c, "") for c in FLAT_COLUMNS})
+    data = buf.getvalue().encode("utf-8")
+    fname = f"ai-hub-export-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}.csv"
+    return Response(content=data, media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @router.get("/{gcn_id}")
