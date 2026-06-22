@@ -17,6 +17,9 @@ export default function ExportView() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState(null); // {gcnId, cutIndex, title}
+  const [pvPage, setPvPage] = useState(1);
+
+  function openPreview(p) { setPvPage(1); setPreview(p); }
 
   async function refresh() {
     setLoading(true);
@@ -45,7 +48,7 @@ export default function ExportView() {
     if (col === "Tệp gốc") {
       if (!r._gcn_id) return "—";
       return (
-        <button className="link-btn" onClick={() => setPreview({ gcnId: r._gcn_id, cutIndex: null, title: r["Tệp gốc"] })}>
+        <button className="link-btn" onClick={() => openPreview({ gcnId: r._gcn_id, cutIndex: null, title: r["Tệp gốc"] })}>
           <Icon name="fileText" size={13} /> {r["Tệp gốc"] || "Xem"}
         </button>
       );
@@ -53,7 +56,7 @@ export default function ExportView() {
     if (col === "Tệp cắt") {
       if (r._cut_index === null || r._cut_index === undefined) return <span className="muted">—</span>;
       return (
-        <button className="link-btn" onClick={() => setPreview({ gcnId: r._gcn_id, cutIndex: r._cut_index, title: r["Tệp cắt"] })}>
+        <button className="link-btn" onClick={() => openPreview({ gcnId: r._gcn_id, cutIndex: r._cut_index, title: r["Tệp cắt"] })}>
           <Icon name="scissors" size={13} /> {r["Tệp cắt"] || "Xem cắt"}
         </button>
       );
@@ -109,7 +112,7 @@ export default function ExportView() {
               <button className="icon-btn" onClick={() => setPreview(null)} aria-label="Đóng"><Icon name="x" size={16} /></button>
             </div>
             <div className="modal-body">
-              <GcnPdf gcnId={preview.gcnId} cutIndex={preview.cutIndex} page={1} onPageChange={() => {}} />
+              <GcnPdf gcnId={preview.gcnId} cutIndex={preview.cutIndex} page={pvPage} onPageChange={setPvPage} />
             </div>
           </div>
         </div>
