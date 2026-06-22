@@ -137,7 +137,7 @@ Examples output for Số vào sổ giấy chứng nhận:
 
 Chú ý các biến động.
 Chú ý mỗi chủ sử dụng là một đối tượng không chung đụng và tạm không liên quan đến biến động. Ví dụ Bà Vũ Thị Thu Hồng và chồng: Ông Nguyễn Sung => thì Vũ Thị Thu Hồng là 1 chủ sử dụng, Nguyễn Sung là 1 chủ sử dụng khác.
-Còn nếu có biến động hãy để nó vào nội dung biến động, không đưa lên các thông tin cơ bản của giấy chứng nhận.
+Chú ý nếu có biến động hãy để nó vào nội dung biến động, không đưa lên các thông tin cơ bản của giấy chứng nhận. Bạn có mục tiêu là trích xuất sự thật, không suy diễn.
 """
 
 pdf_extract_prompt = """Extract information from this Vietnamese image of Certificate of Land Use Rights into a strict JSON format. Maybe have thửa đất tại xã Ứng Hòa, Hà Tây - (Hà Nội mới).
@@ -286,7 +286,10 @@ khác nhau, và trang nào thuộc GCN nào.
 Mỗi GCN bắt đầu bằng một tờ BÌA: có quốc huy + dòng chữ "GIẤY CHỨNG NHẬN" và một "Số phát hành" ở
 GÓC DƯỚI BÊN PHẢI. Bản CẤP ĐỔI in quốc huy màu XÁM/nhạt vẫn là một tờ bìa riêng; CÙNG một chủ sử
 dụng vẫn là các GCN khác nhau nếu Số phát hành khác nhau. Trang nội dung (thửa đất, sơ đồ, bổ sung)
-thuộc về tờ bìa NGAY TRƯỚC nó.
+thuộc về tờ bìa NGAY TRƯỚC nó. 
+
+Ví dụ với ! kí hiệu là trang bổ sung. ~ là giấy chứng nhận.
+Thường thì nó sẽ là một cụm [~,~,!,!] hoặc là [~,~,~,~,!,!]
 
 Đánh số các ảnh 0..N-1 theo đúng thứ tự được đưa vào. Phân chúng vào từng GCN. Trang KHÔNG thuộc GCN
 nào (tài liệu khác) thì bỏ ra, không xếp vào nhóm.
