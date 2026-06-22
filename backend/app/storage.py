@@ -2,11 +2,39 @@
 
 import asyncio
 import io
+import logging
+import os
 
 import pypdfium2 as pdfium
+from PIL import Image
 
 from app import config
 from src.extentions.minio_helper import minio_client
+
+log = logging.getLogger(__name__)
+
+# Xoay orientation cho trang đối soát ĐÚNG như pipeline (pdf_to_corrected_images) đã
+# áp khi extract — nếu không preview lệch (nghiêng/ngược) so với dữ liệu bóc ra.
+RENDER_ORIENT = os.getenv("AIHUB_RENDER_ORIENT", "true").strip().lower() == "true"
+
+
+def _orient(image: Image.Image) -> Image.Image:
+    """Phát hiện hướng (ONNX, cùng detector pipeline) → xoay 90/270 nếu cần. Lỗi → giữ nguyên."""
+    if not RENDER_ORIENT:
+        return image
+    try:
+        from src.extentions.multimodal.make import get_detector
+
+        buf = io.BytesIO()
+        image.save(buf, format="PNG")
+        buf.seek(0)
+        angles = get_detector().get_orientations_from_images_batch([buf])
+        angle = angles[0] if angles else 0
+        if angle in (90, 270):
+            return image.rotate(angle, expand=True, fillcolor="white")
+    except Exception as e:  # noqa: BLE001
+        log.warning("orientation render lỗi: %s", e)
+    return image
 
 
 async def put_pdf(key: str, data: bytes) -> None:
@@ -34,6 +62,7 @@ def _render_page_png(pdf_bytes: bytes, page_index: int, width: int) -> bytes:
             image = bitmap.to_pil()
         finally:
             page.close()
+        image = _orient(image)
         buf = io.BytesIO()
         image.save(buf, format="PNG")
         return buf.getvalue()
