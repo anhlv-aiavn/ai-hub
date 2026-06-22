@@ -1,0 +1,20 @@
+# API + worker
+fastapi
+uvicorn[standard]
+python-multipart
+rq
+redis
+
+# DB + storage
+motor
+aioboto3
+
+# GCN engine (vendor) deps
+litellm
+python-dotenv
+tqdm
+pypdfium2
+Pillow
+numpy
+opencv-python-headless
+onnxruntime-gpu

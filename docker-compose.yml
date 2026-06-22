@@ -1,0 +1,51 @@
+name: ai-hub
+
+# MinIO dùng kho có sẵn (storage.ai-hub.tumiki.org) — không chạy service minio ở đây.
+# Model VLM dùng endpoint public — đặt VLLM_BASE_URL trong .env.
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports: ["27018:27017"]
+    volumes: ["mongo_data:/data/db"]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports: ["56381:6379"]
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    depends_on: [mongo, redis]
+    environment: &backend_env
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB: aihub
+      AIHUB_BUCKET: ${AIHUB_BUCKET:-ai-hub}
+      ENDPOINT_URL_MINIO: ${ENDPOINT_URL_MINIO:-https://storage.ai-hub.tumiki.org}
+      AWS_ACCESS_KEY_ID_MINIO: ${AWS_ACCESS_KEY_ID_MINIO:-minioadmin}
+      AWS_SECRET_ACCESS_KEY_MINIO: ${AWS_SECRET_ACCESS_KEY_MINIO:-Tumiki2026}
+      REDIS_URL: redis://redis:6379/0
+      VLLM_BASE_URL: ${VLLM_BASE_URL:-http://14.232.240.254:30000/v1}
+      VLLM_MODEL_NAME: ${VLLM_MODEL_NAME:-gemma-4-26B-A4B-NVFP4}
+      VLLM_API_KEY: ${VLLM_API_KEY:-EMPTY}
+      ENABLE_THINKING: ${ENABLE_THINKING:-false}
+      AIHUB_API_KEY: ${AIHUB_API_KEY:-}
+    ports: ["18002:8000"]
+
+  worker:
+    build: ./backend
+    restart: unless-stopped
+    depends_on: [mongo, redis]
+    environment: *backend_env
+    command: ["python", "-m", "app.worker.main"]
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on: [api]
+    ports: ["18082:80"]
+
+volumes:
+  mongo_data:
