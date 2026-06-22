@@ -13,7 +13,8 @@ from pydantic import BaseModel
 from app import storage
 from app.db import gcns
 from app.deps import require_key
-from app.flatten import COLUMNS as FLAT_COLUMNS, flatten_doc
+from app.flatten import COLUMNS as FLAT_COLUMNS, apply_overrides, flatten_doc
+from app.summary import collect_so_phat_hanhs, group_key_of, per_gcn, summarize
 
 router = APIRouter(prefix="/v1/gcn", tags=["gcn"], dependencies=[Depends(require_key)])
 
@@ -158,7 +159,10 @@ class ReviewIn(BaseModel):
 
 @router.put("/{gcn_id}")
 async def put_review(gcn_id: str, body: ReviewIn):
-    doc = await gcns().find_one({"_id": gcn_id}, {"review": 1})
+    proj = {"review": 1}
+    if body.overrides is not None:  # cần raw để tính lại cột dẫn xuất
+        proj.update({"extractions": 1, "cuts": 1})
+    doc = await gcns().find_one({"_id": gcn_id}, proj)
     if not doc:
         raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
     review = doc.get("review") or {}
@@ -171,7 +175,20 @@ async def put_review(gcn_id: str, body: ReviewIn):
     if body.reviewer is not None:
         review["reviewer"] = body.reviewer
     review["at"] = datetime.now(timezone.utc)
-    await gcns().update_one({"_id": gcn_id}, {"$set": {"review": review}})
+
+    update: dict = {"review": review}
+    # Sửa tay (overrides) phải phản chiếu vào cột tóm tắt/group_key của bảng list,
+    # nếu không bảng vẫn hiện giá trị raw cũ. Tính lại từ extractions đã áp override.
+    if body.overrides is not None:
+        ext = apply_overrides(doc.get("extractions"), review.get("overrides"))
+        update.update({
+            "group_key": group_key_of(ext),
+            "extracted_so_phat_hanhs": collect_so_phat_hanhs(ext),
+            "summary": summarize(ext),
+            "gcn_rows": per_gcn(ext, doc.get("cuts") or []),
+        })
+
+    await gcns().update_one({"_id": gcn_id}, {"$set": update})
     return {"ok": True, "review": review}
 
 
