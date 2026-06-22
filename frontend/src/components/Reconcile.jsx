@@ -5,6 +5,10 @@ import EditableTree, { setAt } from "./EditableTree.jsx";
 import { getGcn, putReview, downloadGcn } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 
+// Thứ tự cột ưu tiên khi hậu kiểm (các trường quan trọng lên trước, còn lại giữ sau).
+const CHU_COLS = ["Loại đối tượng", "Tên chủ", "Loại giấy tờ", "Số giấy tờ", "Địa chỉ"];
+const THUA_COLS = ["Số thứ tự thửa", "Số hiệu tờ bản đồ", "Diện tích", "Địa chỉ"];
+
 // Đối soát 1 GCN: trái = ảnh PDF, phải = các trường bóc ra (sửa được).
 // Hậu kiểm ghi review.overrides + display_name (raw extractions giữ nguyên).
 export default function Reconcile({ gcnId, onBack }) {
@@ -60,6 +64,36 @@ export default function Reconcile({ gcnId, onBack }) {
     return out;
   }, [work]);
 
+  // Render một khối của entry. Chủ sử dụng: đảo cột ưu tiên. Thửa đất: tách từng
+  // thửa (trường chính + bảng Mục đích riêng). Còn lại: cây mặc định.
+  function renderBlock(block, val, ri, ei) {
+    const base = `[${ri}].result.Đăng ký[${ei}]`;
+    if (block === "Chủ sử dụng" && Array.isArray(val)) {
+      return <EditableTree value={val} path={`${base}.${block}`} onLeaf={onLeaf} colsOrder={CHU_COLS} />;
+    }
+    if (block === "Thửa đất" && Array.isArray(val)) {
+      return (
+        <div className="rc-thuas">
+          {val.map((thua, ti) => (
+            <div className="rc-thua" key={ti}>
+              <div className="rc-thua-head">Thửa đất {ti + 1}</div>
+              <EditableTree value={thua} path={`${base}.${block}[${ti}]`} onLeaf={onLeaf}
+                skipKeys={["Mục đích sử dụng"]} colsOrder={THUA_COLS} />
+              {Array.isArray(thua?.["Mục đích sử dụng"]) && thua["Mục đích sử dụng"].length > 0 && (
+                <div className="rc-sub">
+                  <div className="rc-sub-name">Mục đích sử dụng</div>
+                  <EditableTree value={thua["Mục đích sử dụng"]}
+                    path={`${base}.${block}[${ti}].Mục đích sử dụng`} onLeaf={onLeaf} />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return <EditableTree value={val} path={`${base}.${block}`} onLeaf={onLeaf} />;
+  }
+
   if (!doc) return <div className="panel muted">Đang tải…</div>;
   const dirty = Object.keys(overrides).length > 0 || name !== ((doc.review && doc.review.display_name) || doc.group_key || "");
 
@@ -103,7 +137,7 @@ export default function Reconcile({ gcnId, onBack }) {
               {Object.entries(entry).map(([block, val]) => (
                 <div className="rc-block" key={block}>
                   <div className="rc-block-name">{block}</div>
-                  <EditableTree value={val} path={`[${ri}].result.Đăng ký[${ei}].${block}`} onLeaf={onLeaf} />
+                  {renderBlock(block, val, ri, ei)}
                 </div>
               ))}
             </div>

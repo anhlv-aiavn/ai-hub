@@ -48,15 +48,16 @@ export default function ExtractTable({ batchId, onPickBatch, onOpen }) {
     return () => clearInterval(id);
   }, [hasPending]);
 
-  // Gom theo group_key (Số phát hành). Hàng cùng nhóm dính nhau, có vạch phân nhóm.
+  // Gom theo FILE NGUỒN (gcn_id): 1 file → nhiều bản cắt (GCN). Header = tên file +
+  // số giấy; dòng con là từng bản cắt thụt vào.
   const groups = useMemo(() => {
     const map = new Map();
     for (const r of rows) {
-      const k = r.group_key || "(chưa có Số phát hành)";
+      const k = r.gcn_id;
       if (!map.has(k)) map.set(k, []);
       map.get(k).push(r);
     }
-    return [...map.entries()];
+    return [...map.values()];
   }, [rows]);
 
   return (
@@ -93,31 +94,39 @@ export default function ExtractTable({ batchId, onPickBatch, onOpen }) {
             </tr>
           </thead>
           <tbody>
-            {groups.map(([key, items]) => (
-              <React.Fragment key={key}>
-                <tr className="group-head">
-                  <td colSpan={10}><Icon name="layers" size={13} /> {key} · {items.length} bản</td>
-                </tr>
-                {items.map((r) => {
-                  const s = r.summary || {};
-                  const pos = s.gcn_pos && s.gcn_count > 1 ? `${s.gcn_pos}/${s.gcn_count}` : (s.gcn_count || 1);
-                  return (
-                    <tr key={r.row_id || r.gcn_id} className="et-row" onClick={() => onOpen?.(r.gcn_id)}>
-                      <td className="et-name">{r.display_name || r.filename}</td>
-                      <td><span className={`badge st-${r.status}`}>{STATUS_LABEL[r.status] || r.status}</span></td>
-                      <td>{s.so_phat_hanh || r.group_key || "—"}</td>
-                      <td>{s.so_vao_so || "—"}</td>
-                      <td>{s.ngay_cap || "—"}</td>
-                      <td className="et-chu">{(s.chu_su_dung || []).join(", ") || "—"}</td>
-                      <td>{(s.to_ban_do || []).join(", ") || "—"}</td>
-                      <td>{r.page_count || 0}</td>
-                      <td>{pos}</td>
-                      <td><span className={`badge rv-${r.review_status}`}>{REVIEW_LABEL[r.review_status] || r.review_status}</span></td>
-                    </tr>
-                  );
-                })}
-              </React.Fragment>
-            ))}
+            {groups.map((items) => {
+              const f = items[0];
+              const multi = items.length > 1;
+              return (
+                <React.Fragment key={f.gcn_id}>
+                  <tr className="group-head">
+                    <td colSpan={10}>
+                      <Icon name="layers" size={13} /> {f.display_name || f.filename}
+                      <span className="gh-count">{multi ? `${items.length} giấy chứng nhận` : "1 giấy chứng nhận"}</span>
+                    </td>
+                  </tr>
+                  {items.map((r) => {
+                    const s = r.summary || {};
+                    return (
+                      <tr key={r.row_id || r.gcn_id} className="et-row" onClick={() => onOpen?.(r.gcn_id)}>
+                        <td className={`et-name ${multi ? "child" : ""}`}>
+                          {multi ? `↳ Bản cắt ${s.gcn_pos || 1}` : (r.display_name || r.filename)}
+                        </td>
+                        <td><span className={`badge st-${r.status}`}>{STATUS_LABEL[r.status] || r.status}</span></td>
+                        <td>{s.so_phat_hanh || r.group_key || "—"}</td>
+                        <td>{s.so_vao_so || "—"}</td>
+                        <td>{s.ngay_cap || "—"}</td>
+                        <td className="et-chu">{(s.chu_su_dung || []).join(", ") || "—"}</td>
+                        <td>{(s.to_ban_do || []).join(", ") || "—"}</td>
+                        <td>{r.page_count || 0}</td>
+                        <td>{multi ? `${s.gcn_pos}/${s.gcn_count}` : (s.gcn_count || 1)}</td>
+                        <td><span className={`badge rv-${r.review_status}`}>{REVIEW_LABEL[r.review_status] || r.review_status}</span></td>
+                      </tr>
+                    );
+                  })}
+                </React.Fragment>
+              );
+            })}
             {!rows.length && (
               <tr><td colSpan={10} className="muted center">
                 {loading ? "Đang tải…" : "Chưa có GCN. Tạo việc để bắt đầu."}

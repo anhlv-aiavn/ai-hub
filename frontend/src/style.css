@@ -806,6 +806,9 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .et-row { cursor: pointer; }
 .et-row:hover td { background: var(--surface-2); }
 .et-name { font-weight: 600; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.et-name.child { font-weight: 500; color: var(--text-2); padding-left: 18px; }
+.gh-count { margin-left: 10px; font-weight: 500; font-size: 11.5px; color: var(--text-3);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px; }
 .et-chu { max-width: 260px; }
 
 /* badge trạng thái */
@@ -849,6 +852,19 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
   border-left: none; padding-left: 0; }
 .rc-block > .ev-obj > .ev-row { grid-template-columns: minmax(110px, 150px) 1fr; }
 @media (max-width: 1100px) { .rc-block > .ev-obj { grid-template-columns: 1fr; } }
+
+/* Thửa đất: mỗi thửa một thẻ — trường chính (lưới 2 cột) rồi bảng Mục đích riêng. */
+.rc-thuas { display: flex; flex-direction: column; gap: 12px; }
+.rc-thua { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--surface-2); }
+.rc-thua-head { font-weight: 700; font-size: 12px; color: var(--text-2); margin-bottom: 8px;
+  padding-bottom: 6px; border-bottom: 1px dashed var(--border); }
+.rc-thua > .ev-obj { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 22px;
+  border-left: none; padding-left: 0; }
+.rc-thua > .ev-obj > .ev-row { grid-template-columns: minmax(96px, 130px) 1fr; align-items: start; }
+.rc-sub { margin-top: 10px; }
+.rc-sub-name { font-size: 11px; font-weight: 600; color: var(--text-3); margin-bottom: 5px;
+  text-transform: uppercase; letter-spacing: .02em; }
+@media (max-width: 1100px) { .rc-thua > .ev-obj { grid-template-columns: 1fr; } }
 
 .settings-panel { max-width: 520px; margin: 0 auto 14px; display: flex; flex-direction: column; gap: 12px; }
 .settings-panel h2 { margin: 0; color: var(--brand); }

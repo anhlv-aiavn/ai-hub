@@ -27,14 +27,23 @@ export function setAt(root, path, val) {
   return root;
 }
 
+// Sắp cột: các cột trong `order` lên trước (đúng thứ tự), còn lại giữ nguyên thứ tự gốc.
+function orderCols(cols, order) {
+  if (!order || !order.length) return cols;
+  const want = order.filter((c) => cols.includes(c));
+  const rest = cols.filter((c) => !want.includes(c));
+  return [...want, ...rest];
+}
+
 // Render cây giá trị THÀNH ô NHẬP. Mảng-các-object → BẢNG sửa được (cột=trường,
 // hàng=item, cuộn ngang+dọc, cột phủ value); mảng vô hướng → mục đánh số;
 // object → hàng key; lá → input.
-export default function EditableTree({ value, path, onLeaf }) {
+// colsOrder: thứ tự cột ưu tiên cho bảng. skipKeys: bỏ qua các key này khi render object.
+export default function EditableTree({ value, path, onLeaf, colsOrder, skipKeys }) {
   if (Array.isArray(value)) {
     const allObj = value.length > 0 && value.every((x) => x && typeof x === "object" && !Array.isArray(x));
     if (allObj) {
-      const cols = [...new Set(value.flatMap((x) => Object.keys(x)))];
+      const cols = orderCols([...new Set(value.flatMap((x) => Object.keys(x)))], colsOrder);
       return (
         <div className="ev-tablewrap">
           <table className="ev-table">
@@ -73,7 +82,7 @@ export default function EditableTree({ value, path, onLeaf }) {
   if (isObj(value)) {
     return (
       <div className="ev-obj">
-        {Object.entries(value).map(([k, x]) => (
+        {Object.entries(value).filter(([k]) => !skipKeys?.includes(k)).map(([k, x]) => (
           <div className="ev-row" key={k}>
             <span className="ev-key">{k}</span>
             <div className="ev-val"><EditableTree value={x} path={path ? `${path}.${k}` : k} onLeaf={onLeaf} /></div>
