@@ -63,8 +63,10 @@ async def _detect_groups(images: list[str]) -> list[list[int]]:
     Sau detect (nếu DETECT_VERIFY) chạy VLM verify soi lại từng nhóm để tách
     đúng GCN (chống detect gom nhầm nhiều giấy vào một nhóm)."""
     n = len(images)
-    if n < DETECT_MIN_PAGES:
-        return await _verify_groups(images, [list(range(n))])
+    if n <= DETECT_MIN_PAGES:
+        # File ngắn (≤ DETECT_MIN_PAGES trang): coi là MỘT giấy, extract hết —
+        # khỏi detect, khỏi verify (đỡ 2 vòng VLM cho file nhỏ).
+        return [list(range(n))]
 
     async def _one(imgs: list[str]) -> dict:
         async with _vlm_sem():
