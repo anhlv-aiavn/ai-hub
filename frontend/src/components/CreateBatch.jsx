@@ -9,6 +9,7 @@ export default function CreateBatch({ onCreated }) {
   const [name, setName] = useState("");
   const [drag, setDrag] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [pct, setPct] = useState(0);
   const ref = useRef(null);
 
   function addFiles(list) {
@@ -23,13 +24,16 @@ export default function CreateBatch({ onCreated }) {
 
   async function submit() {
     if (!files.length) return;
-    setBusy(true);
+    setBusy(true); setPct(0);
     try {
-      const b = await createBatch({ files, name: name.trim() || undefined });
+      const b = await createBatch({
+        files, name: name.trim() || undefined,
+        onProgress: (p) => setPct(p),
+      });
       toastOk(`Đã tạo lô · ${b.file_count} giấy`);
       setFiles([]); setName("");
       onCreated?.(b.batch_id);
-    } catch (e) { toastErr(e.message || e); } finally { setBusy(false); }
+    } catch (e) { toastErr(e.message || e); } finally { setBusy(false); setPct(0); }
   }
 
   const totalMB = (files.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1);
@@ -67,10 +71,19 @@ export default function CreateBatch({ onCreated }) {
               </div>
             ))}
           </div>
+          {busy && (
+            <div className="upload-progress">
+              <div className="up-bar"><div className="up-fill" style={{ width: `${pct}%` }} /></div>
+              <div className="up-label">
+                {pct < 100 ? `Đang tải lên máy chủ… ${pct}%` : "Đã tải xong — đang khởi tạo lô…"}
+                <span className="muted"> · đừng đóng tab</span>
+              </div>
+            </div>
+          )}
           <div className="cb-foot">
             <span className="muted">{files.length} tệp · {totalMB} MB</span>
             <button className="primary" disabled={busy} onClick={submit}>
-              <Icon name="sparkles" size={15} /> {busy ? "Đang tạo…" : "Bóc tách lô"}
+              <Icon name="sparkles" size={15} /> {busy ? "Đang tải lên…" : "Bóc tách lô"}
             </button>
           </div>
         </>

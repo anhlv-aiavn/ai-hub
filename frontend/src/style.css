@@ -818,24 +818,38 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .badge.rv-needs_review { background: #fef3c7; color: #92400e; }
 .badge.rv-reviewed { background: #d1fae5; color: #065f46; }
 
-/* ── Đối soát ── */
-.reconcile { display: flex; flex-direction: column; gap: 10px; height: calc(100vh - 120px); }
-.rc-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.rc-name { flex: 0 1 320px; padding: 7px 11px; font: inherit; border: 1px solid var(--border-2);
+/* ── Đối soát ──
+   Cả TRANG cuộn tự nhiên (body-scroll); PDF ghim sticky bên trái, dữ liệu chảy
+   bên phải → xem hết giấy bằng cuộn dọc, không kẹt nested-scroll. */
+.reconcile { display: flex; flex-direction: column; gap: 12px; }
+.rc-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  position: sticky; top: 56px; z-index: var(--z-sticky); background: var(--bg);
+  padding: 6px 0; }
+.rc-name { flex: 1 1 280px; padding: 7px 11px; font: inherit; border: 1px solid var(--border-2);
   border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); }
-.rc-body { display: grid; gap: 12px; flex: 1; min-height: 0; }
-.rc-body.with-pdf { grid-template-columns: minmax(380px, 46%) 1fr; }
+.rc-body { display: grid; gap: 14px; align-items: start; }
+.rc-body.with-pdf { grid-template-columns: minmax(360px, 42%) 1fr; }
 .rc-body.no-pdf { grid-template-columns: 1fr; }
-.rc-left { min-height: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); }
-.rc-right { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 14px; padding-right: 4px; }
+.rc-body > * { min-width: 0; }
+.rc-left { position: sticky; top: 108px; height: calc(100vh - 124px); overflow: hidden; }
+.rc-left .pdf-pane { height: 100%; }
+.rc-right { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .rc-err { background: #fee2e2; color: #991b1b; padding: 8px 12px; border-radius: var(--radius-sm); }
-.rc-entry { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.rc-entry-head { background: var(--accent-50); color: var(--brand); padding: 9px 13px; font-size: 13px;
-  display: flex; align-items: center; gap: 7px; border-bottom: 1px solid var(--border); }
+.rc-entry { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+  background: var(--surface); box-shadow: var(--shadow-sm); }
+.rc-entry-head { background: var(--accent-50); color: var(--brand); padding: 10px 14px; font-size: 13.5px;
+  display: flex; align-items: center; gap: 7px; border-bottom: 1px solid var(--border);
+  position: sticky; top: 100px; z-index: 1; }
 .rc-entry-head .ico { vertical-align: -2px; }
-.rc-block { padding: 10px 13px; border-top: 1px solid var(--border); }
+.rc-block { padding: 11px 14px; border-top: 1px solid var(--border); }
 .rc-block:first-of-type { border-top: none; }
-.rc-block-name { font-weight: 600; color: var(--text-2); font-size: 12.5px; margin-bottom: 6px; }
+.rc-block-name { font-weight: 700; color: var(--brand); font-size: 12px; margin-bottom: 8px;
+  text-transform: uppercase; letter-spacing: .03em; }
+/* Khối object (Giấy chứng nhận) → lưới 2 cột cho gọn, đỡ tốn chiều dọc. */
+.rc-block > .ev-obj { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 22px;
+  border-left: none; padding-left: 0; }
+.rc-block > .ev-obj > .ev-row { grid-template-columns: minmax(110px, 150px) 1fr; }
+@media (max-width: 1100px) { .rc-block > .ev-obj { grid-template-columns: 1fr; } }
 
 .settings-panel { max-width: 520px; margin: 0 auto 14px; display: flex; flex-direction: column; gap: 12px; }
 .settings-panel h2 { margin: 0; color: var(--brand); }
@@ -845,3 +859,10 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .ev-count { font-size: 12.5px; }
 .flat-grid td { white-space: nowrap; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
 .flat-grid th { white-space: nowrap; }
+
+/* ── Tiến độ upload (Tạo việc) ── */
+.upload-progress { display: flex; flex-direction: column; gap: 6px; }
+.up-bar { height: 10px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.up-fill { height: 100%; background: var(--accent); border-radius: 999px; transition: width .2s ease; }
+.up-label { font-size: 12.5px; color: var(--brand); font-weight: 600; }
+.up-label .muted { font-weight: 400; }

@@ -22,11 +22,29 @@ async function handle(res) {
 }
 
 // ── Lô ──────────────────────────────────────────────────────────────────────
-export async function createBatch({ files, name }) {
-  const form = new FormData();
-  if (name) form.append("name", name);
-  for (const f of files) form.append("files", f);
-  return handle(await fetch("/v1/batches", { method: "POST", headers: headers(), body: form }));
+// Upload qua XHR để có tiến độ thực (file nặng không còn "treo" vô hình).
+// onProgress(pct 0..100, loadedBytes, totalBytes).
+export function createBatch({ files, name, onProgress }) {
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    if (name) form.append("name", name);
+    for (const f of files) form.append("files", f);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/v1/batches");
+    if (auth.apiKey) xhr.setRequestHeader("X-API-Key", auth.apiKey);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(Math.round((e.loaded / e.total) * 100), e.loaded, e.total);
+    };
+    xhr.onload = () => {
+      let body = null;
+      try { body = JSON.parse(xhr.responseText); } catch { /* ignore */ }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body);
+      else reject(new Error(`${xhr.status} · ${(body && body.detail) || xhr.statusText}`));
+    };
+    xhr.onerror = () => reject(new Error("Lỗi mạng khi tải lên"));
+    xhr.send(form);
+  });
 }
 export async function listBatches(limit = 50) {
   return handle(await fetch(`/v1/batches?limit=${limit}`, { headers: headers() }));
