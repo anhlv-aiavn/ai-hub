@@ -17,4 +17,4 @@ pypdfium2
 Pillow
 numpy
 opencv-python-headless
-onnxruntime-gpu
+onnxruntime

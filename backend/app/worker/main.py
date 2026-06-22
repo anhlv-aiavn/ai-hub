@@ -7,6 +7,9 @@ from redis import Redis
 from rq import SimpleWorker
 
 from app import config
+# Import sớm để mọi ImportError của pipeline hiện thẳng lúc khởi động worker
+# (tránh RQ nuốt lỗi thành "module has no attribute run_job" lúc chạy job).
+from app.worker import run_job  # noqa: F401
 
 
 def main() -> None:
