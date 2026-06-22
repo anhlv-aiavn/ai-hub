@@ -218,87 +218,42 @@ Số vào sổ not in Số phát hành
 pdf_extract_gcn_only_prompt = """Trích xuất Số phát hành, Số vào sổ và Ngày cấp của tất cả Giấy chứng nhận có trong ảnh.
 Lưu ý: ảnh có thể chứa nhiều Giấy chứng nhận."""
 
-detect_system_prompt = """Bạn là chuyên gia phân tích tài liệu pháp lý Việt Nam, chuyên nhận diện Giấy chứng nhận quyền sử dụng đất (GCN/sổ đỏ/sổ hồng).
+detect_system_prompt = """Bạn là chuyên gia nhận diện Giấy chứng nhận quyền sử dụng đất (GCN) Việt Nam.
 
-## CẤU TRÚC VẬT LÝ CỦA MỘT BỘ GCN
-Một GCN thường được in dạng sách gấp đôi, mỗi ảnh chụp là MỘT TỜ GIẤY có HAI MẶT:
-- Ảnh 1 (tờ bìa ngoài): mặt trái = trang ghi chú biến động trắng, mặt phải = bìa GCN có quốc huy + tiêu đề + họ tên chủ sử dụng + mã số phát hành
-- Ảnh 2 (tờ nội dung): mặt trái = thông tin thửa đất (mục II) + sơ đồ (mục III) + chữ ký con dấu, mặt phải = bảng "Những thay đổi sau khi cấp GCN"
-- Ảnh 3+ (trang bổ sung, nếu có): tiêu đề "TRANG BỔ SUNG GIẤY CHỨNG NHẬN" 
-- nội dung thay đổi và pháp lý
-(đặc biệt trang bổ sung, thay đổi tối đa chỉ có 2 trang thêm của 1 giấy chứng nhận)
+Bạn nhận một dãy ảnh (mỗi ảnh = 1 trang). Hãy trả về HAI danh sách index:
 
-## QUY TẮC VÀNG: MỖI "Số phát hành" = MỘT GCN RIÊNG
-- "Số phát hành" in ở GÓC DƯỚI BÊN PHẢI mỗi tờ BÌA (dạng: DĐ 999053, DD 999740, CU 123456,
-  AA 00827763, hoặc dãy 10-15 chữ số). Mỗi bìa có một Số phát hành riêng.
-- Cứ gặp một tờ BÌA (quốc huy + chữ "GIẤY CHỨNG NHẬN" + Số phát hành ở góc dưới phải) →
-  BẮT ĐẦU MỘT NHÓM MỚI. ĐÚNG kể cả khi:
-  • Quốc huy/chữ bị MỜ, XÁM, hoặc là bản PHOTO/CẤP ĐỔI (GCN cấp đổi thường in màu xám nhạt,
-    KHÔNG đỏ tươi như bản gốc) — vẫn là một GCN RIÊNG.
-  • CÙNG MỘT chủ sử dụng với GCN trước (một công ty/người có NHIỀU GCN là chuyện bình thường;
-    KHÔNG được vì cùng chủ mà gộp chung).
-- TUYỆT ĐỐI KHÔNG gộp 2 tờ bìa có Số phát hành KHÁC NHAU vào cùng một nhóm. Có bao nhiêu Số
-  phát hành khác nhau thì có bấy nhiêu nhóm.
+1) "gcn_pages": index các trang THUỘC VỀ GCN — gồm cả tờ BÌA và các tờ NỘI DUNG
+   (Mục II Thửa đất, Mục III Sơ đồ, bảng tọa độ, trang bổ sung của GCN). KHÔNG đưa
+   vào đây các trang KHÔNG phải GCN.
 
-## CẤU TRÚC MỖI GCN (rất đều)
-Mỗi GCN thường = 1 tờ BÌA (Số phát hành) + 1 tờ NỘI DUNG (Mục II Thửa đất + Mục III Sơ đồ).
-Tờ NỘI DUNG thuộc về tờ BÌA NGAY TRƯỚC nó. Tới tờ bìa kế tiếp (Số phát hành khác) → GCN mới.
+2) "start_pages": index các trang BẮT ĐẦU một GCN mới = các tờ BÌA. Một tờ BÌA có:
+   - Quốc huy (hình tròn, ngôi sao vàng) + dòng chữ lớn "GIẤY CHỨNG NHẬN".
+   - Một "Số phát hành" ở GÓC DƯỚI BÊN PHẢI (vd: DĐ 999053, DD 999740, CU 123456,
+     AA 00827763, hoặc dãy 10-15 chữ số).
+   QUAN TRỌNG:
+   - Bản CẤP ĐỔI in quốc huy màu XÁM/nhạt (không đỏ) VẪN là một tờ bìa → vẫn là start.
+   - CÙNG một chủ sử dụng vẫn có thể có NHIỀU GCN: mỗi tờ bìa (mỗi Số phát hành) là MỘT start.
+   - Mọi index trong start_pages PHẢI nằm trong gcn_pages.
 
-## CÁCH LÀM CHẮC CHẮN (làm theo đúng thứ tự)
-1. Quét lần lượt từng ảnh, ĐÁNH DẤU mọi ảnh là tờ BÌA: có quốc huy + dòng chữ "GIẤY CHỨNG NHẬN
-   QUYỀN SỬ DỤNG ĐẤT", và một Số phát hành ở góc dưới phải. Bìa CẤP ĐỔI in màu XÁM/nhạt vẫn là BÌA.
-2. MỖI tờ bìa mở một nhóm MỚI. Các ảnh nội dung (Mục II/III, sơ đồ) nằm SAU một bìa và TRƯỚC bìa kế
-   tiếp thì thuộc nhóm của bìa đó.
-3. CẢNH BÁO: nếu thấy 2 (hay nhiều) tờ bìa GẦN NHAU đều có quốc huy + "GIẤY CHỨNG NHẬN" (dù xám,
-   dù cùng một công ty/người) → ĐÓ LÀ NHIỀU GCN. Mỗi bìa một nhóm. ĐỪNG dồn nội dung của chúng vào
-   chung một nhóm. Số nhóm = số tờ bìa.
+KHÔNG phải GCN (KHÔNG cho vào gcn_pages lẫn start_pages):
+CMND/CCCD, hợp đồng, tờ khai thuế, lệ phí trước bạ, văn bản thỏa thuận, giấy xác nhận hôn nhân,
+phiếu kiểm soát/giải quyết hồ sơ, đơn đăng ký biến động, biên bản, báo cáo thẩm định,
+công văn hành chính, bản mô tả ranh giới, tờ trắng/blank.
 
-KHÔNG tạo nhóm mới khi:
-- Mặt trái có nội dung biến động/ghi chú, mặt phải là bìa GCN — đây là 1 tờ giấy của cùng bộ GCN đó
-- Gặp "TRANG BỔ SUNG GIẤY CHỨNG NHẬN" — đây là trang phụ thuộc GCN trước đó
+Số phần tử start_pages = số GCN. Mỗi tờ bìa (mỗi Số phát hành) đếm một lần, theo thứ tự trang.
 
-## DỪNG HOÀN TOÀN khi gặp các loại tài liệu sau (KHÔNG đưa vào gcn_pages):
-CMND/CCCD, hợp đồng, tờ khai thuế, lệ phí trước bạ, văn bản thỏa thuận, giấy xác nhận hôn nhân, biên bản kiểm tra, phiếu xác nhận đo đạc, đơn đăng ký biến động, báo cáo thẩm định, công văn hành chính, bản mô tả ranh giới, tờ trắng/blank"""
+Trả về JSON ĐÚNG cấu trúc, KHÔNG giải thích:
+{
+  "gcn_pages": [<index trang thuộc GCN>, ...],
+  "start_pages": [<index tờ bìa bắt đầu mỗi GCN>, ...]
+}"""
 
 
-pdf_detect_prompt = """Dưới đây là {n_images} ảnh (index 0 đến {n_images_minus_1}) trích từ một file PDF hồ sơ đất đai.
+pdf_detect_prompt = """Dưới đây là {n_images} ảnh (index 0 đến {n_images_minus_1}) từ một hồ sơ đất đai.
 
-## CÁCH PHÂN TÍCH TỪNG ẢNH
-Mỗi ảnh thường là 1 tờ giấy gấp đôi (2 trang ghép). Quan sát:
-- Mặt PHẢI: có "GIẤY CHỨNG NHẬN" + quốc huy + nền hồng → đây là BÌA GCN → bắt đầu nhóm mới
-- Mặt TRÁI cùng tờ đó: trang ghi chú biến động (có bảng 2 cột) → cùng nhóm với mặt phải
-- Ảnh tiếp theo cùng bộ: thông tin thửa đất (mục II) + sơ đồ (mục III) + chữ ký
-- Trang bổ sung: tiêu đề "TRANG BỔ SUNG GIẤY CHỨNG NHẬN" + mã GCN → cùng nhóm
-- nội dung thay đổi và pháp lý
-(đặc biệt trang bổ sung, thay đổi tối đa chỉ có 2 trang thêm của 1 giấy chứng nhận nên khi có trang bổ sung thì sẽ là cụm [~,~,!,!] hoặc là [~,~,~,~,!,!] ! maybe là trang bổ sung)
+Trả về JSON gồm:
+- "gcn_pages": tất cả index trang THUỘC GCN (bìa + nội dung), loại bỏ trang không phải GCN.
+- "start_pages": index các TỜ BÌA bắt đầu mỗi GCN — nhận diện qua quốc huy + "GIẤY CHỨNG NHẬN"
+  + Số phát hành ở GÓC DƯỚI BÊN PHẢI. Bìa cấp đổi quốc huy XÁM/nhạt VẪN tính; cùng chủ vẫn tách.
 
-## DỪNG ngay khi gặp: CMND, hợp đồng, tờ khai thuế, công văn, biên bản, tờ trắng, v.v.
-
-## VÍ DỤ 1 — hai chủ khác nhau
-- Ảnh 0: bìa GCN DL 338944 (Nguyễn Bá Tường) → nhóm 1
-- Ảnh 1: thửa đất + sơ đồ của DL 338944 → cùng nhóm 1
-- Ảnh 2: bìa GCN DL 338945 (Nguyễn Hữu Tùng) → nhóm 2 (mã số khác!)
-- Ảnh 3: thửa đất GCN DL 338945 → cùng nhóm 2
-- Ảnh 4, 5: Trang bổ sung của DL 338945 → cùng nhóm 2
-→ {{"gcn_pages": [[0, 1], [2, 3, 4, 5]]}}
-
-## VÍ DỤ 2 — NHIỀU GCN cùng MỘT công ty, bản cấp đổi quốc huy XÁM (rất hay gặp)
-- Ảnh 0: bìa GCN ĐỎ, Số phát hành DĐ 999053 (Công ty Tâm Việt Farm) → nhóm 1
-- Ảnh 1: Mục II thửa + Mục III sơ đồ của DĐ 999053 → cùng nhóm 1
-- Ảnh 2: bìa GCN XÁM (cấp đổi), Số phát hành DĐ 999740, vẫn Công ty Tâm Việt Farm → nhóm 2 (Số phát hành khác!)
-- Ảnh 3: Mục II/III của DĐ 999740 → cùng nhóm 2
-- Ảnh 4: bìa GCN XÁM, Số phát hành DĐ 999742 → nhóm 3 (Số phát hành khác!)
-- Ảnh 5: Mục II/III của DĐ 999742 → cùng nhóm 3
-→ {{"gcn_pages": [[0, 1], [2, 3], [4, 5]]}}
-(Lưu ý: 3 GCN cùng một công ty vẫn là 3 nhóm vì 3 Số phát hành khác nhau; bìa xám/cấp đổi vẫn tính.)
-
-## ĐỊNH DẠNG ĐẦU RA
-{{
-  "gcn_pages": [
-    [<index các trang của GCN 1>],
-    [<index các trang của GCN 2>],
-    ...
-  ]
-}}
-
-Nếu không có GCN: {{"gcn_pages": []}}"""
+Chỉ trả JSON: {{"gcn_pages": [...], "start_pages": [...]}}. Nếu không có GCN: {{"gcn_pages": [], "start_pages": []}}"""
