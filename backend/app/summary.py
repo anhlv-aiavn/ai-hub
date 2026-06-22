@@ -4,6 +4,24 @@ và suy ra group_key (Số phát hành chính) để gom tờ bổ sung về GCN
 from typing import Any
 
 
+def format_page_range(indices: list | None) -> str:
+    """List index trang 0-based → chuỗi 1-based gọn, gộp đoạn liên tiếp.
+    [0,1,2,4] → '1–3, 5'. Rỗng → ''."""
+    nums = sorted({int(i) + 1 for i in (indices or []) if isinstance(i, int)})
+    if not nums:
+        return ""
+    parts: list[str] = []
+    start = prev = nums[0]
+    for n in nums[1:]:
+        if n == prev + 1:
+            prev = n
+        else:
+            parts.append(str(start) if start == prev else f"{start}–{prev}")
+            start = prev = n
+    parts.append(str(start) if start == prev else f"{start}–{prev}")
+    return ", ".join(parts)
+
+
 def _entries(extractions: list[dict]) -> list[dict]:
     """Duyệt mọi record → mọi entry 'Đăng ký'. Trả phẳng list entry kèm page_indices."""
     out: list[dict] = []
@@ -114,7 +132,8 @@ def per_gcn(extractions: list[dict], cuts: list[dict] | None = None) -> list[dic
         res = rec.get("result")
         entries = res.get("Đăng ký", []) if isinstance(res, dict) else []
         cut = cutmap.get(ri)
-        pages = len(rec.get("page_indices") or [])
+        page_idx = rec.get("page_indices") or []
+        pages = len(page_idx)
         cut_pages = (cut or {}).get("page_count") or pages
         for e in entries:
             if not isinstance(e, dict):
@@ -122,5 +141,7 @@ def per_gcn(extractions: list[dict], cuts: list[dict] | None = None) -> list[dic
             row = _entry_summary(e)
             row["cut_index"] = ri if cut else None
             row["page_count"] = cut_pages
+            row["page_indices"] = page_idx
+            row["page_range"] = format_page_range(page_idx)
             out.append(row)
     return out

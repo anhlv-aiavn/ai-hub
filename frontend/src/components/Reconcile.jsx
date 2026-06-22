@@ -9,6 +9,20 @@ import { toastOk, toastErr } from "../toast.js";
 const CHU_COLS = ["Loại đối tượng", "Tên chủ", "Loại giấy tờ", "Số giấy tờ", "Địa chỉ"];
 const THUA_COLS = ["Số thứ tự thửa", "Số hiệu tờ bản đồ", "Diện tích", "Địa chỉ"];
 
+// Index trang 0-based → chuỗi 1-based gọn, gộp đoạn liên tiếp: [0,1,2,4] → "1–3, 5".
+function pageRange(idx) {
+  const ns = [...new Set((idx || []).filter((n) => Number.isInteger(n)).map((n) => n + 1))].sort((a, b) => a - b);
+  if (!ns.length) return "";
+  const parts = [];
+  let s = ns[0], p = ns[0];
+  for (let i = 1; i < ns.length; i++) {
+    if (ns[i] === p + 1) p = ns[i];
+    else { parts.push(s === p ? `${s}` : `${s}–${p}`); s = p = ns[i]; }
+  }
+  parts.push(s === p ? `${s}` : `${s}–${p}`);
+  return parts.join(", ");
+}
+
 // Đối soát 1 GCN: trái = ảnh PDF, phải = các trường bóc ra (sửa được).
 // Hậu kiểm ghi review.overrides + display_name (raw extractions giữ nguyên).
 export default function Reconcile({ gcnId, onBack }) {
@@ -128,11 +142,14 @@ export default function Reconcile({ gcnId, onBack }) {
         <div className="rc-right">
           {doc.error && <div className="rc-err">Lỗi: {doc.error}</div>}
           {!entries.length && <div className="muted">Không có dữ liệu bóc tách.</div>}
-          {entries.map(({ ri, ei, entry }) => (
+          {entries.map(({ ri, ei, entry, rec }) => {
+            const range = pageRange(rec?.page_indices);
+            return (
             <div className="rc-entry" key={`${ri}-${ei}`}>
               <div className="rc-entry-head">
                 <Icon name="fileText" size={15} />
                 Số phát hành: <b>{entry?.["Giấy chứng nhận"]?.["Số phát hành"] || "—"}</b>
+                {range && <span className="rc-range">Trang gốc {range}</span>}
               </div>
               {Object.entries(entry).map(([block, val]) => (
                 <div className="rc-block" key={block}>
@@ -141,7 +158,8 @@ export default function Reconcile({ gcnId, onBack }) {
                 </div>
               ))}
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

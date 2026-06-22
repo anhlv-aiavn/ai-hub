@@ -843,6 +843,9 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .rc-entry-head { background: var(--accent-50); color: var(--brand); padding: 10px 14px; font-size: 13.5px;
   display: flex; align-items: center; gap: 7px; border-bottom: 1px solid var(--border); }
 .rc-entry-head .ico { vertical-align: -2px; }
+.rc-range { margin-left: auto; font-weight: 500; font-size: 11.5px; color: var(--text-2);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 2px 9px; }
+.et-range { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); white-space: nowrap; }
 .rc-block { padding: 11px 14px; border-top: 1px solid var(--border); }
 .rc-block:first-of-type { border-top: none; }
 .rc-block-name { font-weight: 700; color: var(--brand); font-size: 12px; margin-bottom: 8px;

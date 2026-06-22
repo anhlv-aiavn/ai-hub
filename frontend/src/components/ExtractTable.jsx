@@ -90,7 +90,7 @@ export default function ExtractTable({ batchId, onPickBatch, onOpen }) {
             <tr>
               <th>Tên / Tệp</th><th>Trạng thái</th><th>Số phát hành</th><th>Số vào sổ</th>
               <th>Ngày cấp</th><th>Chủ sử dụng</th><th>Tờ bản đồ</th><th>Trang</th>
-              <th>#GCN</th><th>Hậu kiểm</th>
+              <th>Vùng gốc</th><th>#GCN</th><th>Hậu kiểm</th>
             </tr>
           </thead>
           <tbody>
@@ -100,7 +100,7 @@ export default function ExtractTable({ batchId, onPickBatch, onOpen }) {
               return (
                 <React.Fragment key={f.gcn_id}>
                   <tr className="group-head">
-                    <td colSpan={10}>
+                    <td colSpan={11}>
                       <Icon name="layers" size={13} /> {f.display_name || f.filename}
                       <span className="gh-count">{multi ? `${items.length} giấy chứng nhận` : "1 giấy chứng nhận"}</span>
                     </td>
@@ -119,6 +119,7 @@ export default function ExtractTable({ batchId, onPickBatch, onOpen }) {
                         <td className="et-chu">{(s.chu_su_dung || []).join(", ") || "—"}</td>
                         <td>{(s.to_ban_do || []).join(", ") || "—"}</td>
                         <td>{r.page_count || 0}</td>
+                        <td className="et-range">{s.page_range || "—"}</td>
                         <td>{multi ? `${s.gcn_pos}/${s.gcn_count}` : (s.gcn_count || 1)}</td>
                         <td><span className={`badge rv-${r.review_status}`}>{REVIEW_LABEL[r.review_status] || r.review_status}</span></td>
                       </tr>
@@ -128,7 +129,7 @@ export default function ExtractTable({ batchId, onPickBatch, onOpen }) {
               );
             })}
             {!rows.length && (
-              <tr><td colSpan={10} className="muted center">
+              <tr><td colSpan={11} className="muted center">
                 {loading ? "Đang tải…" : "Chưa có GCN. Tạo việc để bắt đầu."}
               </td></tr>
             )}

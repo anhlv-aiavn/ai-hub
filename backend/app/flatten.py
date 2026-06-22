@@ -11,11 +11,13 @@ import copy
 import re
 from typing import Any
 
+from app.summary import format_page_range
+
 _TOKEN = re.compile(r"\[(\d+)\]|([^.\[\]]+)")
 
-# Thứ tự cột cố định (key = nhãn CSV). File cắt + File gốc lên đầu, rồi bộ ba khóa.
+# Thứ tự cột cố định (key = nhãn CSV). File cắt + File gốc + vùng trang lên đầu.
 COLUMNS = [
-    "Tệp cắt", "Tệp gốc",
+    "Tệp cắt", "Tệp gốc", "Vùng trang gốc",
     "Số phát hành", "Số hiệu tờ bản đồ", "Số thứ tự thửa",
     "Diện tích", "Địa chỉ thửa", "Mục đích sử dụng",
     "Số vào sổ", "Ngày cấp", "Mã vạch",
@@ -101,9 +103,11 @@ def flatten_doc(doc: dict) -> list[dict]:
         res = rec.get("result")
         entries = res.get("Đăng ký", []) if isinstance(res, dict) else []
         cut = cuts.get(ri)
+        page_idx = rec.get("page_indices") or (cut or {}).get("page_indices") or []
         recbase = {
             **base,
             "Tệp cắt": (cut or {}).get("name") or "",
+            "Vùng trang gốc": format_page_range(page_idx),
             "_cut_index": ri if cut else None,
         }
         for e in entries:
