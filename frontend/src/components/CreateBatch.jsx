@@ -3,7 +3,7 @@ import Icon from "./Icon.jsx";
 import { createBatch, getBranches } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 
-// Tạo việc: chọn chi nhánh + thả NHIỀU PDF → 1 lô → mỗi PDF chạy detect+extract.
+// Số hóa: chọn chi nhánh + thả NHIỀU PDF → 1 đợt → mỗi PDF chạy detect+extract.
 // User thường: chi nhánh CỐ ĐỊNH theo tài khoản. Admin: chọn từ danh sách.
 export default function CreateBatch({ user, onCreated }) {
   const isAdmin = user?.role === "admin";
@@ -42,8 +42,8 @@ export default function CreateBatch({ user, onCreated }) {
           if (meta?.count) setStep(`Tệp ${meta.index}/${meta.count}${meta.name ? ` · ${meta.name}` : ""}`);
         },
       });
-      if (b.failed?.length) toastErr(`Tạo lô · ${b.file_count} giấy. Lỗi ${b.failed.length} tệp: ${b.failed.join(", ")}`);
-      else toastOk(`Đã tạo lô · ${b.file_count} giấy`);
+      if (b.failed?.length) toastErr(`Đã tạo đợt · ${b.file_count} hồ sơ. Lỗi ${b.failed.length} tệp: ${b.failed.join(", ")}`);
+      else toastOk(`Đã tạo đợt · ${b.file_count} hồ sơ`);
       setFiles([]);
       onCreated?.(b.batch_id);
     } catch (e) { toastErr(e.message || e); } finally { setBusy(false); setPct(0); setStep(""); }
@@ -53,9 +53,9 @@ export default function CreateBatch({ user, onCreated }) {
 
   return (
     <div className="panel create-batch">
-      <h2>Tạo việc mới</h2>
-      <p className="muted">Thả vào nhiều Giấy Chứng Nhận (PDF). Hệ thống tự phát hiện GCN, bóc tách,
-        và gom tờ bổ sung theo Số phát hành.</p>
+      <h2>Số hóa hồ sơ mới</h2>
+      <p className="muted">Tải lên Giấy chứng nhận (PDF). Hệ thống tự nhận diện, trích xuất
+        và gom trang bổ sung theo Số phát hành.</p>
 
       <label className="field-label" htmlFor="cb-branch">Chi nhánh / Đơn vị</label>
       {isAdmin ? (
@@ -95,7 +95,7 @@ export default function CreateBatch({ user, onCreated }) {
             <div className="upload-progress">
               <div className="up-bar"><div className="up-fill" style={{ width: `${pct}%` }} /></div>
               <div className="up-label">
-                {pct < 100 ? `Đang tải lên… ${pct}%` : "Đang khởi tạo lô…"}
+                {pct < 100 ? `Đang tải lên… ${pct}%` : "Đang khởi tạo đợt…"}
                 {step && <span className="up-step"> · {step}</span>}
               </div>
             </div>
@@ -105,7 +105,7 @@ export default function CreateBatch({ user, onCreated }) {
               {files.length} tệp · {totalMB} MB{branch ? ` · ${branch}` : " · chưa chọn chi nhánh"}
             </span>
             <button className="primary" disabled={busy || !branch} onClick={submit}>
-              <Icon name="sparkles" size={15} /> {busy ? "Đang tải lên…" : "Bóc tách lô"}
+              <Icon name="sparkles" size={15} /> {busy ? "Đang tải lên…" : "Bắt đầu số hóa"}
             </button>
           </div>
         </>

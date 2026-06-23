@@ -142,7 +142,7 @@ export default function Reconcile({ gcnId, onBack }) {
       <div className="rc-toolbar">
         <button className="ghost sm" onClick={onBack}><Icon name="chevronLeft" size={14} /> Kết quả trích xuất</button>
         <span className={`badge st-${doc.status}`}>{doc.status}</span>
-        <input className="rc-name" placeholder="Đặt tên giấy…" value={name}
+        <input className="rc-name" placeholder="Đặt tên hồ sơ…" value={name}
           onChange={(e) => setName(e.target.value)} title="Tên hiển thị / tên file khi tải" />
         <span className="tb-gap" />
         <button className="ghost sm" onClick={() => setPdfOpen((v) => !v)}>

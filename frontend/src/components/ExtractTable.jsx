@@ -70,7 +70,7 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
   return (
     <div className="panel extract-table">
       <div className="et-toolbar">
-        <h2>Kết quả trích xuất</h2>
+        <h2>Hồ sơ đã xử lý</h2>
         <div className="et-filters">
           {isAdmin && (
             <select value={branch} onChange={(e) => setBranch(e.target.value)}>
@@ -79,9 +79,9 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
             </select>
           )}
           <select value={batchId || ""} onChange={(e) => onPickBatch?.(e.target.value || null)}>
-            <option value="">Tất cả lô</option>
+            <option value="">Tất cả đợt</option>
             {batches.map((b) => (
-              <option key={b.batch_id} value={b.batch_id}>{b.name} · {b.file_count} giấy</option>
+              <option key={b.batch_id} value={b.batch_id}>{b.name} · {b.file_count} hồ sơ</option>
             ))}
           </select>
           <select value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -143,7 +143,7 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
             })}
             {!rows.length && (
               <tr><td colSpan={9} className="muted center">
-                {loading ? "Đang tải…" : "Chưa có GCN. Tạo việc để bắt đầu."}
+                {loading ? "Đang tải…" : "Chưa có hồ sơ. Vào mục Số hóa để bắt đầu."}
               </td></tr>
             )}
           </tbody>

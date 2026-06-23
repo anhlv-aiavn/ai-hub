@@ -11,9 +11,9 @@ import Reconcile from "./components/Reconcile.jsx";
 import ExportView from "./components/ExportView.jsx";
 
 const TABS = [
-  ["create", "Tạo việc"],
+  ["create", "Số hóa"],
   ["table", "Kết quả trích xuất"],
-  ["export", "Thống kê"],
+  ["export", "Tổng quan"],
 ];
 
 export default function App() {

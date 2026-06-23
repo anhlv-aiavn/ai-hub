@@ -24,7 +24,7 @@ const REVIEW_SEGS = [
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
 const pct = (n, total) => (total ? Math.round((n / total) * 100) : 0);
 
-function SegBar({ title, segs, data, unit = "tệp" }) {
+function SegBar({ title, segs, data, unit = "hồ sơ" }) {
   const items = segs.map((x) => ({ ...x, n: data[x.key] || 0 }));
   const total = items.reduce((a, b) => a + b.n, 0);
   const denom = total || 1;
@@ -68,7 +68,7 @@ function BranchTable({ rows }) {
         <table className="et-grid">
           <thead>
             <tr>
-              <th>#</th><th>Chi nhánh</th><th>Tệp</th><th>GCN</th>
+              <th>#</th><th>Chi nhánh</th><th>Hồ sơ</th><th>GCN</th>
               <th>Tiến độ xử lý AI</th><th>Đã duyệt</th>
             </tr>
           </thead>
@@ -180,7 +180,7 @@ export default function ExportView({ user }) {
   return (
     <div className="panel export-view">
       <div className="et-toolbar">
-        <h2>Thống kê</h2>
+        <h2>Tổng quan</h2>
         <div className="et-filters">
           {isAdmin && (
             <select value={branch} onChange={(e) => setBranch(e.target.value)}>
@@ -189,8 +189,8 @@ export default function ExportView({ user }) {
             </select>
           )}
           <select value={batchId} onChange={(e) => setBatchId(e.target.value)}>
-            <option value="">Tất cả lô</option>
-            {batches.map((b) => <option key={b.batch_id} value={b.batch_id}>{b.name} · {b.file_count} giấy</option>)}
+            <option value="">Tất cả đợt</option>
+            {batches.map((b) => <option key={b.batch_id} value={b.batch_id}>{b.name} · {b.file_count} hồ sơ</option>)}
           </select>
           <button className="ghost sm" onClick={refresh}><Icon name="refresh" size={14} /> Làm mới</button>
         </div>
