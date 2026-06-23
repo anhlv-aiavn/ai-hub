@@ -57,30 +57,10 @@ function BranchTable({ rows }) {
   if (!rows.length) return null;
   // Xếp hạng theo SỐ ĐÃ DUYỆT giảm dần (tie: nhiều GCN hơn trước).
   const ranked = [...rows].sort((a, b) => (b.reviewed - a.reviewed) || (b.gcns - a.gcns));
-  const maxRev = Math.max(1, ...ranked.map((r) => r.reviewed || 0));
 
   return (
     <div className="branch-stats">
-      <div className="seg-title">Xếp hạng chi nhánh · theo số đã duyệt</div>
-
-      {/* Kim tự tháp ngược: hạng cao thanh dài nhất ở trên, thu hẹp dần xuống. */}
-      <div className="funnel">
-        {ranked.map((r, i) => {
-          const w = Math.round(((r.reviewed || 0) / maxRev) * 100);
-          return (
-            <div className={`fn-row rank-${i + 1 <= 3 ? i + 1 : "x"}`} key={r.branch || `__${i}`}>
-              <span className="fn-rank">{i + 1}</span>
-              <span className="fn-name">{r.branch || "(chưa gán)"}</span>
-              <div className="fn-track">
-                <div className="fn-bar" style={{ width: `${Math.max(w, 6)}%` }}>
-                  <span className="fn-val">{fmt(r.reviewed)}</span>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
+      <div className="seg-title">Theo chi nhánh · xếp hạng theo số đã duyệt</div>
       <div className="et-scroll bt-scroll">
         <table className="et-grid">
           <thead>
@@ -105,7 +85,7 @@ function BranchTable({ rows }) {
                       <span className="bt-pct">{donePct}% <span className="muted">({fmt(r.done)}/{fmt(r.files)})</span></span>
                     </div>
                   </td>
-                  <td><b>{fmt(r.reviewed)}</b> <span className="muted">({revPct}%)</span></td>
+                  <td><b>{fmt(r.reviewed)}</b> <span className="muted">đã duyệt · {revPct}%</span></td>
                 </tr>
               );
             })}
