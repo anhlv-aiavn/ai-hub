@@ -42,9 +42,15 @@ export default function Reconcile({ gcnId, onBack }) {
     let live = true;
     getGcn(gcnId).then((d) => {
       if (!live) return;
+      const ov = (d.review && d.review.overrides) || {};
+      // Áp overrides ĐÃ LƯU lên bản làm việc để mở lại thấy đúng giá trị đã sửa.
+      const w = structuredClone(d.extractions || []);
+      for (const [path, val] of Object.entries(ov)) {
+        try { setAt(w, path, val); } catch { /* path lệch → bỏ qua */ }
+      }
       setDoc(d);
-      setWork(structuredClone(d.extractions || []));
-      setOverrides((d.review && d.review.overrides) || {});
+      setWork(w);
+      setOverrides(ov);
       setDeleted((d.review && d.review.deleted) || []);
       setName((d.review && d.review.display_name) || d.group_key || "");
       setPage(1);
