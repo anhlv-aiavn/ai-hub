@@ -789,9 +789,10 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .extract-table { display: flex; flex-direction: column; gap: 12px; }
 .et-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
 .et-toolbar h2 { margin: 0; color: var(--brand); }
-.et-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.et-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .et-filters select { padding: 7px 10px; font: inherit; font-size: 13px; border: 1px solid var(--border-2);
-  border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); }
+  border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text);
+  max-width: 200px; text-overflow: ellipsis; }
 .search-box { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--border-2);
   border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text-3); }
 .search-box input { border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--text); width: 200px; }
@@ -933,18 +934,21 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .al-warn { border-color: #f3e0b6; background: #fdf8ec; color: #b97e09; }
 .al-info { border-color: #c3dcf6; background: #f1f6fd; color: #2f6fb3; }
 
-.seg-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.seg-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
 @media (max-width: 900px) { .seg-row { grid-template-columns: 1fr; } }
 .seg-block { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 13px 15px; box-shadow: var(--shadow-sm); }
-.seg-title { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase;
-  letter-spacing: .03em; margin-bottom: 9px; }
+  padding: 14px 16px; box-shadow: var(--shadow-sm); }
+.seg-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.seg-title { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .03em; }
+.seg-total { font-size: 19px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.seg-total small { font-size: 12px; font-weight: 500; color: var(--text-3); }
 .seg-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--surface-3); }
 .seg { height: 100%; }
 .seg + .seg { box-shadow: inset 1px 0 0 rgba(255, 255, 255, .6); }
-.seg-legend { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 10px; }
-.seg-leg { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
+.seg-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 11px; }
+.seg-leg { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); }
 .seg-leg b { color: var(--text); font-variant-numeric: tabular-nums; }
+.seg-pct { color: var(--text-3); font-size: 11px; font-variant-numeric: tabular-nums; }
 .seg-dot { width: 9px; height: 9px; border-radius: 3px; flex: 0 0 auto; }
 .seg-ok { background: var(--ok); }
 .seg-info { background: var(--info); }
@@ -952,8 +956,10 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .seg-danger { background: var(--err); }
 .seg-warn { background: var(--amber); }
 
-.export-sec { border-top: 1px solid var(--border); padding-top: 16px; }
+.export-sec { border-top: 1px solid var(--border); padding-top: 14px; }
 .export-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
-  gap: 10px; margin-bottom: 12px; }
+  gap: 8px; margin-bottom: 10px; }
 .export-head h3 { margin: 0; color: var(--brand); font-size: 15px; }
-.export-head h3 .muted { font-weight: 400; font-size: 12.5px; }
+.export-head h3 .muted { font-weight: 400; font-size: 12px; }
+.export-head .et-filters { gap: 8px; }
+.export-head .ev-count { font-size: 12px; white-space: nowrap; }

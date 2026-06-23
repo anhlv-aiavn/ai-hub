@@ -18,13 +18,11 @@ export default function App() {
   const [tab, setTab] = useState("create");
   const [batchId, setBatchId] = useState(null);
   const [openGcn, setOpenGcn] = useState(null);
-  const [tableStatus, setTableStatus] = useState("");
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => { startEvents(); return () => stopEvents(); }, []);
 
   function onCreated(id) { setBatchId(id); setOpenGcn(null); setTab("table"); }
-  function onAlert(status) { setTableStatus(status || ""); setOpenGcn(null); setTab("table"); }
 
   return (
     <div className="app wide">
@@ -52,10 +50,9 @@ export default function App() {
         {tab === "table" && (
           openGcn
             ? <Reconcile gcnId={openGcn} onBack={() => setOpenGcn(null)} />
-            : <ExtractTable batchId={batchId} onPickBatch={setBatchId} onOpen={setOpenGcn}
-                initialStatus={tableStatus} />
+            : <ExtractTable batchId={batchId} onPickBatch={setBatchId} onOpen={setOpenGcn} />
         )}
-        {tab === "export" && <ExportView onAlert={onAlert} />}
+        {tab === "export" && <ExportView />}
       </main>
       <Toaster />
     </div>

@@ -22,37 +22,30 @@ const REVIEW_SEGS = [
 ];
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
+const pct = (n, total) => (total ? Math.round((n / total) * 100) : 0);
 
-function Kpi({ icon, label, value, sub }) {
-  return (
-    <div className="kpi">
-      <div className="kpi-ico"><Icon name={icon} size={18} /></div>
-      <div className="kpi-body">
-        <div className="kpi-val">{value}</div>
-        <div className="kpi-label">{label}</div>
-        {sub != null && <div className="kpi-sub">{sub}</div>}
-      </div>
-    </div>
-  );
-}
-
-function SegBar({ title, segs, data }) {
+function SegBar({ title, segs, data, unit = "tệp" }) {
   const items = segs.map((x) => ({ ...x, n: data[x.key] || 0 }));
-  const total = items.reduce((a, b) => a + b.n, 0) || 1;
+  const total = items.reduce((a, b) => a + b.n, 0);
+  const denom = total || 1;
   return (
     <div className="seg-block">
-      <div className="seg-title">{title}</div>
+      <div className="seg-head">
+        <span className="seg-title">{title}</span>
+        <span className="seg-total">{fmt(total)} <small>{unit}</small></span>
+      </div>
       <div className="seg-bar" role="img"
-        aria-label={items.map((x) => `${x.label}: ${x.n}`).join(", ")}>
+        aria-label={items.map((x) => `${x.label}: ${x.n} (${pct(x.n, denom)}%)`).join(", ")}>
         {items.filter((x) => x.n > 0).map((x) => (
-          <div key={x.key} className={`seg seg-${x.cls}`} style={{ width: `${(x.n / total) * 100}%` }}
-            title={`${x.label}: ${x.n}`} />
+          <div key={x.key} className={`seg seg-${x.cls}`} style={{ width: `${(x.n / denom) * 100}%` }}
+            title={`${x.label}: ${x.n} (${pct(x.n, denom)}%)`} />
         ))}
       </div>
       <div className="seg-legend">
         {items.map((x) => (
           <span key={x.key} className="seg-leg">
-            <i className={`seg-dot seg-${x.cls}`} /> {x.label} <b>{fmt(x.n)}</b>
+            <i className={`seg-dot seg-${x.cls}`} /> {x.label}
+            <b>{fmt(x.n)}</b> <span className="seg-pct">{pct(x.n, denom)}%</span>
           </span>
         ))}
       </div>
@@ -61,7 +54,7 @@ function SegBar({ title, segs, data }) {
 }
 
 // Thống kê: KPI + breakdown trạng thái/hậu kiểm + cảnh báo, kèm xuất CSV/bảng phẳng (FME).
-export default function ExportView({ onAlert }) {
+export default function ExportView() {
   const [batches, setBatches] = useState([]);
   const [batchId, setBatchId] = useState("");
   const [review, setReview] = useState("");
@@ -124,14 +117,6 @@ export default function ExportView({ onAlert }) {
 
   const s = stats || {};
   const st = s.by_status || {};
-  const done = st.done || 0;
-  const completion = s.files ? Math.round((done / s.files) * 100) : 0;
-  const alerts = [
-    { key: "error", label: "Tệp lỗi", n: st.error || 0, cls: "danger", icon: "alertTriangle", status: "error" },
-    { key: "skip", label: "Bỏ qua (quá lớn…)", n: st.skip || 0, cls: "warn", icon: "ban", status: "skip" },
-    { key: "missing", label: "Thiếu Số phát hành", n: s.missing_sph || 0, cls: "warn", icon: "alertTriangle", status: "done" },
-    { key: "unrev", label: "Xong, chưa hậu kiểm", n: s.unreviewed_done || 0, cls: "info", icon: "clock", status: "done" },
-  ].filter((a) => a.n > 0);
 
   return (
     <div className="panel export-view">
@@ -146,31 +131,9 @@ export default function ExportView({ onAlert }) {
         </div>
       </div>
 
-      <div className="dash">
-        <div className="kpi-row">
-          <Kpi icon="layers" label="Tổng tệp" value={fmt(s.files)} />
-          <Kpi icon="fileText" label="GCN bóc ra" value={fmt(s.gcns)} />
-          <Kpi icon="scissors" label="Tổng trang" value={fmt(s.pages)} />
-          <Kpi icon="checkCircle" label="Hoàn tất" value={`${completion}%`} sub={`${fmt(done)}/${fmt(s.files)} tệp`} />
-        </div>
-
-        {alerts.length > 0 && (
-          <div className="alert-row">
-            {alerts.map((a) => (
-              <button key={a.key} className={`alert-tile al-${a.cls}`}
-                onClick={() => onAlert?.(a.status)} title="Mở Kết quả trích xuất theo trạng thái này">
-                <Icon name={a.icon} size={16} />
-                <span className="al-n">{fmt(a.n)}</span>
-                <span className="al-label">{a.label}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="seg-row">
-          <SegBar title="Trạng thái xử lý" segs={STATUS_SEGS} data={st} />
-          <SegBar title="Hậu kiểm" segs={REVIEW_SEGS} data={s.by_review || {}} />
-        </div>
+      <div className="seg-row">
+        <SegBar title="Trạng thái xử lý" segs={STATUS_SEGS} data={st} />
+        <SegBar title="Hậu kiểm" segs={REVIEW_SEGS} data={s.by_review || {}} />
       </div>
 
       <div className="export-sec">
