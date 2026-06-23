@@ -991,6 +991,7 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .bt-prog { display: flex; align-items: center; gap: 9px; min-width: 180px; }
 .bt-bar { flex: 1; height: 8px; border-radius: 5px; background: var(--surface-3); overflow: hidden; }
 .bt-fill { height: 100%; background: var(--ok); border-radius: 5px; }
+.bt-fill.rev { background: var(--brand); }
 .bt-pct { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .export-sec { border-top: 1px solid var(--border); padding-top: 14px; }

@@ -57,6 +57,9 @@ function BranchTable({ rows }) {
   if (!rows.length) return null;
   // Xếp hạng theo SỐ ĐÃ DUYỆT giảm dần (tie: nhiều GCN hơn trước).
   const ranked = [...rows].sort((a, b) => (b.reviewed - a.reviewed) || (b.gcns - a.gcns));
+  // Thanh theo SỐ LƯỢNG (volume) để thấy chênh lệch, không phải % (cái nào cũng 100%).
+  const maxDone = Math.max(1, ...ranked.map((r) => r.done || 0));
+  const maxRev = Math.max(1, ...ranked.map((r) => r.reviewed || 0));
 
   return (
     <div className="branch-stats">
@@ -81,11 +84,16 @@ function BranchTable({ rows }) {
                   <td>{fmt(r.gcns)}</td>
                   <td>
                     <div className="bt-prog">
-                      <div className="bt-bar"><div className="bt-fill" style={{ width: `${donePct}%` }} /></div>
-                      <span className="bt-pct">{donePct}% <span className="muted">({fmt(r.done)}/{fmt(r.files)})</span></span>
+                      <div className="bt-bar"><div className="bt-fill" style={{ width: `${(r.done / maxDone) * 100}%` }} /></div>
+                      <span className="bt-pct"><b>{fmt(r.done)}</b> <span className="muted">/{fmt(r.files)} · {donePct}%</span></span>
                     </div>
                   </td>
-                  <td><b>{fmt(r.reviewed)}</b> <span className="muted">đã duyệt · {revPct}%</span></td>
+                  <td>
+                    <div className="bt-prog">
+                      <div className="bt-bar"><div className="bt-fill rev" style={{ width: `${(r.reviewed / maxRev) * 100}%` }} /></div>
+                      <span className="bt-pct"><b>{fmt(r.reviewed)}</b> <span className="muted">· {revPct}%</span></span>
+                    </div>
+                  </td>
                 </tr>
               );
             })}
