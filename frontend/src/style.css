@@ -986,6 +986,25 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .branch-stats .seg-title { margin-bottom: 9px; }
 .bt-scroll { max-height: 42vh; }
 .bt-name { font-weight: 600; }
+.bt-rank { font-variant-numeric: tabular-nums; color: var(--text-3); font-weight: 700; text-align: center; width: 34px; }
+
+/* Kim tự tháp ngược (funnel) — xếp hạng theo số đã duyệt, thanh hẹp dần xuống. */
+.funnel { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 14px 16px; box-shadow: var(--shadow-sm); }
+.fn-row { display: grid; grid-template-columns: 26px minmax(150px, 230px) 1fr; align-items: center; gap: 12px; }
+.fn-rank { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+  font-size: 12px; font-weight: 700; color: var(--text-2); background: var(--surface-3); }
+.fn-row.rank-1 .fn-rank { background: #f6d36b; color: #6b4e00; }
+.fn-row.rank-2 .fn-rank { background: #d9dde2; color: #4a525c; }
+.fn-row.rank-3 .fn-rank { background: #e7b890; color: #6b3f1d; }
+.fn-name { font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.fn-track { display: flex; justify-content: center; }
+.fn-bar { height: 26px; border-radius: 6px; background: var(--accent); display: flex; align-items: center;
+  justify-content: flex-end; padding: 0 9px; min-width: 34px; transition: width .3s; }
+.fn-row.rank-1 .fn-bar { background: var(--brand); }
+.fn-val { color: #fff; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .bt-prog { display: flex; align-items: center; gap: 9px; min-width: 180px; }
 .bt-bar { flex: 1; height: 8px; border-radius: 5px; background: var(--surface-3); overflow: hidden; }
 .bt-fill { height: 100%; background: var(--ok); border-radius: 5px; }
