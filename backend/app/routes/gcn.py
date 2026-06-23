@@ -26,6 +26,7 @@ _TABLE_PROJ = {
 @router.get("")
 async def list_gcn(
     batch_id: str | None = None,
+    branch: str | None = None,
     status: str | None = None,
     review: str | None = None,
     q: str | None = Query(default=None, description="Tìm theo Số phát hành / tên tệp"),
@@ -35,6 +36,8 @@ async def list_gcn(
     flt: dict = {}
     if batch_id:
         flt["batch_id"] = batch_id
+    if branch:
+        flt["branch"] = branch
     if status:
         flt["status"] = status
     if review:
@@ -56,10 +59,12 @@ async def list_gcn(
     return {"gcn": rows, "total": len(rows)}
 
 
-async def _collect_rows(batch_id, status, review) -> list[dict]:
+async def _collect_rows(batch_id, status, review, branch=None) -> list[dict]:
     flt: dict = {}
     if batch_id:
         flt["batch_id"] = batch_id
+    if branch:
+        flt["branch"] = branch
     if status:
         flt["status"] = status
     if review:
@@ -75,16 +80,17 @@ async def _collect_rows(batch_id, status, review) -> list[dict]:
 
 @router.get("/rows")
 async def gcn_rows(batch_id: str | None = None, status: str | None = None,
-                   review: str | None = None):
+                   review: str | None = None, branch: str | None = None):
     """Khung nhìn dạng HÀNG phẳng (đã áp hậu kiểm) — phục vụ xem/xuất/FME."""
-    rows = await _collect_rows(batch_id, status, review)
+    rows = await _collect_rows(batch_id, status, review, branch)
     return {"columns": FLAT_COLUMNS, "rows": rows}
 
 
 @router.get("/export.csv")
 async def export_csv(batch_id: str | None = None, status: str | None = None,
-                     review: str | None = None, _=Depends(require_key)):
-    rows = await _collect_rows(batch_id, status, review)
+                     review: str | None = None, branch: str | None = None,
+                     _=Depends(require_key)):
+    rows = await _collect_rows(batch_id, status, review, branch)
     buf = io.StringIO()
     buf.write("﻿")  # BOM để Excel đọc UTF-8 đúng
     writer = csv.DictWriter(buf, fieldnames=FLAT_COLUMNS, extrasaction="ignore")
@@ -98,17 +104,30 @@ async def export_csv(batch_id: str | None = None, status: str | None = None,
 
 
 @router.get("/stats")
-async def stats(batch_id: str | None = None):
+async def stats(batch_id: str | None = None, branch: str | None = None):
     """Tổng hợp cho bảng Thống kê: tổng tệp/GCN/trang, breakdown trạng thái & hậu
-    kiểm, và các chỉ số cảnh báo (lỗi, bỏ qua, thiếu Số phát hành, xong-chưa-kiểm).
-    Một lần aggregate ($facet) cho rẻ."""
-    match: dict = {"batch_id": batch_id} if batch_id else {}
+    kiểm, theo chi nhánh, và các chỉ số cảnh báo. Một lần aggregate ($facet)."""
+    match: dict = {}
+    if batch_id:
+        match["batch_id"] = batch_id
+    if branch:
+        match["branch"] = branch
     pipeline = [
         {"$match": match},
         {"$facet": {
             "by_status": [{"$group": {"_id": "$status", "n": {"$sum": 1}}}],
             "by_review": [{"$group": {
                 "_id": {"$ifNull": ["$review.status", "unreviewed"]}, "n": {"$sum": 1}}}],
+            "by_branch": [
+                {"$group": {
+                    "_id": {"$ifNull": ["$branch", None]},
+                    "files": {"$sum": 1},
+                    "gcns": {"$sum": {"$size": {"$ifNull": ["$gcn_rows", []]}}},
+                    "done": {"$sum": {"$cond": [{"$eq": ["$status", "done"]}, 1, 0]}},
+                    "reviewed": {"$sum": {"$cond": [{"$eq": ["$review.status", "reviewed"]}, 1, 0]}},
+                }},
+                {"$sort": {"files": -1}},
+            ],
             "totals": [{"$group": {
                 "_id": None,
                 "files": {"$sum": 1},
@@ -130,12 +149,18 @@ async def stats(batch_id: str | None = None):
         return (rows[0]["n"] if rows else 0)
 
     totals = (f.get("totals") or [{}])[0]
+    by_branch = [
+        {"branch": r.get("_id"), "files": r.get("files", 0), "gcns": r.get("gcns", 0),
+         "done": r.get("done", 0), "reviewed": r.get("reviewed", 0)}
+        for r in (f.get("by_branch") or [])
+    ]
     return {
         "files": totals.get("files", 0),
         "gcns": totals.get("gcns", 0),
         "pages": totals.get("pages", 0),
         "by_status": _kv(f.get("by_status")),
         "by_review": _kv(f.get("by_review")),
+        "by_branch": by_branch,
         "missing_sph": _one(f.get("missing_sph")),
         "unreviewed_done": _one(f.get("unreviewed_done")),
     }

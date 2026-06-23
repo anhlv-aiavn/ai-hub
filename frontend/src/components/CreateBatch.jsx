@@ -1,17 +1,20 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
-import { createBatch } from "../api.js";
+import { createBatch, getBranches } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 
-// Tạo việc: thả NHIỀU PDF → 1 lô → mỗi PDF chạy detect+extract.
+// Tạo việc: chọn chi nhánh + thả NHIỀU PDF → 1 lô → mỗi PDF chạy detect+extract.
 export default function CreateBatch({ onCreated }) {
   const [files, setFiles] = useState([]);
-  const [name, setName] = useState("");
+  const [branch, setBranch] = useState("");
+  const [branches, setBranches] = useState([]);
   const [drag, setDrag] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pct, setPct] = useState(0);
   const [step, setStep] = useState("");
   const ref = useRef(null);
+
+  useEffect(() => { getBranches().then((d) => setBranches(d.branches || [])).catch(() => {}); }, []);
 
   function addFiles(list) {
     const pdfs = Array.from(list || []).filter((f) => f.type === "application/pdf");
@@ -25,10 +28,11 @@ export default function CreateBatch({ onCreated }) {
 
   async function submit() {
     if (!files.length) return;
+    if (!branch) { toastErr("Hãy chọn chi nhánh"); return; }
     setBusy(true); setPct(0); setStep("");
     try {
       const b = await createBatch({
-        files, name: name.trim() || undefined,
+        files, branch,
         onProgress: (p, meta) => {
           setPct(p);
           if (meta?.count) setStep(`Tệp ${meta.index}/${meta.count}${meta.name ? ` · ${meta.name}` : ""}`);
@@ -36,7 +40,7 @@ export default function CreateBatch({ onCreated }) {
       });
       if (b.failed?.length) toastErr(`Tạo lô · ${b.file_count} giấy. Lỗi ${b.failed.length} tệp: ${b.failed.join(", ")}`);
       else toastOk(`Đã tạo lô · ${b.file_count} giấy`);
-      setFiles([]); setName("");
+      setFiles([]);
       onCreated?.(b.batch_id);
     } catch (e) { toastErr(e.message || e); } finally { setBusy(false); setPct(0); setStep(""); }
   }
@@ -49,8 +53,12 @@ export default function CreateBatch({ onCreated }) {
       <p className="muted">Thả vào nhiều Giấy Chứng Nhận (PDF). Hệ thống tự phát hiện GCN, bóc tách,
         và gom tờ bổ sung theo Số phát hành.</p>
 
-      <input className="text-input" placeholder="Tên lô" value={name}
-        onChange={(e) => setName(e.target.value)} />
+      <label className="field-label" htmlFor="cb-branch">Chi nhánh / Đơn vị</label>
+      <select id="cb-branch" className="text-input" value={branch}
+        onChange={(e) => setBranch(e.target.value)}>
+        <option value="">— Chọn chi nhánh —</option>
+        {branches.map((b) => <option key={b} value={b}>{b}</option>)}
+      </select>
 
       <div className={`dropzone ${drag ? "over" : ""} ${files.length ? "has" : ""}`}
         onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
@@ -85,8 +93,10 @@ export default function CreateBatch({ onCreated }) {
             </div>
           )}
           <div className="cb-foot">
-            <span className="muted">{files.length} tệp · {totalMB} MB</span>
-            <button className="primary" disabled={busy} onClick={submit}>
+            <span className="muted">
+              {files.length} tệp · {totalMB} MB{branch ? ` · ${branch}` : " · chưa chọn chi nhánh"}
+            </span>
+            <button className="primary" disabled={busy || !branch} onClick={submit}>
               <Icon name="sparkles" size={15} /> {busy ? "Đang tải lên…" : "Bóc tách lô"}
             </button>
           </div>

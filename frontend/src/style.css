@@ -956,6 +956,17 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .seg-danger { background: var(--err); }
 .seg-warn { background: var(--amber); }
 
+.field-label { display: block; font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 5px; }
+
+.branch-stats { margin-bottom: 22px; }
+.branch-stats .seg-title { margin-bottom: 9px; }
+.bt-scroll { max-height: 42vh; }
+.bt-name { font-weight: 600; }
+.bt-prog { display: flex; align-items: center; gap: 9px; min-width: 180px; }
+.bt-bar { flex: 1; height: 8px; border-radius: 5px; background: var(--surface-3); overflow: hidden; }
+.bt-fill { height: 100%; background: var(--ok); border-radius: 5px; }
+.bt-pct { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
 .export-sec { border-top: 1px solid var(--border); padding-top: 14px; }
 .export-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
   gap: 8px; margin-bottom: 10px; }

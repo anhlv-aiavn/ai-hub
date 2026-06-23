@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import Icon from "./Icon.jsx";
 import GcnPdf from "./GcnPdf.jsx";
-import { listRows, listBatches, downloadCsv, getStats } from "../api.js";
+import { listRows, listBatches, downloadCsv, getStats, getBranches } from "../api.js";
 import { subscribeEvents } from "../events.js";
 import { toastOk, toastErr } from "../toast.js";
 
@@ -53,10 +53,50 @@ function SegBar({ title, segs, data, unit = "tệp" }) {
   );
 }
 
+function BranchTable({ rows }) {
+  if (!rows.length) return null;
+  return (
+    <div className="branch-stats">
+      <div className="seg-title">Theo chi nhánh</div>
+      <div className="et-scroll bt-scroll">
+        <table className="et-grid">
+          <thead>
+            <tr>
+              <th>Chi nhánh</th><th>Tệp</th><th>GCN</th><th>Tiến độ xử lý</th><th>Đã duyệt</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => {
+              const donePct = pct(r.done, r.files);
+              const revPct = pct(r.reviewed, r.files);
+              return (
+                <tr key={r.branch || `__${i}`}>
+                  <td className="bt-name">{r.branch || "(chưa gán)"}</td>
+                  <td>{fmt(r.files)}</td>
+                  <td>{fmt(r.gcns)}</td>
+                  <td>
+                    <div className="bt-prog">
+                      <div className="bt-bar"><div className="bt-fill" style={{ width: `${donePct}%` }} /></div>
+                      <span className="bt-pct">{donePct}% <span className="muted">({fmt(r.done)}/{fmt(r.files)})</span></span>
+                    </div>
+                  </td>
+                  <td>{revPct}% <span className="muted">({fmt(r.reviewed)})</span></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // Thống kê: KPI + breakdown trạng thái/hậu kiểm + cảnh báo, kèm xuất CSV/bảng phẳng (FME).
 export default function ExportView() {
   const [batches, setBatches] = useState([]);
+  const [branches, setBranches] = useState([]);
   const [batchId, setBatchId] = useState("");
+  const [branch, setBranch] = useState("");
   const [review, setReview] = useState("");
   const [stats, setStats] = useState(null);
   const [cols, setCols] = useState([]);
@@ -71,8 +111,8 @@ export default function ExportView() {
     setLoading(true);
     try {
       const [d, st] = await Promise.all([
-        listRows({ batchId: batchId || undefined, review: review || undefined }),
-        getStats({ batchId: batchId || undefined }),
+        listRows({ batchId: batchId || undefined, branch: branch || undefined, review: review || undefined }),
+        getStats({ batchId: batchId || undefined, branch: branch || undefined }),
       ]);
       setCols(d.columns || []);
       setRows(d.rows || []);
@@ -80,18 +120,23 @@ export default function ExportView() {
     } catch (e) { toastErr(e.message || e); } finally { setLoading(false); }
   }
 
-  useEffect(() => { listBatches().then((d) => setBatches(d.batches || [])).catch(() => {}); }, []);
-  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [batchId, review]);
+  useEffect(() => {
+    listBatches().then((d) => setBatches(d.batches || [])).catch(() => {});
+    getBranches().then((d) => setBranches(d.branches || [])).catch(() => {});
+  }, []);
+  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [batchId, branch, review]);
   useEffect(() => {
     let t = null;
     const un = subscribeEvents(() => { clearTimeout(t); t = setTimeout(refresh, 800); });
     return () => { un(); clearTimeout(t); };
     // eslint-disable-next-line
-  }, [batchId, review]);
+  }, [batchId, branch, review]);
 
   async function csv() {
-    try { await downloadCsv({ batchId: batchId || undefined, review: review || undefined }); toastOk("Đã tải CSV"); }
-    catch (e) { toastErr(e.message || e); }
+    try {
+      await downloadCsv({ batchId: batchId || undefined, branch: branch || undefined, review: review || undefined });
+      toastOk("Đã tải CSV");
+    } catch (e) { toastErr(e.message || e); }
   }
 
   function cell(col, r) {
@@ -123,6 +168,10 @@ export default function ExportView() {
       <div className="et-toolbar">
         <h2>Thống kê</h2>
         <div className="et-filters">
+          <select value={branch} onChange={(e) => setBranch(e.target.value)}>
+            <option value="">Tất cả chi nhánh</option>
+            {branches.map((b) => <option key={b} value={b}>{b}</option>)}
+          </select>
           <select value={batchId} onChange={(e) => setBatchId(e.target.value)}>
             <option value="">Tất cả lô</option>
             {batches.map((b) => <option key={b.batch_id} value={b.batch_id}>{b.name} · {b.file_count} giấy</option>)}
@@ -135,6 +184,8 @@ export default function ExportView() {
         <SegBar title="Trạng thái xử lý" segs={STATUS_SEGS} data={st} />
         <SegBar title="Hậu kiểm" segs={REVIEW_SEGS} data={s.by_review || {}} />
       </div>
+
+      <BranchTable rows={s.by_branch || []} />
 
       <div className="export-sec">
         <div className="export-head">

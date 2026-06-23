@@ -23,10 +23,11 @@ async function handle(res) {
 
 // ── Lô ──────────────────────────────────────────────────────────────────────
 // Upload 1 file (XHR để có tiến độ byte thực). batchId rỗng = tạo lô mới.
-function uploadOne({ file, name, batchId, onBytes }) {
+function uploadOne({ file, name, branch, batchId, onBytes }) {
   return new Promise((resolve, reject) => {
     const form = new FormData();
     if (name) form.append("name", name);
+    if (branch) form.append("branch", branch);
     if (batchId) form.append("batch_id", batchId);
     form.append("files", file);
 
@@ -47,7 +48,7 @@ function uploadOne({ file, name, batchId, onBytes }) {
 
 // Upload TỪNG file một (cùng batch_id) → né giới hạn body nginx khi lô nặng, file
 // lỗi không kéo đổ cả lô. onProgress(pct 0..100, {index, count, name}).
-export async function createBatch({ files, name, onProgress }) {
+export async function createBatch({ files, name, branch, onProgress }) {
   const list = Array.from(files || []);
   const total = list.reduce((s, f) => s + (f.size || 0), 0) || 1;
   let doneBytes = 0;
@@ -62,6 +63,7 @@ export async function createBatch({ files, name, onProgress }) {
       const res = await uploadOne({
         file: f,
         name: batchId ? undefined : (name || undefined),
+        branch: batchId ? undefined : (branch || undefined),
         batchId,
         onBytes: (loaded) => onProgress?.(
           Math.round(((doneBytes + loaded) / total) * 100),
@@ -80,6 +82,9 @@ export async function createBatch({ files, name, onProgress }) {
   onProgress?.(100, { index: list.length, count: list.length });
   return { batch_id: batchId, file_count: fileCount, failed };
 }
+export async function getBranches() {
+  return handle(await fetch(`/v1/batches/branches`, { headers: headers() }));
+}
 export async function listBatches(limit = 50) {
   return handle(await fetch(`/v1/batches?limit=${limit}`, { headers: headers() }));
 }
@@ -88,9 +93,10 @@ export async function getBatch(id) {
 }
 
 // ── GCN / bảng trích xuất ────────────────────────────────────────────────────
-export async function listGcn({ batchId, status, review, q, limit = 500 } = {}) {
+export async function listGcn({ batchId, branch, status, review, q, limit = 500 } = {}) {
   const p = new URLSearchParams();
   if (batchId) p.set("batch_id", batchId);
+  if (branch) p.set("branch", branch);
   if (status) p.set("status", status);
   if (review) p.set("review", review);
   if (q) p.set("q", q);
@@ -120,25 +126,28 @@ export function cutPageImageUrl(gcnId, ci, n, w = 1100) {
 }
 
 // Thống kê tổng hợp (KPI + breakdown + cảnh báo) cho bảng Thống kê.
-export async function getStats({ batchId } = {}) {
+export async function getStats({ batchId, branch } = {}) {
   const p = new URLSearchParams();
   if (batchId) p.set("batch_id", batchId);
+  if (branch) p.set("branch", branch);
   return handle(await fetch(`/v1/gcn/stats?${p.toString()}`, { headers: headers() }));
 }
 
 // Khung nhìn dạng hàng phẳng (đã áp hậu kiểm) — phục vụ xem/xuất/FME.
-export async function listRows({ batchId, status, review } = {}) {
+export async function listRows({ batchId, status, review, branch } = {}) {
   const p = new URLSearchParams();
   if (batchId) p.set("batch_id", batchId);
+  if (branch) p.set("branch", branch);
   if (status) p.set("status", status);
   if (review) p.set("review", review);
   return handle(await fetch(`/v1/gcn/rows?${p.toString()}`, { headers: headers() }));
 }
 
 // Tải CSV (BOM UTF-8) theo bộ lọc hiện tại.
-export async function downloadCsv({ batchId, status, review } = {}) {
+export async function downloadCsv({ batchId, status, review, branch } = {}) {
   const p = new URLSearchParams();
   if (batchId) p.set("batch_id", batchId);
+  if (branch) p.set("branch", branch);
   if (status) p.set("status", status);
   if (review) p.set("review", review);
   if (auth.apiKey) p.set("api_key", auth.apiKey);

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
-import { listGcn, listBatches } from "../api.js";
+import { listGcn, listBatches, getBranches } from "../api.js";
 import { subscribeEvents } from "../events.js";
 
 const PENDING = new Set(["queued", "processing"]);
@@ -14,6 +14,8 @@ const REVIEW_LABEL = {
 
 export default function ExtractTable({ batchId, onPickBatch, onOpen, initialStatus = "" }) {
   const [batches, setBatches] = useState([]);
+  const [branches, setBranches] = useState([]);
+  const [branch, setBranch] = useState("");
   const [rows, setRows] = useState([]);
   const [status, setStatus] = useState(initialStatus);
   const [q, setQ] = useState("");
@@ -24,7 +26,7 @@ export default function ExtractTable({ batchId, onPickBatch, onOpen, initialStat
   async function refresh() {
     setLoading(true);
     try {
-      const d = await listGcn({ batchId, status: status || undefined, q: q.trim() || undefined });
+      const d = await listGcn({ batchId, branch: branch || undefined, status: status || undefined, q: q.trim() || undefined });
       const list = d.gcn || [];
       setRows(list);
       setHasPending(list.some((r) => PENDING.has(r.status)));
@@ -32,9 +34,12 @@ export default function ExtractTable({ batchId, onPickBatch, onOpen, initialStat
   }
   useEffect(() => { refreshRef.current = refresh; });
 
-  useEffect(() => { listBatches().then((d) => setBatches(d.batches || [])).catch(() => {}); }, []);
+  useEffect(() => {
+    listBatches().then((d) => setBatches(d.batches || [])).catch(() => {});
+    getBranches().then((d) => setBranches(d.branches || [])).catch(() => {});
+  }, []);
   useEffect(() => { setStatus(initialStatus); }, [initialStatus]);
-  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [batchId, status]);
+  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [batchId, branch, status]);
 
   // Live: SSE đẩy tức thì + polling dự phòng khi còn giấy đang chạy (chắc ăn).
   useEffect(() => {
@@ -66,6 +71,10 @@ export default function ExtractTable({ batchId, onPickBatch, onOpen, initialStat
       <div className="et-toolbar">
         <h2>Kết quả trích xuất</h2>
         <div className="et-filters">
+          <select value={branch} onChange={(e) => setBranch(e.target.value)}>
+            <option value="">Tất cả chi nhánh</option>
+            {branches.map((b) => <option key={b} value={b}>{b}</option>)}
+          </select>
           <select value={batchId || ""} onChange={(e) => onPickBatch?.(e.target.value || null)}>
             <option value="">Tất cả lô</option>
             {batches.map((b) => (
