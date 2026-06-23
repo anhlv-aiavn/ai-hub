@@ -194,6 +194,19 @@ async def cut_page(gcn_id: str, ci: int, n: int, w: int = 1100, _=Depends(requir
                     headers={"Cache-Control": "public, max-age=86400"})
 
 
+def _sph_at(ext: list, ri: int) -> str | None:
+    """Số phát hành của bản ghi thứ ri trong extractions (đã áp override)."""
+    if not (0 <= ri < len(ext)):
+        return None
+    res = ext[ri].get("result") if isinstance(ext[ri], dict) else None
+    if isinstance(res, dict):
+        for e in res.get("Đăng ký", []) or []:
+            g = e.get("Giấy chứng nhận") if isinstance(e, dict) else None
+            if isinstance(g, dict) and g.get("Số phát hành"):
+                return str(g["Số phát hành"])
+    return None
+
+
 class ReviewIn(BaseModel):
     display_name: str | None = None
     overrides: dict | None = None
@@ -232,6 +245,13 @@ async def put_review(gcn_id: str, body: ReviewIn):
         ext = effective_extractions(doc.get("extractions"), review.get("overrides"), deleted)
         cuts = [c for c in (doc.get("cuts") or [])
                 if not (isinstance(c, dict) and c.get("index") in deleted)]
+        # Tên tệp cắt bám theo Số phát hành ĐÃ override: "<SPH>-GCN.pdf".
+        for c in cuts:
+            ri = c.get("index")
+            sph = _sph_at(ext, ri) if isinstance(ri, int) else None
+            stem = sph if sph else f"{gcn_id}-{(ri or 0) + 1}"
+            c["so_phat_hanh"] = sph
+            c["name"] = f"{stem}-GCN.pdf"
         update.update({
             "group_key": group_key_of(ext),
             "extracted_so_phat_hanhs": collect_so_phat_hanhs(ext),

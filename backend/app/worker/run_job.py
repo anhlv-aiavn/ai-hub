@@ -203,10 +203,13 @@ async def _build_cuts(gcn_id: str, batch_id, images: list[str], records: list) -
         ckey = f"{batch_id}/{gcn_id}/cut-{ri}.pdf"
         await storage.put_pdf(ckey, pdf_bytes)
         sph = _entry_sph(rec)
+        # Tên tệp cắt chuẩn: "<Số phát hành>-GCN.pdf". Thiếu Số phát hành → kèm
+        # index để khỏi trùng giữa các bản cắt cùng file.
+        stem = sph if sph else f"{gcn_id}-{ri + 1}"
         cuts.append({
             "index": ri, "s3_key": ckey, "page_indices": pages,
             "page_count": len(group), "so_phat_hanh": sph,
-            "name": f"{sph or gcn_id}-cat{ri + 1}",
+            "name": f"{stem}-GCN.pdf",
         })
     return cuts
 
