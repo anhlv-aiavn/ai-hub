@@ -92,7 +92,8 @@ function BranchTable({ rows }) {
 }
 
 // Thống kê: KPI + breakdown trạng thái/hậu kiểm + cảnh báo, kèm xuất CSV/bảng phẳng (FME).
-export default function ExportView() {
+export default function ExportView({ user }) {
+  const isAdmin = user?.role === "admin";
   const [batches, setBatches] = useState([]);
   const [branches, setBranches] = useState([]);
   const [batchId, setBatchId] = useState("");
@@ -122,8 +123,8 @@ export default function ExportView() {
 
   useEffect(() => {
     listBatches().then((d) => setBatches(d.batches || [])).catch(() => {});
-    getBranches().then((d) => setBranches(d.branches || [])).catch(() => {});
-  }, []);
+    if (isAdmin) getBranches().then((d) => setBranches(d.branches || [])).catch(() => {});
+  }, [isAdmin]);
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [batchId, branch, review]);
   useEffect(() => {
     let t = null;
@@ -168,10 +169,12 @@ export default function ExportView() {
       <div className="et-toolbar">
         <h2>Thống kê</h2>
         <div className="et-filters">
-          <select value={branch} onChange={(e) => setBranch(e.target.value)}>
-            <option value="">Tất cả chi nhánh</option>
-            {branches.map((b) => <option key={b} value={b}>{b}</option>)}
-          </select>
+          {isAdmin && (
+            <select value={branch} onChange={(e) => setBranch(e.target.value)}>
+              <option value="">Tất cả chi nhánh</option>
+              {branches.map((b) => <option key={b} value={b}>{b}</option>)}
+            </select>
+          )}
           <select value={batchId} onChange={(e) => setBatchId(e.target.value)}>
             <option value="">Tất cả lô</option>
             {batches.map((b) => <option key={b.batch_id} value={b.batch_id}>{b.name} · {b.file_count} giấy</option>)}
@@ -185,7 +188,7 @@ export default function ExportView() {
         <SegBar title="Hậu kiểm" segs={REVIEW_SEGS} data={s.by_review || {}} />
       </div>
 
-      <BranchTable rows={s.by_branch || []} />
+      {isAdmin && <BranchTable rows={s.by_branch || []} />}
 
       <div className="export-sec">
         <div className="export-head">

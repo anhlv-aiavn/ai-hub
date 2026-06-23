@@ -12,7 +12,8 @@ const REVIEW_LABEL = {
   unreviewed: "Chưa kiểm", needs_review: "Cần xem", reviewed: "Đã duyệt",
 };
 
-export default function ExtractTable({ batchId, onPickBatch, onOpen, initialStatus = "" }) {
+export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initialStatus = "" }) {
+  const isAdmin = user?.role === "admin";
   const [batches, setBatches] = useState([]);
   const [branches, setBranches] = useState([]);
   const [branch, setBranch] = useState("");
@@ -36,8 +37,8 @@ export default function ExtractTable({ batchId, onPickBatch, onOpen, initialStat
 
   useEffect(() => {
     listBatches().then((d) => setBatches(d.batches || [])).catch(() => {});
-    getBranches().then((d) => setBranches(d.branches || [])).catch(() => {});
-  }, []);
+    if (isAdmin) getBranches().then((d) => setBranches(d.branches || [])).catch(() => {});
+  }, [isAdmin]);
   useEffect(() => { setStatus(initialStatus); }, [initialStatus]);
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [batchId, branch, status]);
 
@@ -71,10 +72,12 @@ export default function ExtractTable({ batchId, onPickBatch, onOpen, initialStat
       <div className="et-toolbar">
         <h2>Kết quả trích xuất</h2>
         <div className="et-filters">
-          <select value={branch} onChange={(e) => setBranch(e.target.value)}>
-            <option value="">Tất cả chi nhánh</option>
-            {branches.map((b) => <option key={b} value={b}>{b}</option>)}
-          </select>
+          {isAdmin && (
+            <select value={branch} onChange={(e) => setBranch(e.target.value)}>
+              <option value="">Tất cả chi nhánh</option>
+              {branches.map((b) => <option key={b} value={b}>{b}</option>)}
+            </select>
+          )}
           <select value={batchId || ""} onChange={(e) => onPickBatch?.(e.target.value || null)}>
             <option value="">Tất cả lô</option>
             {batches.map((b) => (

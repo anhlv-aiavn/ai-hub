@@ -4,9 +4,11 @@ import { createBatch, getBranches } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 
 // Tạo việc: chọn chi nhánh + thả NHIỀU PDF → 1 lô → mỗi PDF chạy detect+extract.
-export default function CreateBatch({ onCreated }) {
+// User thường: chi nhánh CỐ ĐỊNH theo tài khoản. Admin: chọn từ danh sách.
+export default function CreateBatch({ user, onCreated }) {
+  const isAdmin = user?.role === "admin";
   const [files, setFiles] = useState([]);
-  const [branch, setBranch] = useState("");
+  const [branch, setBranch] = useState(isAdmin ? "" : (user?.branch || ""));
   const [branches, setBranches] = useState([]);
   const [drag, setDrag] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -14,7 +16,9 @@ export default function CreateBatch({ onCreated }) {
   const [step, setStep] = useState("");
   const ref = useRef(null);
 
-  useEffect(() => { getBranches().then((d) => setBranches(d.branches || [])).catch(() => {}); }, []);
+  useEffect(() => {
+    if (isAdmin) getBranches().then((d) => setBranches(d.branches || [])).catch(() => {});
+  }, [isAdmin]);
 
   function addFiles(list) {
     const pdfs = Array.from(list || []).filter((f) => f.type === "application/pdf");
@@ -54,11 +58,15 @@ export default function CreateBatch({ onCreated }) {
         và gom tờ bổ sung theo Số phát hành.</p>
 
       <label className="field-label" htmlFor="cb-branch">Chi nhánh / Đơn vị</label>
-      <select id="cb-branch" className="text-input" value={branch}
-        onChange={(e) => setBranch(e.target.value)}>
-        <option value="">— Chọn chi nhánh —</option>
-        {branches.map((b) => <option key={b} value={b}>{b}</option>)}
-      </select>
+      {isAdmin ? (
+        <select id="cb-branch" className="text-input" value={branch}
+          onChange={(e) => setBranch(e.target.value)}>
+          <option value="">— Chọn chi nhánh —</option>
+          {branches.map((b) => <option key={b} value={b}>{b}</option>)}
+        </select>
+      ) : (
+        <input id="cb-branch" className="text-input" value={branch} disabled readOnly />
+      )}
 
       <div className={`dropzone ${drag ? "over" : ""} ${files.length ? "has" : ""}`}
         onDragOver={(e) => { e.preventDefault(); setDrag(true); }}

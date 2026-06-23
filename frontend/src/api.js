@@ -1,15 +1,51 @@
-// Lớp mỏng gọi /v1 của AI-HUB. API key (tùy chọn — Sobagi cấp) lưu localStorage.
-const KEY = "aihub.apiKey";
+// Lớp mỏng gọi /v1 của AI-HUB. Token JWT (đăng nhập) lưu localStorage.
+const TOKEN_KEY = "aihub.token";
 
 export const auth = {
-  get apiKey() { return localStorage.getItem(KEY) || ""; },
-  set apiKey(v) { localStorage.setItem(KEY, v || ""); },
+  get token() { return localStorage.getItem(TOKEN_KEY) || ""; },
+  set token(v) { v ? localStorage.setItem(TOKEN_KEY, v) : localStorage.removeItem(TOKEN_KEY); },
 };
 
 export function headers(extra = {}) {
   const h = { ...extra };
-  if (auth.apiKey) h["X-API-Key"] = auth.apiKey;
+  if (auth.token) h["Authorization"] = `Bearer ${auth.token}`;
   return h;
+}
+
+// Tài khoản
+export async function login(username, password) {
+  const res = await fetch(`/v1/auth/login`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  const data = await handle(res);
+  auth.token = data.token;
+  return data.user;
+}
+export async function getMe() {
+  const d = await handle(await fetch(`/v1/auth/me`, { headers: headers() }));
+  return d.user;
+}
+export function logout() { auth.token = ""; }
+
+// Quản trị tài khoản (admin)
+export async function listUsers() {
+  return handle(await fetch(`/v1/users`, { headers: headers() }));
+}
+export async function createUser(body) {
+  return handle(await fetch(`/v1/users`, {
+    method: "POST", headers: headers({ "Content-Type": "application/json" }), body: JSON.stringify(body),
+  }));
+}
+export async function updateUser(username, body) {
+  return handle(await fetch(`/v1/users/${encodeURIComponent(username)}`, {
+    method: "PATCH", headers: headers({ "Content-Type": "application/json" }), body: JSON.stringify(body),
+  }));
+}
+export async function deleteUser(username) {
+  return handle(await fetch(`/v1/users/${encodeURIComponent(username)}`, {
+    method: "DELETE", headers: headers(),
+  }));
 }
 
 async function handle(res) {
@@ -33,7 +69,7 @@ function uploadOne({ file, name, branch, batchId, onBytes }) {
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/v1/batches");
-    if (auth.apiKey) xhr.setRequestHeader("X-API-Key", auth.apiKey);
+    if (auth.token) xhr.setRequestHeader("Authorization", `Bearer ${auth.token}`);
     xhr.upload.onprogress = (e) => { if (e.lengthComputable) onBytes?.(e.loaded); };
     xhr.onload = () => {
       let body = null;
@@ -111,7 +147,7 @@ export async function getPageInfo(id) {
 }
 export function pageImageUrl(gcnId, n, w = 1100) {
   const p = new URLSearchParams({ w: String(w) });
-  if (auth.apiKey) p.set("api_key", auth.apiKey);
+  if (auth.token) p.set("token", auth.token);
   return `/v1/gcn/${gcnId}/page/${n}?${p.toString()}`;
 }
 
@@ -121,7 +157,7 @@ export async function getCutPageInfo(gcnId, ci) {
 }
 export function cutPageImageUrl(gcnId, ci, n, w = 1100) {
   const p = new URLSearchParams({ w: String(w) });
-  if (auth.apiKey) p.set("api_key", auth.apiKey);
+  if (auth.token) p.set("token", auth.token);
   return `/v1/gcn/${gcnId}/cut/${ci}/page/${n}?${p.toString()}`;
 }
 
@@ -150,7 +186,7 @@ export async function downloadCsv({ batchId, status, review, branch } = {}) {
   if (branch) p.set("branch", branch);
   if (status) p.set("status", status);
   if (review) p.set("review", review);
-  if (auth.apiKey) p.set("api_key", auth.apiKey);
+  if (auth.token) p.set("token", auth.token);
   const res = await fetch(`/v1/gcn/export.csv?${p.toString()}`, { headers: headers() });
   if (!res.ok) throw new Error(`xuất CSV lỗi: ${res.status}`);
   const blob = await res.blob();
@@ -172,7 +208,7 @@ export async function putReview(id, body) {
 // Tải bộ đã gom (zip PDF + JSON) qua proxy + header → blob → save.
 export async function downloadGcn(id, filename) {
   const p = new URLSearchParams();
-  if (auth.apiKey) p.set("api_key", auth.apiKey);
+  if (auth.token) p.set("token", auth.token);
   const res = await fetch(`/v1/gcn/${id}/download?${p.toString()}`, { headers: headers() });
   if (!res.ok) throw new Error(`tải lỗi: ${res.status}`);
   const blob = await res.blob();

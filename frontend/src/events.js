@@ -16,8 +16,9 @@ export function stopEvents() {
 
 export function startEvents() {
   stopEvents();
+  if (!auth.token) return;  // chưa đăng nhập → không mở SSE
   const q = new URLSearchParams();
-  if (auth.apiKey) q.set("api_key", auth.apiKey);
+  q.set("token", auth.token);
   es = new EventSource(`/v1/events?${q.toString()}`);
   es.onmessage = (e) => {
     try {
