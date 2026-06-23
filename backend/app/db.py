@@ -22,9 +22,16 @@ def gcns():
     return get_db()[config.COLL_GCN]
 
 
+def users():
+    return get_db()[config.COLL_USER]
+
+
 async def ensure_indexes() -> None:
     await gcns().create_index("batch_id")
     await gcns().create_index("group_key")
     await gcns().create_index("status")
+    await gcns().create_index("branch")
     await gcns().create_index("extracted_so_phat_hanhs")
     await batches().create_index("created_at")
+    await batches().create_index("branch")
+    await users().create_index("username", unique=True)

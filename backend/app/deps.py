@@ -1,9 +1,10 @@
-"""Phụ thuộc dùng chung: kiểm tra API key (tùy chọn). Nếu AIHUB_API_KEY rỗng → mở.
-Ảnh trang & SSE không gửi header được → chấp nhận api_key qua query."""
+"""Phụ thuộc auth: xác thực JWT → user hiện tại; phân quyền admin; khóa phạm vi
+chi nhánh. Token qua header Authorization: Bearer <jwt> HOẶC query ?token= (ảnh
+trang & SSE không gắn header được). require_key (API key cũ) giữ cho tương thích."""
 
-from fastapi import Header, HTTPException, Query
+from fastapi import Depends, Header, HTTPException, Query
 
-from app import config
+from app import auth, config
 
 
 def require_key(
@@ -14,3 +15,50 @@ def require_key(
         return
     if (x_api_key or api_key) != config.API_KEY:
         raise HTTPException(status_code=401, detail="API key không hợp lệ")
+
+
+def _token_from(authorization: str | None, token: str | None) -> str | None:
+    if authorization and authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    return token
+
+
+async def current_user(
+    authorization: str | None = Header(default=None),
+    token: str | None = Query(default=None),
+) -> dict:
+    raw = _token_from(authorization, token)
+    payload = auth.decode_token(raw) if raw else None
+    if not payload or not payload.get("sub"):
+        raise HTTPException(status_code=401, detail="Cần đăng nhập")
+    return {
+        "username": payload["sub"],
+        "role": payload.get("role", "user"),
+        "branch": payload.get("branch"),
+    }
+
+
+def require_admin(user: dict = Depends(current_user)) -> dict:
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Chỉ admin")
+    return user
+
+
+def is_admin(user: dict) -> bool:
+    return user.get("role") == "admin"
+
+
+def scoped_branch(user: dict, requested: str | None) -> str | None:
+    """Branch dùng để lọc dữ liệu. Admin: theo `requested` (None = tất cả).
+    User thường: LUÔN ép về chi nhánh của họ (bỏ qua giá trị client gửi)."""
+    if is_admin(user):
+        return requested or None
+    return user.get("branch")
+
+
+def ensure_branch_access(user: dict, branch: str | None) -> None:
+    """Chặn user thường truy cập dữ liệu KHÁC chi nhánh của họ (403)."""
+    if is_admin(user):
+        return
+    if branch != user.get("branch"):
+        raise HTTPException(status_code=403, detail="Không thuộc chi nhánh của bạn")

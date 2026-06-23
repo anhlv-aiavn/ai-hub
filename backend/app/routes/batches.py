@@ -8,9 +8,9 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from app import config, storage
 from app.branches import BRANCHES, is_valid_branch
 from app.db import batches, gcns
-from app.deps import require_key
+from app.deps import current_user, ensure_branch_access, is_admin
 
-router = APIRouter(prefix="/v1/batches", tags=["batches"], dependencies=[Depends(require_key)])
+router = APIRouter(prefix="/v1/batches", tags=["batches"], dependencies=[Depends(current_user)])
 
 
 @router.post("")
@@ -19,6 +19,7 @@ async def create_batch(
     name: str | None = Form(default=None),
     branch: str | None = Form(default=None),
     batch_id: str | None = Form(default=None),
+    user: dict = Depends(current_user),
 ):
     """Tạo lô MỚI hoặc THÊM file vào lô có sẵn (truyền batch_id).
 
@@ -33,12 +34,16 @@ async def create_batch(
         raise HTTPException(status_code=400, detail="Không có tệp nào")
 
     now = datetime.now(timezone.utc)
+    # User thường: LUÔN ép chi nhánh của họ. Admin: theo chi nhánh được chọn.
     branch = (branch or "").strip() or None
+    if not is_admin(user):
+        branch = user.get("branch")
     appending = bool(batch_id)
     if appending:
         existing = await batches().find_one({"_id": batch_id}, {"branch": 1})
         if not existing:
             raise HTTPException(status_code=404, detail="Không tìm thấy lô để nối")
+        ensure_branch_access(user, existing.get("branch"))
         branch = existing.get("branch")  # nối thì giữ chi nhánh của lô
     else:
         if not is_valid_branch(branch):
@@ -101,8 +106,9 @@ async def create_batch(
 
 
 @router.get("")
-async def list_batches(limit: int = 50):
-    rows = await batches().find().sort("created_at", -1).limit(limit).to_list(length=limit)
+async def list_batches(limit: int = 50, user: dict = Depends(current_user)):
+    flt = {} if is_admin(user) else {"branch": user.get("branch")}
+    rows = await batches().find(flt).sort("created_at", -1).limit(limit).to_list(length=limit)
     out = []
     for b in rows:
         counts = await _status_counts(b["_id"])
@@ -121,10 +127,11 @@ async def list_branches():
 
 
 @router.get("/{batch_id}")
-async def get_batch(batch_id: str):
+async def get_batch(batch_id: str, user: dict = Depends(current_user)):
     b = await batches().find_one({"_id": batch_id})
     if not b:
         raise HTTPException(status_code=404, detail="Không tìm thấy lô")
+    ensure_branch_access(user, b.get("branch"))
     return {
         "batch_id": b["_id"], "name": b.get("name"), "status": b.get("status"),
         "file_count": b.get("file_count", 0), "created_at": b.get("created_at"),

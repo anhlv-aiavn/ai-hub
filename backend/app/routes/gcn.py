@@ -12,11 +12,23 @@ from pydantic import BaseModel
 
 from app import storage
 from app.db import gcns
-from app.deps import require_key
+from app.deps import current_user, ensure_branch_access, is_admin, scoped_branch
 from app.flatten import COLUMNS as FLAT_COLUMNS, effective_extractions, flatten_doc
 from app.summary import collect_so_phat_hanhs, group_key_of, per_gcn, summarize
 
-router = APIRouter(prefix="/v1/gcn", tags=["gcn"], dependencies=[Depends(require_key)])
+router = APIRouter(prefix="/v1/gcn", tags=["gcn"], dependencies=[Depends(current_user)])
+
+
+async def _authz_gcn(gcn_id: str, user: dict, proj: dict | None = None) -> dict:
+    """Lấy doc + chặn user thường truy cập GCN ngoài chi nhánh (403/404)."""
+    p = dict(proj or {})
+    if p and "branch" not in p:
+        p["branch"] = 1
+    doc = await gcns().find_one({"_id": gcn_id}, p or None)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
+    ensure_branch_access(user, doc.get("branch"))
+    return doc
 
 _TABLE_PROJ = {
     "extractions": 0,  # bảng chỉ cần summary, bỏ raw nặng
@@ -31,8 +43,10 @@ async def list_gcn(
     review: str | None = None,
     q: str | None = Query(default=None, description="Tìm theo Số phát hành / tên tệp"),
     limit: int = 500,
+    user: dict = Depends(current_user),
 ):
     """Bảng trích xuất — cột tóm tắt, lọc + tìm, sắp theo group_key (Số phát hành)."""
+    branch = scoped_branch(user, branch)
     flt: dict = {}
     if batch_id:
         flt["batch_id"] = batch_id
@@ -80,17 +94,18 @@ async def _collect_rows(batch_id, status, review, branch=None) -> list[dict]:
 
 @router.get("/rows")
 async def gcn_rows(batch_id: str | None = None, status: str | None = None,
-                   review: str | None = None, branch: str | None = None):
+                   review: str | None = None, branch: str | None = None,
+                   user: dict = Depends(current_user)):
     """Khung nhìn dạng HÀNG phẳng (đã áp hậu kiểm) — phục vụ xem/xuất/FME."""
-    rows = await _collect_rows(batch_id, status, review, branch)
+    rows = await _collect_rows(batch_id, status, review, scoped_branch(user, branch))
     return {"columns": FLAT_COLUMNS, "rows": rows}
 
 
 @router.get("/export.csv")
 async def export_csv(batch_id: str | None = None, status: str | None = None,
                      review: str | None = None, branch: str | None = None,
-                     _=Depends(require_key)):
-    rows = await _collect_rows(batch_id, status, review, branch)
+                     user: dict = Depends(current_user)):
+    rows = await _collect_rows(batch_id, status, review, scoped_branch(user, branch))
     buf = io.StringIO()
     buf.write("﻿")  # BOM để Excel đọc UTF-8 đúng
     writer = csv.DictWriter(buf, fieldnames=FLAT_COLUMNS, extrasaction="ignore")
@@ -104,9 +119,11 @@ async def export_csv(batch_id: str | None = None, status: str | None = None,
 
 
 @router.get("/stats")
-async def stats(batch_id: str | None = None, branch: str | None = None):
+async def stats(batch_id: str | None = None, branch: str | None = None,
+                user: dict = Depends(current_user)):
     """Tổng hợp cho bảng Thống kê: tổng tệp/GCN/trang, breakdown trạng thái & hậu
     kiểm, theo chi nhánh, và các chỉ số cảnh báo. Một lần aggregate ($facet)."""
+    branch = scoped_branch(user, branch)
     match: dict = {}
     if batch_id:
         match["batch_id"] = batch_id
@@ -167,28 +184,25 @@ async def stats(batch_id: str | None = None, branch: str | None = None):
 
 
 @router.get("/{gcn_id}")
-async def get_gcn(gcn_id: str):
+async def get_gcn(gcn_id: str, user: dict = Depends(current_user)):
     doc = await gcns().find_one({"_id": gcn_id})
     if not doc:
         raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
+    ensure_branch_access(user, doc.get("branch"))
     return _detail(doc)
 
 
 @router.get("/{gcn_id}/page/{n}")
-async def get_page(gcn_id: str, n: int, w: int = 1100, _=Depends(require_key)):
-    doc = await gcns().find_one({"_id": gcn_id}, {"s3_key": 1})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
+async def get_page(gcn_id: str, n: int, w: int = 1100, user: dict = Depends(current_user)):
+    doc = await _authz_gcn(gcn_id, user, {"s3_key": 1})
     png = await storage.render_page(doc["s3_key"], n, w)
     return Response(content=png, media_type="image/png",
-                    headers={"Cache-Control": "public, max-age=86400"})
+                    headers={"Cache-Control": "private, max-age=86400"})
 
 
 @router.get("/{gcn_id}/pageinfo")
-async def page_info(gcn_id: str):
-    doc = await gcns().find_one({"_id": gcn_id}, {"page_count": 1})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
+async def page_info(gcn_id: str, user: dict = Depends(current_user)):
+    doc = await _authz_gcn(gcn_id, user, {"page_count": 1})
     return {"pages": doc.get("page_count", 0)}
 
 
@@ -200,19 +214,15 @@ def _find_cut(doc: dict, ci: int) -> dict:
 
 
 @router.get("/{gcn_id}/cut/{ci}/pageinfo")
-async def cut_pageinfo(gcn_id: str, ci: int):
-    doc = await gcns().find_one({"_id": gcn_id}, {"cuts": 1})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
+async def cut_pageinfo(gcn_id: str, ci: int, user: dict = Depends(current_user)):
+    doc = await _authz_gcn(gcn_id, user, {"cuts": 1})
     cut = _find_cut(doc, ci)
     return {"pages": cut.get("page_count", 0)}
 
 
 @router.get("/{gcn_id}/cut/{ci}/page/{n}")
-async def cut_page(gcn_id: str, ci: int, n: int, w: int = 1100, _=Depends(require_key)):
-    doc = await gcns().find_one({"_id": gcn_id}, {"cuts": 1})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
+async def cut_page(gcn_id: str, ci: int, n: int, w: int = 1100, user: dict = Depends(current_user)):
+    doc = await _authz_gcn(gcn_id, user, {"cuts": 1})
     cut = _find_cut(doc, ci)
     png = await storage.render_page(cut["s3_key"], n, w)
     return Response(content=png, media_type="image/png",
@@ -241,14 +251,15 @@ class ReviewIn(BaseModel):
 
 
 @router.put("/{gcn_id}")
-async def put_review(gcn_id: str, body: ReviewIn):
-    proj = {"review": 1}
+async def put_review(gcn_id: str, body: ReviewIn, user: dict = Depends(current_user)):
+    proj = {"review": 1, "branch": 1}
     recompute = body.overrides is not None or body.deleted is not None
     if recompute:  # cần raw để tính lại cột dẫn xuất
         proj.update({"extractions": 1, "cuts": 1})
     doc = await gcns().find_one({"_id": gcn_id}, proj)
     if not doc:
         raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
+    ensure_branch_access(user, doc.get("branch"))
     review = doc.get("review") or {}
     if body.display_name is not None:
         review["display_name"] = body.display_name
@@ -290,10 +301,11 @@ async def put_review(gcn_id: str, body: ReviewIn):
 
 
 @router.get("/{gcn_id}/download")
-async def download(gcn_id: str, _=Depends(require_key)):
+async def download(gcn_id: str, user: dict = Depends(current_user)):
     doc = await gcns().find_one({"_id": gcn_id})
     if not doc:
         raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
+    ensure_branch_access(user, doc.get("branch"))
     pdf = (await storage.get_pdf(doc["s3_key"])).getvalue()
     name = (doc.get("review") or {}).get("display_name") or doc.get("group_key") \
         or doc.get("filename", gcn_id)

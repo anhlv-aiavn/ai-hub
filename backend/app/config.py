@@ -13,6 +13,7 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongo:27017")
 MONGO_DB = os.getenv("MONGO_DB", "aihub")
 COLL_BATCH = "batch"
 COLL_GCN = "gcn"
+COLL_USER = "user"
 
 # ── MinIO (kho riêng AI-HUB) — biến ENDPOINT_URL_MINIO/… do minio_helper đọc ─
 AIHUB_BUCKET = os.getenv("AIHUB_BUCKET", "ai-hub")
@@ -27,8 +28,16 @@ MAX_VLM_CONCURRENT = int(os.getenv("MAX_VLM_CONCURRENT", "8"))
 # Số file in-flight tối đa (bound RAM ảnh render).
 MAX_IN_FLIGHT = int(os.getenv("MAX_IN_FLIGHT", str(MAX_VLM_CONCURRENT * 3)))
 
-# ── Auth tùy chọn: nếu set → bắt buộc X-API-Key (Sobagi cấp key) ─────────────
+# ── Auth tùy chọn (cũ): nếu set → bắt buộc X-API-Key. Giữ cho tương thích. ────
 API_KEY = os.getenv("AIHUB_API_KEY", "").strip()
+
+# ── Tài khoản (JWT) ─────────────────────────────────────────────────────────
+# Secret ký JWT — BẮT BUỘC đặt ở môi trường thật. Dev rỗng → khóa tạm (cảnh báo).
+JWT_SECRET = os.getenv("AIHUB_JWT_SECRET", "").strip() or "dev-insecure-change-me"
+JWT_TTL = int(os.getenv("AIHUB_JWT_TTL_SECONDS", str(7 * 24 * 3600)))  # 7 ngày
+# Seed admin đầu tiên lúc startup (nếu chưa có user nào).
+ADMIN_USER = os.getenv("AIHUB_ADMIN_USER", "").strip()
+ADMIN_PASS = os.getenv("AIHUB_ADMIN_PASS", "")
 
 # ── Đối soát: DPI/scale render ảnh trang ────────────────────────────────────
 PAGE_RENDER_MAX_W = int(os.getenv("PAGE_RENDER_MAX_W", "2200"))

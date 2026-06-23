@@ -7,12 +7,14 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from app.bus import subscribe
-from app.deps import require_key
+from app.deps import current_user
 
 router = APIRouter(prefix="/v1", tags=["events"])
 
 
-@router.get("/events", dependencies=[Depends(require_key)])
+# Event chỉ chứa id/status (không dữ liệu nhạy cảm); yêu cầu đăng nhập để kết nối.
+# Client refetch vẫn bị scope theo chi nhánh nên không lộ dữ liệu lô khác.
+@router.get("/events", dependencies=[Depends(current_user)])
 async def events():
     async def gen():
         yield ": connected\n\n"
