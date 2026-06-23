@@ -5,8 +5,8 @@ IMPORTANT:
     1. ^\\d{10,15}$
     2. ^[A-Z]{1,2}\\s?\\d+$
     3. Tiền tố "SO" + dạng 2 → bỏ "SO"
-    Note. Số phát hành thường nằm bơ vơ
-- May have multiple Certificate of Land Use Rights with different information as Số phát hành. (chú ý) Và Giấy loại cũ sẽ có biến động và đưa ra loại các giấy mới khác đồng thời kiểu số phát hành cũng có thể khác.
+    !Note: Số phát hành thường nằm bơ vơ ở góc phải bên dưới ảnh, hoặc trên dưới tiêu ngữ trong hộp con, hoặc ở gần chữ CHỨNG NHẬN - UỶ BAN....
+- May have multiple Certificate of Land Use Rights with different information as Số phát hành.
 - Return JSON ONLY. No explanation, no markdown.
 - Output MUST match the structure EXACTLY.
 - Do NOT add any extra fields.
