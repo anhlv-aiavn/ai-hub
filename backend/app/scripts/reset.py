@@ -1,8 +1,12 @@
-"""Reset DEV: xoá sạch dữ liệu AI-HUB — drop collection Mongo (batch, gcn) +
+"""Reset DEV: xoá sạch dữ liệu AI-HUB — drop collection Mongo (batch, gcn, user) +
 xoá toàn bộ object trong bucket MinIO. CHỈ DÙNG KHI DEV.
+
+Mặc định xoá CẢ tài khoản (user); admin sẽ tự seed lại từ env khi API khởi động
+(AIHUB_ADMIN_USER/PASS). Dùng --keep-users để giữ tài khoản.
 
 Chạy trong container API:
     docker compose exec api python -m app.scripts.reset --yes
+    docker compose exec api python -m app.scripts.reset --yes --keep-users
 """
 
 import argparse
@@ -11,7 +15,7 @@ import asyncio
 import aioboto3
 
 from app import config
-from app.db import batches, gcns
+from app.db import batches, gcns, users
 from src.extentions.minio_helper import minio_client
 
 
@@ -37,17 +41,23 @@ async def _wipe_bucket() -> int:
     return len(keys)
 
 
-async def main(yes: bool) -> None:
+async def main(yes: bool, keep_users: bool) -> None:
+    scope = "batch, gcn" + ("" if keep_users else ", user")
     if not yes:
-        print("Sẽ XOÁ SẠCH Mongo (batch, gcn) + bucket MinIO. Thêm --yes để xác nhận.")
+        print(f"Sẽ XOÁ SẠCH Mongo ({scope}) + bucket MinIO. Thêm --yes để xác nhận.")
         return
     n_gcn = (await gcns().delete_many({})).deleted_count
     n_batch = (await batches().delete_many({})).deleted_count
+    n_user = 0 if keep_users else (await users().delete_many({})).deleted_count
     n_obj = await _wipe_bucket()
-    print(f"Đã xoá: gcn={n_gcn}, batch={n_batch}, object MinIO={n_obj}")
+    print(f"Đã xoá: gcn={n_gcn}, batch={n_batch}, user={n_user}, object MinIO={n_obj}")
+    if not keep_users:
+        print("→ Khởi động lại API để seed lại admin từ env (AIHUB_ADMIN_USER/PASS).")
 
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Reset dữ liệu AI-HUB (DEV).")
     p.add_argument("--yes", action="store_true", help="Xác nhận xoá thật.")
-    asyncio.run(main(p.parse_args().yes))
+    p.add_argument("--keep-users", action="store_true", help="Giữ lại tài khoản (chỉ xoá dữ liệu).")
+    args = p.parse_args()
+    asyncio.run(main(args.yes, args.keep_users))
