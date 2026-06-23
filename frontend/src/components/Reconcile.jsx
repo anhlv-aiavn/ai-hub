@@ -8,6 +8,8 @@ import { toastOk, toastErr } from "../toast.js";
 // Thứ tự cột ưu tiên khi hậu kiểm (các trường quan trọng lên trước, còn lại giữ sau).
 const CHU_COLS = ["Loại đối tượng", "Tên chủ", "Loại giấy tờ", "Số giấy tờ", "Địa chỉ"];
 const THUA_COLS = ["Số thứ tự thửa", "Số hiệu tờ bản đồ", "Diện tích", "Địa chỉ"];
+const NHA_COLS = ["Loại tài sản gắn liền với đất", "Diện tích xây dựng", "Diện tích sàn",
+  "Địa chỉ", "Kết cấu", "Số tầng"];
 
 // Index trang 0-based → chuỗi 1-based gọn, gộp đoạn liên tiếp: [0,1,2,4] → "1–3, 5".
 function pageRange(idx) {
@@ -99,6 +101,9 @@ export default function Reconcile({ gcnId, onBack }) {
     const base = `[${ri}].result.Đăng ký[${ei}]`;
     if (block === "Chủ sử dụng" && Array.isArray(val)) {
       return <EditableTree value={val} path={`${base}.${block}`} onLeaf={onLeaf} colsOrder={CHU_COLS} />;
+    }
+    if (block === "Thông tin nhà ở" && Array.isArray(val)) {
+      return <EditableTree value={val} path={`${base}.${block}`} onLeaf={onLeaf} colsOrder={NHA_COLS} />;
     }
     if (block === "Thửa đất" && Array.isArray(val)) {
       return (
