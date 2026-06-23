@@ -205,12 +205,12 @@ export default function ExportView({ user }) {
 
       <div className="export-sec">
         <div className="export-head">
-          <h3>Xuất dữ liệu <span className="muted">(CSV / FME · 1 hàng/thửa)</span></h3>
+          <h3>Xuất dữ liệu <span className="muted">(CSV · mỗi thửa một dòng)</span></h3>
           <div className="et-filters">
             <select value={review} onChange={(e) => setReview(e.target.value)}>
               {Object.entries(REVIEW).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
-            <span className="muted ev-count">{rows.length} hàng</span>
+            <span className="muted ev-count">{rows.length} dòng</span>
             <button className="primary sm" onClick={csv}><Icon name="download" size={14} /> Tải CSV</button>
           </div>
         </div>
@@ -228,7 +228,7 @@ export default function ExportView({ user }) {
               ))}
               {!rows.length && (
                 <tr><td colSpan={cols.length || 1} className="muted center">
-                  {loading ? "Đang tải…" : "Chưa có hàng nào khớp bộ lọc."}
+                  {loading ? "Đang tải…" : "Chưa có dòng nào khớp bộ lọc."}
                 </td></tr>
               )}
             </tbody>

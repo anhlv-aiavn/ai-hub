@@ -155,7 +155,7 @@ export default function Reconcile({ gcnId, onBack }) {
           <Icon name="check" size={14} /> Duyệt
         </button>
         <button className="primary sm" onClick={() => downloadGcn(gcnId, `${(name || gcnId)}.zip`)}>
-          <Icon name="download" size={14} /> Tải bộ
+          <Icon name="download" size={14} /> Tải hồ sơ
         </button>
       </div>
 
