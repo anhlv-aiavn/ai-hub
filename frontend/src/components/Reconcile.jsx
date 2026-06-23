@@ -52,7 +52,7 @@ export default function Reconcile({ gcnId, onBack }) {
       setWork(w);
       setOverrides(ov);
       setDeleted((d.review && d.review.deleted) || []);
-      setName((d.review && d.review.display_name) || d.group_key || "");
+      setName((d.review && d.review.display_name) || "");  // để trống → tên tệp tự theo SPH
       setPage(1);
     }).catch((e) => toastErr(e.message || e));
     return () => { live = false; };
@@ -135,7 +135,7 @@ export default function Reconcile({ gcnId, onBack }) {
   }
 
   if (!doc) return <div className="panel muted">Đang tải…</div>;
-  const dirty = Object.keys(overrides).length > 0 || name !== ((doc.review && doc.review.display_name) || doc.group_key || "");
+  const dirty = Object.keys(overrides).length > 0 || name !== ((doc.review && doc.review.display_name) || "");
 
   return (
     <div className="panel reconcile">

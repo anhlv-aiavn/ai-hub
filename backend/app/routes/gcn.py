@@ -345,18 +345,21 @@ def _expand(doc: dict) -> list[dict]:
     gcn_rows = doc.get("gcn_rows") or []
     if not gcn_rows:
         s = doc.get("summary") or {}
-        return [{**base, "row_id": doc["_id"], "cut_index": None,
+        return [{**base, "row_id": doc["_id"], "cut_index": None, "cut_name": None,
                  "page_count": doc.get("page_count", 0),
                  "group_key": doc.get("group_key"), "summary": s}]
 
+    cuts = {c.get("index"): c for c in (doc.get("cuts") or []) if isinstance(c, dict)}
     total = len(gcn_rows)
     out = []
     for i, g in enumerate(gcn_rows):
         sph = g.get("so_phat_hanh") or ""
+        cut_name = (cuts.get(g.get("cut_index")) or {}).get("name")
         out.append({
             **base,
             "row_id": f"{doc['_id']}#{i}",
             "cut_index": g.get("cut_index"),
+            "cut_name": cut_name,  # "<Số phát hành>-GCN.pdf" (bám SPH đã hậu kiểm)
             "page_count": g.get("page_count", 0),
             "group_key": sph or None,
             "summary": {**g, "gcn_count": total, "gcn_pos": i + 1},

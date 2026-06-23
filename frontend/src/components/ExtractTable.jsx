@@ -123,7 +123,9 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
                     return (
                       <tr key={r.row_id || r.gcn_id} className="et-row" onClick={() => onOpen?.(r.gcn_id)}>
                         <td className={`et-name ${multi ? "child" : ""}`}>
-                          {multi ? `↳ Bản cắt ${s.gcn_pos || 1}` : (r.display_name || r.filename)}
+                          {multi
+                            ? `↳ ${r.cut_name || `Bản cắt ${s.gcn_pos || 1}`}`
+                            : (r.display_name || r.cut_name || r.filename)}
                         </td>
                         <td><span className={`badge st-${r.status}`}>{STATUS_LABEL[r.status] || r.status}</span></td>
                         <td>{s.so_phat_hanh || r.group_key || "—"}</td>
