@@ -22,6 +22,11 @@ const P = {
   bell: ["M10.3 21a1.94 1.94 0 0 0 3.4 0", "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"],
   plus: ["M5 12h14", "M12 5v14"],
   trash: ["M3 6h18", "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2", "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"],
+  alertTriangle: ["m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z", "M12 9v4", "M12 17h.01"],
+  checkCircle: ["m9 12 2 2 4-4"],
+  clock: ["M12 6v6l4 2"],
+  ban: ["m4.9 4.9 14.2 14.2"],
+  barChart: ["M3 3v18h18", "M18 17V9", "M13 17V5", "M8 17v-3"],
 };
 
 const RECT = { table: true, image: true };
@@ -29,6 +34,9 @@ const CIRCLES = {
   scissors: [{ cx: 6, cy: 6, r: 3 }, { cx: 6, cy: 18, r: 3 }],
   image: [{ cx: 9, cy: 9, r: 2 }],
   search: [{ cx: 11, cy: 11, r: 8 }],
+  checkCircle: [{ cx: 12, cy: 12, r: 10 }],
+  clock: [{ cx: 12, cy: 12, r: 10 }],
+  ban: [{ cx: 12, cy: 12, r: 10 }],
 };
 
 export default function Icon({ name, size = 18, stroke = 2, className = "" }) {

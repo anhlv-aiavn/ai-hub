@@ -119,6 +119,13 @@ export function cutPageImageUrl(gcnId, ci, n, w = 1100) {
   return `/v1/gcn/${gcnId}/cut/${ci}/page/${n}?${p.toString()}`;
 }
 
+// Thống kê tổng hợp (KPI + breakdown + cảnh báo) cho bảng Thống kê.
+export async function getStats({ batchId } = {}) {
+  const p = new URLSearchParams();
+  if (batchId) p.set("batch_id", batchId);
+  return handle(await fetch(`/v1/gcn/stats?${p.toString()}`, { headers: headers() }));
+}
+
 // Khung nhìn dạng hàng phẳng (đã áp hậu kiểm) — phục vụ xem/xuất/FME.
 export async function listRows({ batchId, status, review } = {}) {
   const p = new URLSearchParams();

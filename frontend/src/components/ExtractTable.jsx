@@ -12,10 +12,10 @@ const REVIEW_LABEL = {
   unreviewed: "Chưa kiểm", needs_review: "Cần xem", reviewed: "Đã duyệt",
 };
 
-export default function ExtractTable({ batchId, onPickBatch, onOpen }) {
+export default function ExtractTable({ batchId, onPickBatch, onOpen, initialStatus = "" }) {
   const [batches, setBatches] = useState([]);
   const [rows, setRows] = useState([]);
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState(initialStatus);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
   const [hasPending, setHasPending] = useState(false);
@@ -33,6 +33,7 @@ export default function ExtractTable({ batchId, onPickBatch, onOpen }) {
   useEffect(() => { refreshRef.current = refresh; });
 
   useEffect(() => { listBatches().then((d) => setBatches(d.batches || [])).catch(() => {}); }, []);
+  useEffect(() => { setStatus(initialStatus); }, [initialStatus]);
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [batchId, status]);
 
   // Live: SSE đẩy tức thì + polling dự phòng khi còn giấy đang chạy (chắc ăn).
@@ -63,7 +64,7 @@ export default function ExtractTable({ batchId, onPickBatch, onOpen }) {
   return (
     <div className="panel extract-table">
       <div className="et-toolbar">
-        <h2>Bảng trích xuất</h2>
+        <h2>Kết quả trích xuất</h2>
         <div className="et-filters">
           <select value={batchId || ""} onChange={(e) => onPickBatch?.(e.target.value || null)}>
             <option value="">Tất cả lô</option>

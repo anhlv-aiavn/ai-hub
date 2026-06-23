@@ -97,6 +97,50 @@ async def export_csv(batch_id: str | None = None, status: str | None = None,
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
+@router.get("/stats")
+async def stats(batch_id: str | None = None):
+    """Tổng hợp cho bảng Thống kê: tổng tệp/GCN/trang, breakdown trạng thái & hậu
+    kiểm, và các chỉ số cảnh báo (lỗi, bỏ qua, thiếu Số phát hành, xong-chưa-kiểm).
+    Một lần aggregate ($facet) cho rẻ."""
+    match: dict = {"batch_id": batch_id} if batch_id else {}
+    pipeline = [
+        {"$match": match},
+        {"$facet": {
+            "by_status": [{"$group": {"_id": "$status", "n": {"$sum": 1}}}],
+            "by_review": [{"$group": {
+                "_id": {"$ifNull": ["$review.status", "unreviewed"]}, "n": {"$sum": 1}}}],
+            "totals": [{"$group": {
+                "_id": None,
+                "files": {"$sum": 1},
+                "pages": {"$sum": {"$ifNull": ["$page_count", 0]}},
+                "gcns": {"$sum": {"$size": {"$ifNull": ["$gcn_rows", []]}}},
+            }}],
+            "missing_sph": [{"$match": {"status": "done", "group_key": None}}, {"$count": "n"}],
+            "unreviewed_done": [
+                {"$match": {"status": "done", "review.status": "unreviewed"}}, {"$count": "n"}],
+        }},
+    ]
+    agg = await gcns().aggregate(pipeline).to_list(length=1)
+    f = agg[0] if agg else {}
+
+    def _kv(rows):
+        return {r["_id"]: r["n"] for r in (rows or []) if r.get("_id") is not None}
+
+    def _one(rows):
+        return (rows[0]["n"] if rows else 0)
+
+    totals = (f.get("totals") or [{}])[0]
+    return {
+        "files": totals.get("files", 0),
+        "gcns": totals.get("gcns", 0),
+        "pages": totals.get("pages", 0),
+        "by_status": _kv(f.get("by_status")),
+        "by_review": _kv(f.get("by_review")),
+        "missing_sph": _one(f.get("missing_sph")),
+        "unreviewed_done": _one(f.get("unreviewed_done")),
+    }
+
+
 @router.get("/{gcn_id}")
 async def get_gcn(gcn_id: str):
     doc = await gcns().find_one({"_id": gcn_id})

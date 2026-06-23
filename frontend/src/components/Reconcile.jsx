@@ -134,7 +134,7 @@ export default function Reconcile({ gcnId, onBack }) {
   return (
     <div className="panel reconcile">
       <div className="rc-toolbar">
-        <button className="ghost sm" onClick={onBack}><Icon name="chevronLeft" size={14} /> Bảng trích xuất</button>
+        <button className="ghost sm" onClick={onBack}><Icon name="chevronLeft" size={14} /> Kết quả trích xuất</button>
         <span className={`badge st-${doc.status}`}>{doc.status}</span>
         <input className="rc-name" placeholder="Đặt tên giấy…" value={name}
           onChange={(e) => setName(e.target.value)} title="Tên hiển thị / tên file khi tải" />
