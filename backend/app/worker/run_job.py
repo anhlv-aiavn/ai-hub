@@ -8,8 +8,8 @@ Concurrency:
 
 File lớn:
 - > AIHUB_MAX_PAGES (mặc định 250) → skip (an toàn RAM/thời gian).
-- Detect chia cửa sổ DETECT_WINDOW trang, detect SONG SONG từng cửa sổ rồi ghép
-  nhóm (tránh nhồi quá nhiều ảnh vào 1 call VLM)."""
+- Detect = phân loại biên TỪNG TRANG (cover/content/other) song song rồi suy nhóm
+  tuyến tính (quyết định cục bộ → không lỗi mốc cửa sổ, không rớt trang)."""
 
 import asyncio
 import base64
@@ -26,7 +26,7 @@ from app.bus import publish_sync
 from app.summary import collect_so_phat_hanhs, group_key_of, per_gcn, summarize
 from src.extentions.minio_helper import minio_client
 from src.extentions.mongo_helper import AsyncMongo
-from src.extentions.multimodal.detect_gcn import detect, verify_split
+from src.extentions.multimodal.detect_gcn import classify_page
 from src.extentions.multimodal.extract_gcn import extract
 from src.extentions.multimodal.make import (
     count_pdf_pages_from_bytes,
@@ -37,8 +37,6 @@ from src.extentions.multimodal.normalize_dang_ky import normalize_extractions
 log = logging.getLogger(__name__)
 
 DETECT_MIN_PAGES = int(os.getenv("DETECT_MIN_PAGES", "5"))
-DETECT_WINDOW = int(os.getenv("DETECT_WINDOW", "12"))
-DETECT_VERIFY = os.getenv("DETECT_VERIFY", "true").strip().lower() == "true"
 RENDER_DPI = int(os.getenv("AIHUB_RENDER_DPI", "200"))
 RENDER_MAX_SIZE = int(os.getenv("AIHUB_RENDER_MAX_SIZE", "2000"))
 MAX_PAGES = int(os.getenv("AIHUB_MAX_PAGES", "250"))
@@ -57,72 +55,52 @@ def _vlm_sem() -> asyncio.Semaphore:
 
 # ── Pipeline ────────────────────────────────────────────────────────────────
 
+def _groups_from_roles(roles: list[str]) -> list[list[int]]:
+    """Suy nhóm GCN tuyến tính từ nhãn vai trò từng trang (cover/content/other).
+
+    - "cover"  → mở một nhóm MỚI (GCN được ĐỊNH DANH bởi bìa: Số phát hành nằm
+      trên bìa, không bìa thì không phải GCN dùng được).
+    - "content"→ nối vào nhóm đang mở; nếu CHƯA có bìa nào mở thì BỎ (content lạc
+      không bìa = không phải GCN → tránh chế ra giấy giả từ trang phụ trợ).
+    - "other"  → loại + đóng nhóm hiện tại.
+
+    Đảm bảo: mỗi nhóm luôn bắt đầu bằng một bìa và liên tiếp tới trang phụ trợ.
+    """
+    groups: list[list[int]] = []
+    cur: list[int] | None = None
+    for i, role in enumerate(roles):
+        if role == "cover":
+            cur = [i]
+            groups.append(cur)
+        elif role == "content" and cur is not None:
+            cur.append(i)
+        else:  # "other", hoặc content lạc không có bìa mở → bỏ + đóng nhóm
+            cur = None
+    return [g for g in groups if g]
+
+
 async def _detect_groups(images: list[str]) -> list[list[int]]:
-    """Nhóm trang theo từng GCN. File ngắn → 1 call; file dài → chia cửa sổ
-    DETECT_WINDOW trang (không chồng lấn), detect song song, offset về toàn cục.
-    Sau detect (nếu DETECT_VERIFY) chạy VLM verify soi lại từng nhóm để tách
-    đúng GCN (chống detect gom nhầm nhiều giấy vào một nhóm)."""
+    """Detect = phân loại biên TỪNG TRANG rồi suy nhóm tuyến tính.
+
+    File rất ngắn (≤ DETECT_MIN_PAGES) → coi là MỘT giấy, khỏi gọi VLM. Còn lại:
+    phân loại song song mỗi trang (cover/content/other) — mỗi call 1 ảnh nên chính
+    xác cao + batch tốt, KHÔNG còn lỗi mốc cửa sổ / nhồi nhiều ảnh / rớt trang."""
     n = len(images)
+    if n == 0:
+        return []
     if n <= DETECT_MIN_PAGES:
-        # File ngắn (≤ DETECT_MIN_PAGES trang): coi là MỘT giấy, extract hết —
-        # khỏi detect, khỏi verify (đỡ 2 vòng VLM cho file nhỏ).
         return [list(range(n))]
 
-    async def _one(imgs: list[str]) -> dict:
+    async def _cls(i: int) -> str:
         async with _vlm_sem():
-            return await detect(imgs)
+            try:
+                return await classify_page(images[i])
+            except Exception as e:  # noqa: BLE001
+                log.warning("classify_page trang %d lỗi: %s", i, e)
+                return "content"  # fail-safe: giữ trang, không cắt nhầm
 
-    if n <= DETECT_WINDOW:
-        try:
-            d = await _one(images)
-        except Exception as e:  # noqa: BLE001
-            log.exception("detect lỗi: %s", e)
-            d = {}
-        groups = d.get("gcn_pages") or [list(range(n))]
-        return await _verify_groups(images, groups)
-
-    wins = [(i, min(i + DETECT_WINDOW, n)) for i in range(0, n, DETECT_WINDOW)]
-
-    async def _win(lo: int, hi: int) -> list[list[int]]:
-        try:
-            d = await _one(images[lo:hi])
-        except Exception as e:  # noqa: BLE001
-            log.exception("detect window %d-%d lỗi: %s", lo, hi, e)
-            d = {}
-        out = []
-        for g in d.get("gcn_pages") or []:
-            gg = sorted({lo + j for j in g if isinstance(j, int) and 0 <= j < (hi - lo)})
-            if gg:
-                out.append(gg)
-        return out
-
-    parts = await asyncio.gather(*(_win(lo, hi) for lo, hi in wins))
-    groups = [g for part in parts for g in part]
-    return await _verify_groups(images, groups)
-
-
-async def _verify_groups(images: list[str], groups: list[list[int]]) -> list[list[int]]:
-    """Soi lại MỖI nhóm bằng VLM verify, tách thành các GCN đúng. Index cục bộ
-    (0..len(group)-1) trả về được ánh xạ ngược về index toàn cục. Verify song song,
-    có trần VLM toàn cục. Lỗi 1 nhóm → giữ nguyên nhóm đó."""
-    if not DETECT_VERIFY or not groups:
-        return groups
-
-    async def _one(group: list[int]) -> list[list[int]]:
-        if len(group) <= 1:
-            return [group]
-        try:
-            async with _vlm_sem():
-                subs = await verify_split([images[i] for i in group])
-        except Exception as e:  # noqa: BLE001
-            log.warning("verify_split nhóm %s lỗi: %s", group, e)
-            return [group]
-        mapped = [sorted(group[j] for j in s if 0 <= j < len(group)) for s in subs]
-        mapped = [m for m in mapped if m]
-        return mapped or [group]
-
-    parts = await asyncio.gather(*(_one(g) for g in groups))
-    return [g for part in parts for g in part]
+    roles = await asyncio.gather(*(_cls(i) for i in range(n)))
+    return _groups_from_roles(list(roles))
 
 
 async def _pipeline(pdf_buf: io.BytesIO) -> tuple[list[dict], list[str]]:

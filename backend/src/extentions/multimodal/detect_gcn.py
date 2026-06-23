@@ -3,12 +3,38 @@ import io
 
 from src.extentions.multimodal.make import pdf_to_corrected_images
 from src.extentions.multimodal.prompt import (
+    classify_page_system_prompt,
+    classify_page_user_prompt,
     detect_system_prompt,
     pdf_detect_prompt,
     verify_split_system_prompt,
     verify_split_user_prompt,
 )
 from src.extentions.multimodal.vlm_client import chat_json
+
+_ROLES = ("cover", "content", "other")
+
+
+async def classify_page(image_b64: str, enable_thinking: bool | None = None) -> str:
+    """Phân loại VAI TRÒ một trang: "cover" (bìa GCN → mở giấy mới), "content"
+    (nội dung thuộc bìa trước đó) hay "other" (không thuộc GCN nào).
+
+    Đây là đơn vị của detect kiểu phân loại-biên-từng-trang: mỗi call chỉ 1 ảnh
+    nên VLM chính xác cao + batch tốt; suy nhóm tuyến tính ở tầng trên.
+
+    Lỗi/định dạng lạ → trả "content" (fail-safe: giữ trang, không rớt, không cắt
+    nhầm thành giấy mới).
+    """
+    if not image_b64:
+        return "content"
+    d = await chat_json(
+        system_prompt=classify_page_system_prompt,
+        user_text=classify_page_user_prompt,
+        images_b64=[image_b64],
+        enable_thinking=enable_thinking,
+    )
+    role = (d.get("role") or "").strip().lower() if isinstance(d, dict) else ""
+    return role if role in _ROLES else "content"
 
 
 async def verify_split(

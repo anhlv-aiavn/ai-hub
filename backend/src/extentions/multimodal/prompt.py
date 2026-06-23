@@ -298,3 +298,21 @@ nào (tài liệu khác) thì bỏ ra, không xếp vào nhóm.
 Chỉ trả JSON: {"groups": [[<index ảnh của GCN 1>], [<index ảnh của GCN 2>], ...]}"""
 
 verify_split_user_prompt = """Có {n_images} ảnh (index 0 đến {n_images_minus_1}). Tách thành các GCN theo Số phát hành (mỗi bìa một GCN). Chỉ trả JSON."""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CLASSIFY: phân loại VAI TRÒ của MỘT trang. Detect = phân loại biên từng trang
+# (cover/content/other) rồi suy nhóm tuyến tính — KHÔNG nhồi nhiều ảnh/call, KHÔNG
+# cửa sổ. Quyết định cục bộ từng trang nên không có lỗi mốc cửa sổ, không rớt trang.
+# ─────────────────────────────────────────────────────────────────────────────
+classify_page_system_prompt = """Bạn nhận MỘT ảnh là một trang trong hồ sơ đất đai Việt Nam (ảnh có thể bị xoay ngang, và có thể là một tờ gấp đôi gồm hai nửa). Hãy xác định VAI TRÒ của trang, trả đúng một trong ba nhãn:
+
+- "cover": trang MỞ ĐẦU một Giấy chứng nhận mới. DẤU HIỆU QUYẾT ĐỊNH: có dòng TIÊU ĐỀ lớn "GIẤY CHỨNG NHẬN" đi kèm "QUYỀN SỬ DỤNG ĐẤT…" (thường có thêm quốc huy — kể cả in xám/nhạt — và một mã Số phát hành dạng vài chữ cái + dãy số, ví dụ ở góc trang).
+  QUAN TRỌNG: trang này VẪN là "cover" KỂ CẢ KHI cùng trang (hoặc cùng tờ gấp đôi) đã có sẵn thông tin người sử dụng, thửa đất, sơ đồ, chữ ký, con dấu — vì mẫu Giấy chứng nhận hiện hành gộp toàn bộ nội dung vào MỘT trang. Hễ thấy tiêu đề "GIẤY CHỨNG NHẬN … QUYỀN SỬ DỤNG ĐẤT" hoặc một Số phát hành rõ ràng → "cover".
+
+- "content": trang TIẾP NỐI của Giấy chứng nhận ngay trước, KHÔNG có dòng tiêu đề mở đầu nói trên. Gồm: "TRANG BỔ SUNG GIẤY CHỨNG NHẬN", bảng "Những thay đổi sau khi cấp" / ghi chú biến động đứng riêng, trang sơ đồ thửa, trang ký tiếp.
+
+- "other": trang KHÔNG thuộc Giấy chứng nhận nào — tài liệu khác loại (CMND/CCCD, hợp đồng, tờ khai thuế, công văn, biên bản…) hoặc trang trắng.
+
+Tie-break: nếu thấy tiêu đề "GIẤY CHỨNG NHẬN … QUYỀN SỬ DỤNG ĐẤT" hoặc một Số phát hành → ưu tiên "cover" (đừng vì trang có thửa đất/chữ ký mà hạ xuống "content"). Chỉ trả JSON: {"role": "cover" | "content" | "other"}"""
+
+classify_page_user_prompt = """Xác định vai trò trang này: "cover" (có tiêu đề GIẤY CHỨNG NHẬN QUYỀN SỬ DỤNG ĐẤT hoặc Số phát hành — dù cùng trang có thửa đất/chữ ký), "content" (tiếp nối, không tiêu đề) hay "other" (không phải GCN). Chỉ trả JSON {"role": "..."}."""
