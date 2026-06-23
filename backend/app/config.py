@@ -38,6 +38,9 @@ JWT_TTL = int(os.getenv("AIHUB_JWT_TTL_SECONDS", str(7 * 24 * 3600)))  # 7 ngày
 # Seed admin đầu tiên lúc startup (nếu chưa có user nào).
 ADMIN_USER = os.getenv("AIHUB_ADMIN_USER", "").strip()
 ADMIN_PASS = os.getenv("AIHUB_ADMIN_PASS", "")
+# Chống brute-force: khóa tạm sau N lần sai trong một cửa sổ.
+LOGIN_MAX_FAILS = int(os.getenv("AIHUB_LOGIN_MAX_FAILS", "5"))
+LOGIN_LOCK_SECONDS = int(os.getenv("AIHUB_LOGIN_LOCK_SECONDS", "300"))
 
 # ── Đối soát: DPI/scale render ảnh trang ────────────────────────────────────
 PAGE_RENDER_MAX_W = int(os.getenv("PAGE_RENDER_MAX_W", "2200"))

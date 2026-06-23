@@ -220,7 +220,9 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
     """Xử lý 1 gcn doc (đã set processing bởi worker). Dùng chung mongo client."""
     gcn_id = doc["_id"]
     batch_id = doc.get("batch_id")
-    publish_sync({"type": "gcn", "gcn_id": gcn_id, "batch_id": batch_id, "status": "processing"})
+    branch = doc.get("branch")  # nhúng vào event để SSE lọc theo chi nhánh
+    publish_sync({"type": "gcn", "gcn_id": gcn_id, "batch_id": batch_id,
+                  "branch": branch, "status": "processing"})
 
     try:
         pdf_buf = await minio_client.async_get_object(config.AIHUB_BUCKET, doc["s3_key"])
@@ -233,8 +235,8 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
                       "finished_at": datetime.now(timezone.utc)}},
         )
         publish_sync({"type": "gcn", "gcn_id": gcn_id, "batch_id": batch_id,
-                      "status": "error", "error": str(e)})
-        await _rollup(mongo, batch_id)
+                      "branch": branch, "status": "error", "error": str(e)})
+        await _rollup(mongo, batch_id, branch)
         return "error"
 
     records = records or []
@@ -271,12 +273,12 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
     }
     await mongo.update_one(config.COLL_GCN, {"_id": gcn_id}, {"$set": update})
     publish_sync({"type": "gcn", "gcn_id": gcn_id, "batch_id": batch_id,
-                  "status": status, "group_key": update["group_key"]})
-    await _rollup(mongo, batch_id)
+                  "branch": branch, "status": status, "group_key": update["group_key"]})
+    await _rollup(mongo, batch_id, branch)
     return status
 
 
-async def _rollup(mongo: AsyncMongo, batch_id) -> None:
+async def _rollup(mongo: AsyncMongo, batch_id, branch=None) -> None:
     if not batch_id:
         return
     pending = await mongo.db[config.COLL_GCN].count_documents(
@@ -284,4 +286,5 @@ async def _rollup(mongo: AsyncMongo, batch_id) -> None:
     )
     status = "done" if pending == 0 else "processing"
     await mongo.update_one(config.COLL_BATCH, {"_id": batch_id}, {"$set": {"status": status}})
-    publish_sync({"type": "batch", "batch_id": batch_id, "status": status, "pending": pending})
+    publish_sync({"type": "batch", "batch_id": batch_id, "branch": branch,
+                  "status": status, "pending": pending})
