@@ -4,6 +4,7 @@ import asyncio
 import io
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 import pypdfium2 as pdfium
 from PIL import Image
@@ -12,6 +13,11 @@ from app import config
 from src.extentions.minio_helper import minio_client
 
 log = logging.getLogger(__name__)
+
+# pdfium KHÔNG thread-safe: nhiều render song song (FE nạp loạt thumbnail) trong
+# thread pool mặc định → crash → 500 hàng loạt. Tuần tự hóa qua executor 1-thread
+# riêng (giữ ONNX detector ấm trong thread đó, không phình RAM như process pool).
+_RENDER_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pdf-render")
 
 # Xoay orientation cho trang đối soát ĐÚNG như pipeline (pdf_to_corrected_images) đã
 # áp khi extract — nếu không preview lệch (nghiêng/ngược) so với dữ liệu bóc ra.
@@ -74,7 +80,7 @@ async def render_page(key: str, page_index: int, width: int) -> bytes:
     buf = await get_pdf(key)
     data = buf.getvalue()
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _render_page_png, data, page_index, width)
+    return await loop.run_in_executor(_RENDER_POOL, _render_page_png, data, page_index, width)
 
 
 def page_count(pdf_bytes: bytes) -> int:
