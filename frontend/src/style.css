@@ -133,6 +133,10 @@ button.ghost.xs.danger:hover { background: #fdf3f2; color: var(--err); }
 .login-brand { display: flex; align-items: center; gap: 9px; font-size: 22px; font-weight: 800; color: var(--brand); }
 .login-brand .mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 9px;
   background: var(--accent-50); color: var(--brand); }
+.brand-logo { width: 36px; height: 36px; border-radius: 9px; object-fit: contain; }
+.brand-logo.sm { width: 26px; height: 26px; border-radius: 7px; }
+.login-org { margin: 10px 0 2px; font-size: 15px; font-weight: 700; color: var(--brand);
+  letter-spacing: .2px; text-transform: uppercase; }
 .login-sub { margin: 0 0 8px; }
 .login-card .field-label { margin-top: 6px; }
 .login-btn { margin-top: 14px; justify-content: center; }

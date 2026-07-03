@@ -46,8 +46,8 @@ export default function App() {
     <div className="app wide">
       <header className="topbar">
         <div className="brand">
-          <span className="mark"><Icon name="layers" size={18} /></span>
-          AI-HUB <small>Giấy Chứng Nhận</small>
+          <img className="brand-logo sm" src="/logo-sotnmt.png" alt="Sở TN&MT Hà Nội" />
+          AI-HUB <small>VP Đăng ký đất đai TP Hà Nội</small>
         </div>
         <div className="top-right">
           <nav>

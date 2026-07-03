@@ -5,7 +5,7 @@ name: ai-hub
 
 services:
   mongo:
-    image: mongo:7
+    image: mongo:4.4   # VM CPU không có AVX → Mongo 5.0+ crash (exit 132). 4.4 là bản cuối chạy được.
     restart: unless-stopped
     ports: ["27018:27017"]
     volumes: ["mongo_data:/data/db"]
