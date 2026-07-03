@@ -147,7 +147,7 @@ button.ghost.xs.danger:hover { background: #fdf3f2; color: var(--err); }
     radial-gradient(70% 55% at 112% -8%, rgba(255,255,255,.16), transparent 55%),
     radial-gradient(60% 60% at -12% 112%, rgba(255,255,255,.10), transparent 55%),
     linear-gradient(155deg, #0b6157, #073c35); }
-.ab-top { margin: auto 0; }
+.ab-top { padding-top: 6px; }
 .ab-head { display: flex; align-items: center; gap: 14px; }
 .ab-logo { width: 52px; height: 52px; border-radius: 13px; object-fit: contain; flex: 0 0 auto;
   background: #fff; padding: 7px; box-shadow: 0 6px 18px rgba(0,0,0,.22); }
