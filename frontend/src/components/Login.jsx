@@ -23,10 +23,10 @@ export default function Login({ onLogin }) {
     <div className="login-wrap">
       <form className="login-card panel" onSubmit={submit}>
         <div className="login-brand">
-          <img className="brand-logo" src="/logo-sotnmt.png" alt="Sở TN&MT Hà Nội" /> AI-HUB
+          <img className="brand-logo" src="/logo-sotnmt.png" alt="Sở TN&MT Hà Nội" />
+          <span>AI-HUB</span>
         </div>
         <p className="login-org">Văn phòng Đăng ký đất đai thành phố Hà Nội</p>
-        <p className="muted login-sub">Số hóa & đối soát Giấy Chứng Nhận Quyền sử dụng đất</p>
 
         <label className="field-label" htmlFor="lg-u">Tài khoản</label>
         <input id="lg-u" className="text-input" value={username} autoFocus autoComplete="username"
