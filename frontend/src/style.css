@@ -148,9 +148,10 @@ button.ghost.xs.danger:hover { background: #fdf3f2; color: var(--err); }
     radial-gradient(60% 60% at -12% 112%, rgba(255,255,255,.10), transparent 55%),
     linear-gradient(155deg, #0b6157, #073c35); }
 .ab-top { margin: auto 0; }
-.ab-logo { width: 60px; height: 60px; border-radius: 14px; object-fit: contain;
-  background: #fff; padding: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.22); }
-.ab-title { margin-top: 22px; font-weight: 800; font-size: 28px; letter-spacing: -.5px; }
+.ab-head { display: flex; align-items: center; gap: 14px; }
+.ab-logo { width: 52px; height: 52px; border-radius: 13px; object-fit: contain; flex: 0 0 auto;
+  background: #fff; padding: 7px; box-shadow: 0 6px 18px rgba(0,0,0,.22); }
+.ab-title { font-weight: 800; font-size: 28px; letter-spacing: -.5px; }
 .ab-org { margin-top: 12px; font-size: 13px; font-weight: 700; text-transform: uppercase;
   letter-spacing: .3px; color: rgba(255,255,255,.95); }
 .ab-desc { margin-top: 12px; font-size: 13px; line-height: 1.6; color: rgba(255,255,255,.85); max-width: 30ch; }
@@ -174,7 +175,7 @@ button.login-btn { width: 100%; margin-top: 18px; justify-content: center; font-
 button.login-btn:hover:not(:disabled) { background: linear-gradient(135deg, var(--accent-2), var(--brand-600));
   filter: brightness(1.05); box-shadow: 0 8px 20px rgba(13,148,136,.34); }
 button.login-btn:disabled { opacity: .45; }
-.af-foot { margin-top: auto; padding-top: 20px; text-align: center; color: var(--text-3); font-size: 11px; }
+.af-foot { display: none; margin-top: auto; padding-top: 20px; text-align: center; color: var(--text-3); font-size: 11px; }
 .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4);
   border-top-color: #fff; animation: spin .6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -183,6 +184,7 @@ button.login-btn:disabled { opacity: .45; }
   .auth { grid-template-columns: 1fr; width: min(400px, calc(100% - 24px)); }
   .auth-brand { display: none; }
   .af-brand { display: flex; }
+  .af-foot { display: block; }
 }
 
 /* ── Menu tài khoản (avatar ▾ + popover, tham khảo datalens-agent) ────────── */

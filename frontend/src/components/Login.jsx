@@ -29,8 +29,10 @@ export default function Login({ onLogin }) {
       <main className="auth">
         <aside className="auth-brand">
           <div className="ab-top">
-            <img className="ab-logo" src="/logo-sotnmt.png" alt="Sở TN&MT Hà Nội" />
-            <div className="ab-title">AI-HUB</div>
+            <div className="ab-head">
+              <img className="ab-logo" src="/logo-sotnmt.png" alt="Sở TN&MT Hà Nội" />
+              <div className="ab-title">AI-HUB</div>
+            </div>
             <div className="ab-org">Văn phòng Đăng ký đất đai thành phố Hà Nội</div>
             <div className="ab-desc">Số hóa &amp; đối soát Giấy Chứng Nhận Quyền sử dụng đất trực tiếp trên kho dữ liệu nội bộ.</div>
           </div>
