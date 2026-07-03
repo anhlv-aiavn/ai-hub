@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { startEvents, stopEvents } from "./events.js";
 import { auth, getMe, logout } from "./api.js";
-import Icon from "./components/Icon.jsx";
 import Toaster from "./components/Toaster.jsx";
 import Login from "./components/Login.jsx";
+import AccountMenu from "./components/AccountMenu.jsx";
 import Users from "./components/Users.jsx";
 import CreateBatch from "./components/CreateBatch.jsx";
 import ExtractTable from "./components/ExtractTable.jsx";
@@ -56,19 +56,11 @@ export default function App() {
                 onClick={() => { setTab(k); if (k === "table") setOpenGcn(null); }}>{label}</button>
             ))}
           </nav>
-          <div className="user-chip" title={isAdmin ? "Admin · toàn hệ thống" : user.branch}>
-            <Icon name="layers" size={13} />
-            <span className="uc-name">{user.username}</span>
-            <span className="uc-sub">{isAdmin ? "Admin" : (user.branch || "—")}</span>
-          </div>
-          {isAdmin && (
-            <button className="icon-btn" title="Quản trị tài khoản" onClick={() => setShowUsers((v) => !v)}>
-              <Icon name="sliders" size={18} />
-            </button>
-          )}
-          <button className="icon-btn" title="Đăng xuất" onClick={onLogout}>
-            <Icon name="x" size={18} />
-          </button>
+          <AccountMenu
+            user={user} isAdmin={isAdmin}
+            onManageUsers={() => setShowUsers(true)}
+            onLogout={onLogout}
+          />
         </div>
       </header>
 

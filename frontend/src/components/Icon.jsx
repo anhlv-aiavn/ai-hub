@@ -27,6 +27,7 @@ const P = {
   clock: ["M12 6v6l4 2"],
   ban: ["m4.9 4.9 14.2 14.2"],
   barChart: ["M3 3v18h18", "M18 17V9", "M13 17V5", "M8 17v-3"],
+  logOut: ["M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4", "M16 17l5-5-5-5", "M21 12H9"],
 };
 
 const RECT = { table: true, image: true };
