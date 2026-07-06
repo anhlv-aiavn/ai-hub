@@ -4,7 +4,7 @@ import Icon from "./Icon.jsx";
 const ROLE_LABEL = { admin: "Admin", operator: "Operator", viewer: "Viewer" };
 
 // Menu tài khoản kiểu popover (tham khảo datalens-agent): avatar ▾ → header + item.
-export default function AccountMenu({ user, isAdmin, onManageUsers, onOpenSettings, onLogout }) {
+export default function AccountMenu({ user, isAdmin, onManageUsers, onOpenSettings, onOpenAuditLog, onLogout }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const initial = (user.username || "?").trim().charAt(0).toUpperCase() || "?";
@@ -51,6 +51,11 @@ export default function AccountMenu({ user, isAdmin, onManageUsers, onOpenSettin
           {isAdmin && (
             <button className="acct-item" role="menuitem" onClick={() => pick(onOpenSettings)}>
               <Icon name="settings" size={16} /> <span>Cấu hình hệ thống</span>
+            </button>
+          )}
+          {isAdmin && (
+            <button className="acct-item" role="menuitem" onClick={() => pick(onOpenAuditLog)}>
+              <Icon name="fileText" size={16} /> <span>Audit log</span>
             </button>
           )}
           <button className="acct-item is-danger" role="menuitem" onClick={() => pick(onLogout)}>

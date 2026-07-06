@@ -78,10 +78,14 @@ def _classify_error(e: Exception) -> str:
 
 
 async def async_test_connection(endpoint_url: str, access_key: str, secret_key: str,
-                                bucket: str, verify: bool, mode: str) -> dict:
+                                bucket: str | None, verify: bool, mode: str) -> dict:
     """mode="source": CHỈ head_bucket + list_objects_v2(MaxKeys=1) — cấm ghi/xóa
     trên nguồn (bất biến §Bất biến 1). mode="destination": thêm thử put_object
-    rồi xóa ngay file test của chính nó."""
+    rồi xóa ngay file test của chính nó.
+
+    `bucket` rỗng/None (chưa chọn bucket) → CHƯA biết bucket nào để head/list, chỉ
+    xác nhận endpoint/key/secret đúng qua `list_buckets()` rồi trả kèm danh sách
+    bucket cho frontend hiện dropdown chọn."""
     session = aioboto3.Session()
     try:
         async with session.client(
@@ -89,6 +93,11 @@ async def async_test_connection(endpoint_url: str, access_key: str, secret_key: 
             aws_secret_access_key=secret_key, verify=verify, region_name="us-east-1",
             config=Config(connect_timeout=10, read_timeout=20),
         ) as s3:
+            if not bucket:
+                resp = await s3.list_buckets()
+                buckets = [b["Name"] for b in resp.get("Buckets", [])]
+                return {"result": "ok", "message": "Kết nối thành công — chọn bucket bên dưới",
+                        "buckets": buckets}
             await s3.head_bucket(Bucket=bucket)
             await s3.list_objects_v2(Bucket=bucket, MaxKeys=1)
             if mode == "destination":

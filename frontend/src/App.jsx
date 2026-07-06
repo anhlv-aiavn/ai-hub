@@ -6,12 +6,11 @@ import Login from "./components/Login.jsx";
 import AccountMenu from "./components/AccountMenu.jsx";
 import Users from "./components/Users.jsx";
 import AdminSettings from "./components/AdminSettings.jsx";
+import AuditLog from "./components/AuditLog.jsx";
 import CreateBatch from "./components/CreateBatch.jsx";
 import ExtractTable from "./components/ExtractTable.jsx";
 import Reconcile from "./components/Reconcile.jsx";
 import ExportView from "./components/ExportView.jsx";
-import SearchGcn from "./components/SearchGcn.jsx";
-import ReviewQueue from "./components/ReviewQueue.jsx";
 
 const FALLBACK_BRANDING = {
   org_name: "VP Đăng ký đất đai TP Hà Nội",
@@ -22,8 +21,6 @@ const FALLBACK_BRANDING = {
 const TABS = [
   ["create", "Số hóa", "operator"],
   ["table", "Kết quả trích xuất", "viewer"],
-  ["search", "Tra cứu", "viewer"],
-  ["review", "Hậu kiểm", "operator"],
   ["export", "Tổng quan", "viewer"],
 ];
 const ROLE_RANK = { viewer: 0, operator: 1, admin: 2 };
@@ -36,6 +33,7 @@ export default function App() {
   const [openGcn, setOpenGcn] = useState(null);
   const [showUsers, setShowUsers] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAuditLog, setShowAuditLog] = useState(false);
   const [branding, setBranding] = useState(FALLBACK_BRANDING);
 
   useEffect(() => {
@@ -54,7 +52,10 @@ export default function App() {
   }, []);
 
   function onLogin(u) { setUser(u); startEvents(); }
-  function onLogout() { stopEvents(); logout(); setUser(null); setShowUsers(false); setShowSettings(false); }
+  function onLogout() {
+    stopEvents(); logout(); setUser(null);
+    setShowUsers(false); setShowSettings(false); setShowAuditLog(false);
+  }
   function onCreated(id) { setBatchId(id); setOpenGcn(null); setTab("table"); }
 
   if (!authReady) return <div className="app wide"><div className="panel muted">Đang tải…</div></div>;
@@ -83,6 +84,7 @@ export default function App() {
             user={user} isAdmin={isAdmin}
             onManageUsers={() => setShowUsers(true)}
             onOpenSettings={() => setShowSettings(true)}
+            onOpenAuditLog={() => setShowAuditLog(true)}
             onLogout={onLogout}
           />
         </div>
@@ -91,6 +93,7 @@ export default function App() {
       <main>
         {showUsers && isAdmin && <Users me={user} onClose={() => setShowUsers(false)} />}
         {showSettings && isAdmin && <AdminSettings onClose={() => setShowSettings(false)} />}
+        {showAuditLog && isAdmin && <AuditLog onClose={() => setShowAuditLog(false)} />}
         {openGcn ? (
           <Reconcile gcnId={openGcn} onBack={() => setOpenGcn(null)} />
         ) : (
@@ -99,8 +102,6 @@ export default function App() {
             {tab === "table" && (
               <ExtractTable user={user} batchId={batchId} onPickBatch={setBatchId} onOpen={setOpenGcn} />
             )}
-            {tab === "search" && <SearchGcn user={user} onOpen={setOpenGcn} />}
-            {tab === "review" && rank >= ROLE_RANK.operator && <ReviewQueue user={user} onOpen={setOpenGcn} />}
             {tab === "export" && <ExportView user={user} />}
           </>
         )}

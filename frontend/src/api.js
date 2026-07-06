@@ -216,14 +216,15 @@ export async function getBatch(id) {
 }
 
 // ── GCN / bảng trích xuất ────────────────────────────────────────────────────
-export async function listGcn({ batchId, branch, status, review, q, limit = 500 } = {}) {
+export async function listGcn({ batchId, branch, status, review, q, page = 1, pageSize = 50 } = {}) {
   const p = new URLSearchParams();
   if (batchId) p.set("batch_id", batchId);
   if (branch) p.set("branch", branch);
   if (status) p.set("status", status);
   if (review) p.set("review", review);
   if (q) p.set("q", q);
-  if (limit) p.set("limit", String(limit));
+  p.set("page", String(page));
+  p.set("page_size", String(pageSize));
   return handle(await fetch(`/v1/gcn?${p.toString()}`, { headers: headers() }));
 }
 export async function getGcn(id) {
@@ -257,12 +258,14 @@ export async function getStats({ batchId, branch } = {}) {
 }
 
 // Khung nhìn dạng hàng phẳng (đã áp hậu kiểm) — phục vụ xem/xuất/FME.
-export async function listRows({ batchId, status, review, branch } = {}) {
+export async function listRows({ batchId, status, review, branch, page = 1, pageSize = 50 } = {}) {
   const p = new URLSearchParams();
   if (batchId) p.set("batch_id", batchId);
   if (branch) p.set("branch", branch);
   if (status) p.set("status", status);
   if (review) p.set("review", review);
+  p.set("page", String(page));
+  p.set("page_size", String(pageSize));
   return handle(await fetch(`/v1/gcn/rows?${p.toString()}`, { headers: headers() }));
 }
 
@@ -326,17 +329,6 @@ export async function retryErrors({ batchId, errorKind } = {}) {
   }));
 }
 
-// Tra cứu quy mô lớn — cursor theo created_at.
-export async function searchGcn({ soPhatHanh, branch, status, before, limit = 50 } = {}) {
-  const p = new URLSearchParams();
-  if (soPhatHanh) p.set("so_phat_hanh", soPhatHanh);
-  if (branch) p.set("branch", branch);
-  if (status) p.set("status", status);
-  if (before) p.set("before", before);
-  if (limit) p.set("limit", String(limit));
-  return handle(await fetch(`/v1/gcn/search?${p.toString()}`, { headers: headers() }));
-}
-
 // Xuất nền (không cap dòng, không chặn request) — job chạy ở worker.
 export async function createExportJob(body) {
   return handle(await fetch(`/v1/gcn/export-jobs`, {
@@ -357,15 +349,4 @@ export async function downloadExportJob(id) {
   a.download = `ai-hub-export-${id.slice(0, 8)}.csv`;
   a.click();
   URL.revokeObjectURL(a.href);
-}
-
-// Audit truy cập dữ liệu nhạy cảm (xem/tải/xuất) — admin.
-export async function getAccessLog({ actor, gcnId, action, limit = 50, beforeId } = {}) {
-  const p = new URLSearchParams();
-  if (actor) p.set("actor", actor);
-  if (gcnId) p.set("gcn_id", gcnId);
-  if (action) p.set("action", action);
-  if (limit) p.set("limit", String(limit));
-  if (beforeId) p.set("before_id", beforeId);
-  return handle(await fetch(`/v1/access-log?${p.toString()}`, { headers: headers() }));
 }

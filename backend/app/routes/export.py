@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.access_log import log_access
+from app.audit import AuditAction, log_action
 from app.db import export_jobs
 from app.deps import is_admin, require_operator, scoped_branch
 from app.storage import SourceObjectUnavailable, get_pdf
@@ -71,7 +71,7 @@ async def download_export_job(job_id: str, user: dict = Depends(require_operator
         buf = await get_pdf(job["file_key"])
     except SourceObjectUnavailable as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
-    await log_access(user["username"], None, "export", {"job_id": job_id, "filter": job.get("filter")})
+    await log_action(user["username"], AuditAction.EXPORT_CREATE, job_id, {"filter": job.get("filter")})
     fname = f"ai-hub-export-{job_id[:8]}.csv"
     return StreamingResponse(
         buf, media_type="text/csv; charset=utf-8",

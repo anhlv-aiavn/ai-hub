@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
 import GcnPdf from "./GcnPdf.jsx";
+import Pager from "./Pager.jsx";
 import {
   listRows, listBatches, downloadCsv, getStats, getBranches,
   createExportJob, getExportJob, downloadExportJob,
@@ -8,6 +9,7 @@ import {
 import { subscribeEvents } from "../events.js";
 import { toastOk, toastErr } from "../toast.js";
 
+const ROWS_PAGE_SIZE = 50;
 const REVIEW = { "": "Mọi hậu kiểm", reviewed: "Đã duyệt", needs_review: "Cần xem", unreviewed: "Chưa kiểm" };
 const FILE_COLS = new Set(["Tệp gốc", "Tệp cắt"]);
 
@@ -60,9 +62,6 @@ function BranchTable({ rows }) {
   if (!rows.length) return null;
   // Xếp hạng theo SỐ ĐÃ DUYỆT giảm dần (tie: nhiều GCN hơn trước).
   const ranked = [...rows].sort((a, b) => (b.reviewed - a.reviewed) || (b.gcns - a.gcns));
-  // Thanh theo SỐ LƯỢNG (volume) để thấy chênh lệch, không phải % (cái nào cũng 100%).
-  const maxDone = Math.max(1, ...ranked.map((r) => r.done || 0));
-  const maxRev = Math.max(1, ...ranked.map((r) => r.reviewed || 0));
 
   return (
     <div className="branch-stats">
@@ -87,13 +86,13 @@ function BranchTable({ rows }) {
                   <td>{fmt(r.gcns)}</td>
                   <td>
                     <div className="bt-prog">
-                      <div className="bt-bar"><div className="bt-fill" style={{ width: `${(r.done / maxDone) * 100}%` }} /></div>
+                      <div className="bt-bar"><div className="bt-fill" style={{ width: `${donePct}%` }} /></div>
                       <span className="bt-pct"><b>{fmt(r.done)}</b> <span className="muted">/{fmt(r.files)} · {donePct}%</span></span>
                     </div>
                   </td>
                   <td>
                     <div className="bt-prog">
-                      <div className="bt-bar"><div className="bt-fill rev" style={{ width: `${(r.reviewed / maxRev) * 100}%` }} /></div>
+                      <div className="bt-bar"><div className="bt-fill rev" style={{ width: `${revPct}%` }} /></div>
                       <span className="bt-pct"><b>{fmt(r.reviewed)}</b> <span className="muted">· {revPct}%</span></span>
                     </div>
                   </td>
@@ -119,38 +118,48 @@ export default function ExportView({ user }) {
   const [stats, setStats] = useState(null);
   const [cols, setCols] = useState([]);
   const [rows, setRows] = useState([]);
+  const [rowsTotal, setRowsTotal] = useState(0);
+  const [rowsPage, setRowsPage] = useState(1);
+  const [rowsTotalPages, setRowsTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState(null); // {gcnId, cutIndex, title}
   const [pvPage, setPvPage] = useState(1);
   const [job, setJob] = useState(null); // {job_id, status, row_count, error}
   const pollRef = useRef(null);
+  const refreshRef = useRef(() => {});
 
   function openPreview(p) { setPvPage(1); setPreview(p); }
 
-  async function refresh() {
+  async function refresh(p = rowsPage) {
     setLoading(true);
     try {
       const [d, st] = await Promise.all([
-        listRows({ batchId: batchId || undefined, branch: branch || undefined, review: review || undefined }),
+        listRows({ batchId: batchId || undefined, branch: branch || undefined, review: review || undefined,
+                   page: p, pageSize: ROWS_PAGE_SIZE }),
         getStats({ batchId: batchId || undefined, branch: branch || undefined }),
       ]);
       setCols(d.columns || []);
       setRows(d.rows || []);
+      setRowsTotal(d.total || 0);
+      setRowsTotalPages(d.total_pages || 1);
       setStats(st);
     } catch (e) { toastErr(e.message || e); } finally { setLoading(false); }
   }
+  useEffect(() => { refreshRef.current = refresh; });
 
   useEffect(() => {
     listBatches().then((d) => setBatches(d.batches || [])).catch(() => {});
     if (isAdmin) getBranches().then((d) => setBranches(d.branches || [])).catch(() => {});
   }, [isAdmin]);
-  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [batchId, branch, review]);
+  // Đổi bộ lọc → về trang 1 (không dùng state `rowsPage` cũ để tránh closure lệch nhịp).
+  useEffect(() => { setRowsPage(1); refresh(1); /* eslint-disable-next-line */ }, [batchId, branch, review]);
   useEffect(() => {
     let t = null;
-    const un = subscribeEvents(() => { clearTimeout(t); t = setTimeout(refresh, 800); });
+    const un = subscribeEvents(() => { clearTimeout(t); t = setTimeout(() => refreshRef.current(), 800); });
     return () => { un(); clearTimeout(t); };
-    // eslint-disable-next-line
-  }, [batchId, branch, review]);
+  }, []);
+
+  function goToRowsPage(p) { setRowsPage(p); refresh(p); }
 
   async function csv() {
     try {
@@ -217,7 +226,7 @@ export default function ExportView({ user }) {
             <option value="">Tất cả đợt</option>
             {batches.map((b) => <option key={b.batch_id} value={b.batch_id}>{b.name} · {b.file_count} hồ sơ</option>)}
           </select>
-          <button className="ghost sm" onClick={refresh}><Icon name="refresh" size={14} /> Làm mới</button>
+          <button className="ghost sm" onClick={() => refresh()}><Icon name="refresh" size={14} /> Làm mới</button>
         </div>
       </div>
 
@@ -235,7 +244,7 @@ export default function ExportView({ user }) {
             <select value={review} onChange={(e) => setReview(e.target.value)}>
               {Object.entries(REVIEW).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
-            <span className="muted ev-count">{rows.length} dòng</span>
+            <span className="muted ev-count">{fmt(rowsTotal)} dòng</span>
             <button className="primary sm" onClick={csv}><Icon name="download" size={14} /> Tải CSV</button>
             {canExportJob && (
               <button className="ghost sm" disabled={job && job.status !== "done" && job.status !== "error"}
@@ -282,6 +291,8 @@ export default function ExportView({ user }) {
             </tbody>
           </table>
         </div>
+
+        <Pager page={rowsPage} totalPages={rowsTotalPages} total={rowsTotal} unit="dòng" onChange={goToRowsPage} />
       </div>
 
       {preview && (

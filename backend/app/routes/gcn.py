@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from pymongo import ReturnDocument
 
 from app import config, storage
-from app.access_log import log_access
+from app.audit import AuditAction, log_action
 from app.batch_counters import bump
 from app.db import batches, gcns
 from app.deps import current_user, ensure_branch_access, is_admin, require_operator, scoped_branch
@@ -46,10 +46,14 @@ async def list_gcn(
     status: str | None = None,
     review: str | None = None,
     q: str | None = Query(default=None, description="Tìm theo Số phát hành / tên tệp"),
-    limit: int = 500,
+    page: int = 1,
+    page_size: int = 50,
     user: dict = Depends(current_user),
 ):
-    """Bảng trích xuất — cột tóm tắt, lọc + tìm, sắp theo group_key (Số phát hành)."""
+    """Bảng trích xuất — cột tóm tắt, lọc + tìm, sắp theo group_key (Số phát hành).
+
+    Phân trang ở TẦNG FILE (doc), không phải tầng dòng đã expand — 1 trang luôn
+    đúng `page_size` file dù file có 1 hay nhiều bản cắt (GCN) bên trong."""
     branch = scoped_branch(user, branch)
     flt: dict = {}
     if batch_id:
@@ -67,14 +71,35 @@ async def list_gcn(
             {"filename": {"$regex": q, "$options": "i"}},
         ]
 
-    docs = await gcns().find(flt, _TABLE_PROJ).limit(limit).to_list(length=limit)
+    page = max(1, page)
+    page_size = max(1, min(page_size, 500))
+    pipeline = [
+        {"$match": flt},
+        {"$facet": {
+            "data": [
+                {"$addFields": {
+                    "_gk_null": {"$eq": ["$group_key", None]},
+                    "_gk": {"$ifNull": ["$group_key", ""]},
+                }},
+                {"$sort": {"_gk_null": 1, "_gk": 1, "created_at": 1}},
+                {"$skip": (page - 1) * page_size},
+                {"$limit": page_size},
+                {"$project": {**_TABLE_PROJ, "_gk_null": 0, "_gk": 0}},
+            ],
+            "count": [{"$count": "n"}],
+        }},
+    ]
+    agg = await gcns().aggregate(pipeline).to_list(length=1)
+    facet = agg[0] if agg else {"data": [], "count": []}
+    total = (facet.get("count") or [{}])[0].get("n", 0) if facet.get("count") else 0
+
     rows: list[dict] = []
-    for d in docs:
+    for d in facet.get("data", []):
         rows.extend(_expand(d))
-    # Gom theo group_key (None xuống cuối), trong nhóm giữ thứ tự tạo.
-    rows.sort(key=lambda r: (r.get("group_key") is None, r.get("group_key") or "",
-                             str(r.get("created_at") or "")))
-    return {"gcn": rows, "total": len(rows)}
+    return {
+        "gcn": rows, "total": total, "page": page, "page_size": page_size,
+        "total_pages": max(1, -(-total // page_size)),
+    }
 
 
 async def _collect_rows(batch_id, status, review, branch=None) -> list[dict]:
@@ -99,10 +124,22 @@ async def _collect_rows(batch_id, status, review, branch=None) -> list[dict]:
 @router.get("/rows")
 async def gcn_rows(batch_id: str | None = None, status: str | None = None,
                    review: str | None = None, branch: str | None = None,
+                   page: int = 1, page_size: int = 50,
                    user: dict = Depends(current_user)):
-    """Khung nhìn dạng HÀNG phẳng (đã áp hậu kiểm) — phục vụ xem/xuất/FME."""
-    rows = await _collect_rows(batch_id, status, review, scoped_branch(user, branch))
-    return {"columns": FLAT_COLUMNS, "rows": rows}
+    """Khung nhìn dạng HÀNG phẳng (đã áp hậu kiểm) — phục vụ xem/xuất/FME.
+
+    Phân trang ở TẦNG HÀNG (1 hàng = 1 thửa, xem `flatten_doc`) — chỉ áp cho
+    preview trên UI; `export.csv`/xuất nền vẫn lấy toàn bộ qua `_collect_rows`."""
+    all_rows = await _collect_rows(batch_id, status, review, scoped_branch(user, branch))
+    page = max(1, page)
+    page_size = max(1, min(page_size, 500))
+    start = (page - 1) * page_size
+    rows = all_rows[start:start + page_size]
+    total = len(all_rows)
+    return {
+        "columns": FLAT_COLUMNS, "rows": rows, "total": total, "page": page,
+        "page_size": page_size, "total_pages": max(1, -(-total // page_size)),
+    }
 
 
 @router.get("/export.csv")
@@ -187,55 +224,6 @@ async def stats(batch_id: str | None = None, branch: str | None = None,
     }
 
 
-@router.get("/search")
-async def search_gcn(
-    so_phat_hanh: str | None = None,
-    branch: str | None = None,
-    status: str | None = None,
-    date_from: datetime | None = None,
-    date_to: datetime | None = None,
-    limit: int = 50,
-    before: datetime | None = None,
-    user: dict = Depends(current_user),
-):
-    """Tra cứu quy mô lớn — cursor theo `created_at` (KHÔNG skip/limit sâu), trả
-    field tóm tắt (không nhồi `extractions`). Dùng compound index
-    `{branch:1, created_at:-1}` ([db.py::ensure_indexes])."""
-    branch = scoped_branch(user, branch)
-    flt: dict = {}
-    if branch:
-        flt["branch"] = branch
-    if status:
-        flt["status"] = status
-    if so_phat_hanh:
-        flt["extracted_so_phat_hanhs"] = so_phat_hanh
-    created: dict = {}
-    if date_from:
-        created["$gte"] = date_from
-    if date_to:
-        created["$lte"] = date_to
-    if before:
-        created["$lt"] = before
-    if created:
-        flt["created_at"] = created
-
-    limit = max(1, min(limit, 200))
-    proj = {"filename": 1, "status": 1, "review.status": 1, "review.display_name": 1,
-            "group_key": 1, "extracted_so_phat_hanhs": 1, "branch": 1, "created_at": 1,
-            "dup_suspect": 1}
-    docs = await gcns().find(flt, proj).sort("created_at", -1).limit(limit).to_list(length=limit)
-    items = [{
-        "gcn_id": d["_id"], "filename": d.get("filename"),
-        "display_name": (d.get("review") or {}).get("display_name"),
-        "status": d.get("status"), "review_status": (d.get("review") or {}).get("status", "unreviewed"),
-        "group_key": d.get("group_key"), "extracted_so_phat_hanhs": d.get("extracted_so_phat_hanhs", []),
-        "branch": d.get("branch"), "created_at": d.get("created_at"),
-        "dup_suspect": bool(d.get("dup_suspect")),
-    } for d in docs]
-    next_cursor = docs[-1]["created_at"].isoformat() if len(docs) == limit and docs[-1].get("created_at") else None
-    return {"items": items, "next_cursor": next_cursor}
-
-
 class RetryErrorsIn(BaseModel):
     batch_id: str
     error_kind: str | None = None  # None = mọi error_kind; "dead" (poison) không nằm trong phạm vi
@@ -267,7 +255,7 @@ async def get_gcn(gcn_id: str, user: dict = Depends(current_user)):
     if not doc:
         raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
     ensure_branch_access(user, doc.get("branch"))
-    await log_access(user["username"], gcn_id, "view")
+    await log_action(user["username"], AuditAction.GCN_VIEW, gcn_id)
     return _detail(doc)
 
 
@@ -407,6 +395,7 @@ async def put_review(gcn_id: str, body: ReviewIn, user: dict = Depends(require_o
         raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
     ensure_branch_access(user, doc.get("branch"))
     review = doc.get("review") or {}
+    before_review = dict(review)  # snapshot trước khi áp thay đổi — dùng để ghi audit sau
     current_version = review.get("version", 0)
     if body.version is not None and body.version != current_version:
         raise HTTPException(status_code=409, detail={
@@ -461,6 +450,18 @@ async def put_review(gcn_id: str, body: ReviewIn, user: dict = Depends(require_o
             "message": "Người khác vừa sửa hồ sơ này, hãy tải lại",
             "current_version": (fresh or {}).get("review", {}).get("version", 0),
         })
+
+    # Audit: tách riêng "sửa" và "xóa dòng" (2 action) để lọc/tra dễ hơn — 1 lần
+    # lưu có thể vừa sửa vừa xóa, ghi cả hai khi cả hai cùng xảy ra.
+    if body.overrides is not None or body.display_name is not None or body.status is not None:
+        await log_action(user["username"], AuditAction.GCN_EDIT, gcn_id, {
+            "before": {k: before_review.get(k) for k in ("display_name", "overrides", "status")},
+            "after": {k: review.get(k) for k in ("display_name", "overrides", "status")},
+        })
+    new_deleted = sorted(set(review.get("deleted") or []) - set(before_review.get("deleted") or []))
+    if new_deleted:
+        await log_action(user["username"], AuditAction.GCN_ROWS_DELETE, gcn_id, {"deleted_indices": new_deleted})
+
     return {"ok": True, "review": review}
 
 
@@ -474,7 +475,7 @@ async def download(gcn_id: str, user: dict = Depends(current_user)):
         pdf = (await storage.get_pdf(doc["s3_key"], doc.get("source_connection_id"))).getvalue()
     except SourceObjectUnavailable as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
-    await log_access(user["username"], gcn_id, "download")
+    await log_action(user["username"], AuditAction.GCN_DOWNLOAD, gcn_id)
     name = (doc.get("review") or {}).get("display_name") or doc.get("group_key") \
         or doc.get("filename", gcn_id)
     name = _safe(name)

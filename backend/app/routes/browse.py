@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from pymongo.errors import DuplicateKeyError
 
+from app.audit import AuditAction, log_action
 from app.batch_counters import bump, init_counts
 from app.branches import is_valid_branch
 from app.db import batches, gcns, import_jobs, s3_connections
@@ -156,6 +157,10 @@ async def import_from_minio(source_id: str, body: ImportIn, user: dict = Depends
                 meta = {}
             items.append((key, meta))
         created, skipped, requeued = await _sync_import_files(batch_id, branch, source_id, items)
+        await log_action(user["username"], AuditAction.GCN_IMPORT_MINIO, batch_id, {
+            "source_connection_id": source_id, "keys": body.keys,
+            "created": created, "skipped": skipped, "requeued": requeued,
+        })
         return {"batch_id": batch_id, "created": created, "skipped": skipped, "requeued": requeued}
 
     if not body.prefix and not body.recursive:
@@ -192,4 +197,8 @@ async def import_from_minio(source_id: str, body: ImportIn, user: dict = Depends
             [(f["key"], f) for f in loose_files],
         )
 
+    await log_action(user["username"], AuditAction.GCN_IMPORT_MINIO, batch_id, {
+        "source_connection_id": source_id, "prefix": body.prefix,
+        "recursive": body.recursive, "job_ids": job_ids,
+    })
     return {"batch_id": batch_id, "status": "importing", "job_ids": job_ids}

@@ -4,7 +4,7 @@ import Modal from "./Modal.jsx";
 import {
   getSiteConfig, updateSiteConfig,
   getS3Connections, createS3Connection, updateS3Connection, deleteS3Connection,
-  testS3Connection, testS3ConnectionDraft, getAuditLog, getAccessLog,
+  testS3Connection, testS3ConnectionDraft,
   listBatches, retryErrors,
 } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
@@ -14,8 +14,6 @@ const TABS = [
   ["source", "S3 nguồn"],
   ["dest", "S3 đích"],
   ["errors", "Dead-letter/lỗi"],
-  ["audit", "Audit log"],
-  ["access", "Audit truy cập"],
 ];
 
 // Modal cấu hình hệ thống (admin-only) — tabs. Mở từ AccountMenu, cạnh "Quản trị
@@ -34,8 +32,6 @@ export default function AdminSettings({ onClose }) {
         {tab === "source" && <S3Tab role="source" />}
         {tab === "dest" && <S3Tab role="destination" />}
         {tab === "errors" && <ErrorsTab />}
-        {tab === "audit" && <AuditTab />}
-        {tab === "access" && <AccessLogTab />}
       </div>
     </Modal>
   );
@@ -159,6 +155,7 @@ function S3Tab({ role }) {
   const [form, setForm] = useState(EMPTY_CONN);
   const [busy, setBusy] = useState(false);
   const [testMsg, setTestMsg] = useState(null);
+  const [bucketOptions, setBucketOptions] = useState([]);
 
   async function refresh() {
     try { const d = await getS3Connections(role); setRows(d.connections || []); }
@@ -166,21 +163,34 @@ function S3Tab({ role }) {
   }
   useEffect(() => { refresh(); setEditing(null); }, [role]);
 
-  function openNew() { setForm(EMPTY_CONN); setEditing({}); setTestMsg(null); }
+  function openNew() { setForm(EMPTY_CONN); setEditing({}); setTestMsg(null); setBucketOptions([]); }
   function openEdit(c) {
     setForm({ name: c.name, endpoint_url: c.endpoint_url, access_key_id: c.access_key_id,
              secret_access_key: "", bucket: c.bucket, verify_tls: c.verify_tls });
     setEditing(c); setTestMsg(null);
+    setBucketOptions(c.bucket ? [c.bucket] : []); // hiện sẵn bucket đã lưu, khỏi cần test lại mới thấy
+  }
+
+  // Đổi endpoint/access key/secret → danh sách bucket cũ không còn đáng tin, phải test lại.
+  function updateConnField(field, value) {
+    setForm((f) => ({ ...f, [field]: value }));
+    setBucketOptions([]);
+    setTestMsg(null);
   }
 
   async function testDraft() {
     setBusy(true); setTestMsg(null);
     try {
+      const { bucket: _bucket, ...rest } = form; // luôn test kiểu "liệt kê bucket", không test 1 bucket cụ thể
       const body = editing?.id
-        ? { id: editing.id, use_stored_secret: !form.secret_access_key, role, ...form }
-        : { role, ...form };
+        ? { id: editing.id, use_stored_secret: !form.secret_access_key, role, ...rest, bucket: "" }
+        : { role, ...rest, bucket: "" };
       const res = await testS3ConnectionDraft(body);
       setTestMsg(res);
+      if (res.result === "ok" && res.buckets) {
+        setBucketOptions(res.buckets);
+        setForm((f) => (res.buckets.includes(f.bucket) ? f : { ...f, bucket: "" }));
+      }
     } catch (e) { setTestMsg({ result: "error", message: e.message || String(e) }); }
     finally { setBusy(false); }
   }
@@ -257,19 +267,22 @@ function S3Tab({ role }) {
             <input className="text-input" placeholder="Tên" value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })} />
             <input className="text-input" placeholder="Endpoint URL" value={form.endpoint_url}
-              onChange={(e) => setForm({ ...form, endpoint_url: e.target.value })} />
+              onChange={(e) => updateConnField("endpoint_url", e.target.value)} />
           </div>
           <div className="row">
             <input className="text-input" placeholder="Access key" value={form.access_key_id}
-              onChange={(e) => setForm({ ...form, access_key_id: e.target.value })} />
+              onChange={(e) => updateConnField("access_key_id", e.target.value)} />
             <input className="text-input" type="password"
               placeholder={editing.id ? "Secret (để trống = giữ nguyên)" : "Secret key"}
               value={form.secret_access_key}
-              onChange={(e) => setForm({ ...form, secret_access_key: e.target.value })} />
+              onChange={(e) => updateConnField("secret_access_key", e.target.value)} />
           </div>
           <div className="row">
-            <input className="text-input" placeholder="Bucket" value={form.bucket}
-              onChange={(e) => setForm({ ...form, bucket: e.target.value })} />
+            <select className="text-input" value={form.bucket} disabled={!bucketOptions.length}
+              onChange={(e) => setForm({ ...form, bucket: e.target.value })}>
+              <option value="">{bucketOptions.length ? "— Chọn bucket —" : "Test kết nối để chọn bucket"}</option>
+              {bucketOptions.map((b) => <option key={b} value={b}>{b}</option>)}
+            </select>
             <label className="row" style={{ alignItems: "center" }}>
               <input type="checkbox" checked={form.verify_tls}
                 onChange={(e) => setForm({ ...form, verify_tls: e.target.checked })} />
@@ -353,128 +366,3 @@ function ErrorsTab() {
   );
 }
 
-// ── Tab: Audit log ───────────────────────────────────────────────────────────
-function AuditTab() {
-  const [items, setItems] = useState([]);
-  const [cursor, setCursor] = useState(null);
-  const [action, setAction] = useState("");
-  const [actor, setActor] = useState("");
-  const [open, setOpen] = useState(null);
-  const [loading, setLoading] = useState(false);
-
-  async function load(before) {
-    setLoading(true);
-    try {
-      const d = await getAuditLog({ action: action || undefined, actor: actor || undefined, beforeId: before });
-      setItems((prev) => (before ? [...prev, ...d.items] : d.items));
-      setCursor(d.next_cursor);
-    } catch (e) { toastErr(e.message || e); } finally { setLoading(false); }
-  }
-  useEffect(() => { load(null); }, [action, actor]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  return (
-    <div className="admin-tab-body">
-      <div className="row" style={{ marginBottom: 10 }}>
-        <select className="text-input" style={{ width: "auto" }} value={action} onChange={(e) => setAction(e.target.value)}>
-          <option value="">Mọi hành động</option>
-          <option value="site_config.update">site_config.update</option>
-          <option value="s3_connection.create">s3_connection.create</option>
-          <option value="s3_connection.update">s3_connection.update</option>
-          <option value="s3_connection.delete">s3_connection.delete</option>
-          <option value="s3_connection.test">s3_connection.test</option>
-        </select>
-        <input className="text-input" style={{ width: "auto", flex: "1 1 150px" }} placeholder="Lọc theo actor…"
-          value={actor} onChange={(e) => setActor(e.target.value)} />
-      </div>
-
-      <div className="tbl-dense audit-tbl">
-        {items.map((r) => (
-          <div key={r.id} className="audit-item">
-            <div className="file-row audit-row" role="button" tabIndex={0}
-              onClick={() => setOpen(open === r.id ? null : r.id)}>
-              <span className="fr-meta mono" title={r.at}>{fmtRelative(r.at)}</span>
-              <span className="fr-name">{r.actor}</span>
-              <span className="badge">{r.action}</span>
-              <span className="fr-meta">{r.target}</span>
-              <Icon name={open === r.id ? "chevronDown" : "chevronRight"} size={14} />
-            </div>
-            {open === r.id && (
-              <pre className="audit-detail">{JSON.stringify(r.detail, null, 2)}</pre>
-            )}
-          </div>
-        ))}
-        {!items.length && !loading && <div className="muted center" style={{ padding: 16 }}>Chưa có bản ghi.</div>}
-      </div>
-
-      {cursor && (
-        <button type="button" className="ghost sm" disabled={loading} onClick={() => load(cursor)}>
-          {loading ? "Đang tải…" : "Tải thêm"}
-        </button>
-      )}
-    </div>
-  );
-}
-
-// ── Tab: Audit truy cập (xem/tải/xuất bản gốc — dữ liệu cá nhân) ────────────
-function AccessLogTab() {
-  const [items, setItems] = useState([]);
-  const [cursor, setCursor] = useState(null);
-  const [action, setAction] = useState("");
-  const [actor, setActor] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  async function load(before) {
-    setLoading(true);
-    try {
-      const d = await getAccessLog({ action: action || undefined, actor: actor || undefined, beforeId: before });
-      setItems((prev) => (before ? [...prev, ...d.items] : d.items));
-      setCursor(d.next_cursor);
-    } catch (e) { toastErr(e.message || e); } finally { setLoading(false); }
-  }
-  useEffect(() => { load(null); }, [action, actor]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  return (
-    <div className="admin-tab-body">
-      <div className="row" style={{ marginBottom: 10 }}>
-        <select className="text-input" style={{ width: "auto" }} value={action} onChange={(e) => setAction(e.target.value)}>
-          <option value="">Mọi hành động</option>
-          <option value="view">Xem</option>
-          <option value="download">Tải</option>
-          <option value="export">Xuất</option>
-        </select>
-        <input className="text-input" style={{ width: "auto", flex: "1 1 150px" }} placeholder="Lọc theo actor…"
-          value={actor} onChange={(e) => setActor(e.target.value)} />
-      </div>
-
-      <div className="tbl-dense audit-tbl">
-        {items.map((r) => (
-          <div key={r.id} className="file-row audit-row">
-            <span className="fr-meta mono" title={r.at}>{fmtRelative(r.at)}</span>
-            <span className="fr-name">{r.actor}</span>
-            <span className="badge">{r.action}</span>
-            <span className="fr-meta mono">{r.gcn_id || "—"}</span>
-            <span />
-          </div>
-        ))}
-        {!items.length && !loading && <div className="muted center" style={{ padding: 16 }}>Chưa có bản ghi.</div>}
-      </div>
-
-      {cursor && (
-        <button type="button" className="ghost sm" disabled={loading} onClick={() => load(cursor)}>
-          {loading ? "Đang tải…" : "Tải thêm"}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function fmtRelative(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const diffMin = Math.round((Date.now() - d.getTime()) / 60000);
-  if (diffMin < 1) return "vừa xong";
-  if (diffMin < 60) return `${diffMin} phút trước`;
-  const diffH = Math.round(diffMin / 60);
-  if (diffH < 24) return `${diffH} giờ trước`;
-  return d.toLocaleDateString("vi-VN");
-}

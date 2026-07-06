@@ -141,7 +141,8 @@ async def test_draft(body: TestDraft):
         secret = stored["secret_access_key"]
         endpoint_url = endpoint_url or stored["endpoint_url"]
         access_key_id = access_key_id or stored["access_key_id"]
-        bucket = bucket or stored["bucket"]
+        # KHÔNG fallback bucket về stored["bucket"]: test draft giờ luôn test theo
+        # kiểu "liệt kê bucket" khi bucket rỗng (đổi bucket đã lưu cũng cần list lại).
     if not secret:
         raise HTTPException(status_code=400, detail="Cần secret_access_key để test")
     return await async_test_connection(endpoint_url, access_key_id, secret, bucket,

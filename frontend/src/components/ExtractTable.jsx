@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
+import Pager from "./Pager.jsx";
 import { listGcn, listBatches, getBranches } from "../api.js";
 import { subscribeEvents } from "../events.js";
 
+const PAGE_SIZE = 50;
 const PENDING = new Set(["queued", "processing"]);
 
 const STATUS_LABEL = {
@@ -22,14 +24,22 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
   const [hasPending, setHasPending] = useState(false);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const refreshRef = useRef(() => {});
 
-  async function refresh() {
+  async function refresh(p = page) {
     setLoading(true);
     try {
-      const d = await listGcn({ batchId, branch: branch || undefined, status: status || undefined, q: q.trim() || undefined });
+      const d = await listGcn({
+        batchId, branch: branch || undefined, status: status || undefined,
+        q: q.trim() || undefined, page: p, pageSize: PAGE_SIZE,
+      });
       const list = d.gcn || [];
       setRows(list);
+      setTotal(d.total || 0);
+      setTotalPages(d.total_pages || 1);
       setHasPending(list.some((r) => PENDING.has(r.status)));
     } catch { /* bỏ qua */ } finally { setLoading(false); }
   }
@@ -40,7 +50,11 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
     if (isAdmin) getBranches().then((d) => setBranches(d.branches || [])).catch(() => {});
   }, [isAdmin]);
   useEffect(() => { setStatus(initialStatus); }, [initialStatus]);
-  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [batchId, branch, status]);
+  // Đổi bộ lọc → về trang 1 (không dùng state `page` cũ để tránh closure lệch nhịp).
+  useEffect(() => { setPage(1); refresh(1); /* eslint-disable-next-line */ }, [batchId, branch, status]);
+
+  function goToPage(p) { setPage(p); refresh(p); }
+  function runSearch() { setPage(1); refresh(1); }
 
   // Live: SSE đẩy tức thì + polling dự phòng khi còn giấy đang chạy (chắc ăn).
   useEffect(() => {
@@ -91,9 +105,9 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
           <div className="search-box">
             <Icon name="search" size={15} />
             <input placeholder="Tìm Số phát hành / tên tệp" value={q}
-              onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && refresh()} />
+              onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && runSearch()} />
           </div>
-          <button className="ghost sm" onClick={refresh}><Icon name="refresh" size={14} /> Làm mới</button>
+          <button className="ghost sm" onClick={() => refresh()}><Icon name="refresh" size={14} /> Làm mới</button>
         </div>
       </div>
 
@@ -154,6 +168,8 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
           </tbody>
         </table>
       </div>
+
+      <Pager page={page} totalPages={totalPages} total={total} unit="file" onChange={goToPage} />
     </div>
   );
 }

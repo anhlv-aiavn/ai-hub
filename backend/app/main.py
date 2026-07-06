@@ -7,7 +7,6 @@ from fastapi import FastAPI
 from app import auth, config
 from app.branches import BRANCHES
 from app.db import ensure_indexes, site_config, users
-from app.routes import access_log as access_log_routes
 from app.routes import audit as audit_routes
 from app.routes import auth as auth_routes
 from app.routes import batches, browse, events, export, gcn, s3_connections, settings
@@ -26,7 +25,6 @@ app.include_router(settings.router)
 app.include_router(s3_connections.router)
 app.include_router(browse.router)
 app.include_router(audit_routes.router)
-app.include_router(access_log_routes.router)
 app.include_router(export.router)
 
 

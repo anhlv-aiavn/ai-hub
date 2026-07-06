@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app import config, storage
+from app.audit import AuditAction, log_action
 from app.batch_counters import bump, init_counts
 from app.branches import get_branches, is_valid_branch
 from app.db import batches, gcns
@@ -51,6 +52,7 @@ async def create_batch(
             raise HTTPException(status_code=400, detail="Chi nhánh không hợp lệ")
         batch_id = str(uuid.uuid4())
     created: list[str] = []
+    filenames: list[str] = []
 
     for f in files:
         data = await f.read()
@@ -82,6 +84,7 @@ async def create_batch(
         })
         # Không cần enqueue: worker tự poll & claim doc status=queued từ Mongo.
         created.append(gcn_id)
+        filenames.append(f.filename or f"{gcn_id}.pdf")
 
     if not created:
         raise HTTPException(status_code=400, detail="Tệp rỗng/không hợp lệ")
@@ -106,6 +109,9 @@ async def create_batch(
         await init_counts(batches(), batch_id, queued=len(created))
         total = len(created)
 
+    await log_action(user["username"], AuditAction.GCN_UPLOAD, batch_id, {
+        "filenames": filenames, "file_count": len(created), "branch": branch, "gcn_ids": created,
+    })
     return {"batch_id": batch_id, "file_count": total, "branch": branch, "gcn_ids": created}
 
 

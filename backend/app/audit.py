@@ -1,6 +1,7 @@
-"""Audit log cấu hình — append-only, không bao giờ chứa secret thật.
-Chỉ ghi thay đổi CẤU HÌNH (site_config/s3_connections); không ghi nghiệp vụ
-thường ngày (đó là phạm vi access-log, phase sau)."""
+"""Audit log — append-only, không bao giờ chứa secret thật. Ghi CẢ thay đổi cấu
+hình (site_config/s3_connections) LẪN nghiệp vụ (upload/import/sửa/xóa/xem/tải/
+xuất) — 1 collection duy nhất, không tách access_log riêng nữa (từng tách nhưng
+gộp lại theo yêu cầu quản trị: cần 1 nơi tra "ai đã làm gì" cho mọi hành động)."""
 
 from datetime import datetime, timezone
 from enum import Enum
@@ -14,6 +15,13 @@ class AuditAction(str, Enum):
     S3_CONNECTION_UPDATE = "s3_connection.update"
     S3_CONNECTION_DELETE = "s3_connection.delete"
     S3_CONNECTION_TEST = "s3_connection.test"
+    GCN_UPLOAD = "gcn.upload"
+    GCN_IMPORT_MINIO = "gcn.import_minio"
+    GCN_EDIT = "gcn.edit"
+    GCN_ROWS_DELETE = "gcn.rows_delete"
+    GCN_VIEW = "gcn.view"
+    GCN_DOWNLOAD = "gcn.download"
+    EXPORT_CREATE = "export.create"
 
 
 def _redact(detail: dict | None) -> dict:
