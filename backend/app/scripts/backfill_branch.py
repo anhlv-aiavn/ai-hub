@@ -33,7 +33,7 @@ async def _propagate() -> None:
 
 
 async def _assign(batch_id: str, branch: str) -> None:
-    if not is_valid_branch(branch):
+    if not await is_valid_branch(branch):
         raise SystemExit(f"Chi nhánh không hợp lệ: {branch!r}")
     b = await batches().find_one({"_id": batch_id}, {"_id": 1})
     if not b:

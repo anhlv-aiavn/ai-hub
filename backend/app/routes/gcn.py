@@ -12,7 +12,8 @@ from pydantic import BaseModel
 
 from app import storage
 from app.db import gcns
-from app.deps import current_user, ensure_branch_access, is_admin, scoped_branch
+from app.deps import current_user, ensure_branch_access, is_admin, require_operator, scoped_branch
+from app.storage import SourceObjectUnavailable
 from app.flatten import COLUMNS as FLAT_COLUMNS, effective_extractions, flatten_doc
 from app.summary import collect_so_phat_hanhs, group_key_of, per_gcn, summarize
 
@@ -194,8 +195,11 @@ async def get_gcn(gcn_id: str, user: dict = Depends(current_user)):
 
 @router.get("/{gcn_id}/page/{n}")
 async def get_page(gcn_id: str, n: int, w: int = 1100, user: dict = Depends(current_user)):
-    doc = await _authz_gcn(gcn_id, user, {"s3_key": 1})
-    png = await storage.render_page(doc["s3_key"], n, w)
+    doc = await _authz_gcn(gcn_id, user, {"s3_key": 1, "source_connection_id": 1})
+    try:
+        png = await storage.render_page(doc["s3_key"], n, w, doc.get("source_connection_id"))
+    except SourceObjectUnavailable as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
     return Response(content=png, media_type="image/png",
                     headers={"Cache-Control": "private, max-age=86400"})
 
@@ -251,7 +255,7 @@ class ReviewIn(BaseModel):
 
 
 @router.put("/{gcn_id}")
-async def put_review(gcn_id: str, body: ReviewIn, user: dict = Depends(current_user)):
+async def put_review(gcn_id: str, body: ReviewIn, user: dict = Depends(require_operator)):
     proj = {"review": 1, "branch": 1}
     recompute = body.overrides is not None or body.deleted is not None
     if recompute:  # cần raw để tính lại cột dẫn xuất
@@ -306,7 +310,10 @@ async def download(gcn_id: str, user: dict = Depends(current_user)):
     if not doc:
         raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
     ensure_branch_access(user, doc.get("branch"))
-    pdf = (await storage.get_pdf(doc["s3_key"])).getvalue()
+    try:
+        pdf = (await storage.get_pdf(doc["s3_key"], doc.get("source_connection_id"))).getvalue()
+    except SourceObjectUnavailable as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
     name = (doc.get("review") or {}).get("display_name") or doc.get("group_key") \
         or doc.get("filename", gcn_id)
     name = _safe(name)

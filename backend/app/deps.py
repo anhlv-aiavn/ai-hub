@@ -48,6 +48,31 @@ def is_admin(user: dict) -> bool:
     return user.get("role") == "admin"
 
 
+# RBAC 3-role: admin (config/secret/users) > operator (import/hậu kiểm, khóa chi
+# nhánh, không thấy secret) > viewer (tra cứu/xem, khóa chi nhánh). Cấp bậc để
+# require_operator/require_viewer chấp nhận cả role cao hơn.
+ROLES = ("viewer", "operator", "admin")
+
+
+def _rank(role: str | None) -> int:
+    try:
+        return ROLES.index(role or "viewer")
+    except ValueError:
+        return -1
+
+
+def require_operator(user: dict = Depends(current_user)) -> dict:
+    if _rank(user.get("role")) < ROLES.index("operator"):
+        raise HTTPException(status_code=403, detail="Cần quyền operator trở lên")
+    return user
+
+
+def require_viewer(user: dict = Depends(current_user)) -> dict:
+    if _rank(user.get("role")) < ROLES.index("viewer"):
+        raise HTTPException(status_code=403, detail="Cần đăng nhập")
+    return user
+
+
 def scoped_branch(user: dict, requested: str | None) -> str | None:
     """Branch dùng để lọc dữ liệu. Admin: theo `requested` (None = tất cả).
     User thường: LUÔN ép về chi nhánh của họ (bỏ qua giá trị client gửi)."""

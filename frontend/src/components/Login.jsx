@@ -1,6 +1,12 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Icon from "./Icon.jsx";
-import { login } from "../api.js";
+import { getBranding, login } from "../api.js";
+
+const FALLBACK_BRANDING = {
+  org_name: "VP Đăng ký đất đai TP Hà Nội",
+  logo_url: "/logo-sotnmt.png",
+  copyright_text: "VP Đăng ký đất đai TP Hà Nội",
+};
 
 // Màn đăng nhập — card ngang 2 panel (brand · form), gate toàn bộ app khi chưa có token.
 export default function Login({ onLogin }) {
@@ -8,7 +14,14 @@ export default function Login({ onLogin }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [branding, setBranding] = useState(FALLBACK_BRANDING);
   const year = new Date().getFullYear();
+
+  useEffect(() => {
+    getBranding().then((b) => {
+      if (b && (b.org_name || b.logo_url || b.copyright_text)) setBranding({ ...FALLBACK_BRANDING, ...b });
+    }).catch(() => {});
+  }, []);
 
   async function submit(e) {
     e.preventDefault();
@@ -30,18 +43,18 @@ export default function Login({ onLogin }) {
         <aside className="auth-brand">
           <div className="ab-top">
             <div className="ab-head">
-              <img className="ab-logo" src="/logo-sotnmt.png" alt="Sở TN&MT Hà Nội" />
+              <img className="ab-logo" src={branding.logo_url} alt={branding.org_name} />
               <div className="ab-title">AI-HUB</div>
             </div>
-            <div className="ab-org">Văn phòng Đăng ký đất đai thành phố Hà Nội</div>
+            <div className="ab-org">{branding.org_name}</div>
             <div className="ab-desc">Số hóa &amp; đối soát Giấy Chứng Nhận Quyền sử dụng đất trực tiếp trên kho dữ liệu nội bộ.</div>
           </div>
-          <div className="ab-foot">© {year} · VP Đăng ký đất đai TP Hà Nội</div>
+          <div className="ab-foot">© {year} · {branding.copyright_text}</div>
         </aside>
 
         <section className="auth-form">
           <div className="af-brand">
-            <img className="brand-logo sm" src="/logo-sotnmt.png" alt="" />
+            <img className="brand-logo sm" src={branding.logo_url} alt="" />
             <span>AI-HUB</span>
           </div>
           <div className="af-title">Đăng nhập</div>
@@ -64,7 +77,7 @@ export default function Login({ onLogin }) {
                 : (<><Icon name="check" size={15} /> Đăng nhập</>)}
             </button>
           </form>
-          <div className="af-foot">© {year} · VP Đăng ký đất đai TP Hà Nội</div>
+          <div className="af-foot">© {year} · {branding.copyright_text}</div>
         </section>
       </main>
     </div>

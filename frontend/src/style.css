@@ -1073,3 +1073,116 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .export-head h3 .muted { font-weight: 400; font-size: 12px; }
 .export-head .et-filters { gap: 8px; }
 .export-head .ev-count { font-size: 12px; white-space: nowrap; }
+
+/* ============ Cấu hình hệ thống (AdminSettings) ============ */
+.admin-settings { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; max-width: 920px; }
+.admin-tabs { margin: 2px 0 14px; }
+.admin-tab-body { display: flex; flex-direction: column; gap: 2px; }
+.admin-tab-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.admin-tab-foot { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.admin-warn {
+  display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; padding: 11px 13px;
+  background: #fffbeb; border: 1px solid #fde68a; border-left-width: 3px; border-radius: var(--radius-sm);
+  color: #92400e; font-size: 13px; line-height: 1.5;
+}
+.admin-warn > .ico { flex: none; margin-top: 1px; color: var(--amber); }
+.admin-warn b { display: block; margin-bottom: 3px; color: #78350f; }
+.admin-warn .primary.sm, .admin-warn .ghost.sm { margin-top: 8px; margin-right: 8px; }
+
+/* Trạng thái test connection — chấm màu LUÔN kèm text (không dùng màu làm tín hiệu duy nhất) */
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; vertical-align: -1px; }
+.dot-ok { background: var(--ok); }
+.dot-err { background: var(--err); }
+.dot-unknown { background: var(--text-3); }
+
+.s3-form {
+  margin-top: 14px; padding: 14px 16px; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius); display: flex; flex-direction: column; gap: 4px;
+}
+.s3-form h4 { margin: 0 0 8px; color: var(--brand); font-size: 14px; }
+.s3-form .row { margin-bottom: 4px; }
+.s3-form .row > * { flex: 1 1 220px; }
+
+/* ============ Bảng dense chung (§Chuẩn UI dense — PLAN_.md) ============ */
+.tbl-dense { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--surface); }
+.file-row {
+  display: flex; align-items: center; gap: 8px; height: 34px; min-height: 34px; padding: 0 10px;
+  border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text); cursor: default;
+  transition: background .12s;
+}
+.tbl-dense > .file-row:last-child, .tbl-dense .audit-item:last-child .file-row { border-bottom: none; }
+.file-row.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 37%, var(--surface-2) 63%);
+  background-size: 400% 100%; animation: sk-shimmer 1.4s ease infinite;
+}
+@keyframes sk-shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+.file-row.is-folder, .file-row.is-folder * { cursor: pointer; }
+.file-row.is-folder:hover, .file-row:has(input.fr-check):hover, .file-row.sel {
+  background: var(--accent-50);
+}
+.file-row.is-folder:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.file-row .fr-check { flex: none; width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+span.fr-check { visibility: hidden; }  /* folder row: giữ chỗ, không hiện checkbox trừ chế độ chọn cả thư mục */
+.fr-ico.folder { color: var(--amber); flex: none; }
+.fr-chip {
+  flex: none; font-size: 10px; font-weight: 700; letter-spacing: .02em; padding: 1px 6px; border-radius: 4px;
+  background: #fee2e2; color: var(--err);
+}
+.fr-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fr-meta { flex: none; color: var(--text-3); font-size: 12px; white-space: nowrap; }
+label.file-row { width: 100%; }
+
+.minio-browser { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.mb-breadcrumb { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; font-size: 12.5px; }
+.mb-crumb { border: none; background: none; padding: 3px 5px; border-radius: 5px; cursor: pointer; color: var(--text-2); font: inherit; }
+.mb-crumb:hover { background: var(--surface-3); color: var(--text); }
+.mb-crumb.cur { color: var(--brand); font-weight: 600; cursor: default; }
+.mb-crumb.cur:hover { background: none; }
+.mb-sep { color: var(--text-3); flex: none; }
+.mb-header { display: flex; align-items: center; gap: 8px; }
+.mb-count {
+  background: var(--accent-50); color: var(--brand); font-size: 11px; font-weight: 700; min-width: 20px;
+  text-align: center; padding: 2px 6px; border-radius: 999px;
+}
+.mb-title { flex: 1; font-weight: 600; color: var(--text); font-size: 13.5px; }
+.mb-filter {
+  display: flex; align-items: center; gap: 7px; padding: 6px 10px; border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm); background: var(--surface); color: var(--text-3);
+}
+.mb-filter input { flex: 1; border: none; outline: none; background: none; margin: 0; padding: 0; font-size: 13px; color: var(--text); }
+.mb-list { max-height: 46vh; overflow-y: auto; }
+.mb-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  padding: 34px 16px; color: var(--text-3); text-align: center; font-size: 13px;
+}
+.mb-empty.mb-error { color: var(--err); }
+.mb-empty.mb-error .ico { color: var(--err); }
+.mb-more { width: 100%; padding: 9px; border: none; border-top: 1px solid var(--border); background: var(--surface-2);
+  color: var(--brand); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.mb-more:hover { background: var(--accent-50); }
+.mb-more:disabled { color: var(--text-3); cursor: default; }
+
+.bulk-bar {
+  position: sticky; bottom: 0; display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow); font-size: 13px;
+}
+.bulk-bar > span:first-child { flex: 1; font-weight: 600; color: var(--text); }
+
+.cb-source-toggle { margin: 12px 0 4px; }
+.cb-minio { margin-top: 6px; display: flex; flex-direction: column; gap: 8px; }
+
+/* ============ S3 connections table ============ */
+.s3-tbl .file-row { display: grid; grid-template-columns: 1.1fr 1.6fr 1fr 1.6fr auto; align-items: center; }
+.s3-tbl .s3-head { background: var(--surface-3); color: var(--text-3); font-size: 11px; text-transform: uppercase;
+  letter-spacing: .04em; font-weight: 600; height: auto; padding: 7px 10px; }
+.s3-actions { display: flex; gap: 4px; justify-self: end; }
+
+/* ============ Audit log ============ */
+.audit-tbl .audit-row { display: grid; grid-template-columns: 110px 140px 1fr 1fr 18px; align-items: center; cursor: pointer; }
+.audit-tbl .audit-row:hover { background: var(--accent-50); }
+.audit-detail {
+  margin: 0; padding: 10px 14px; font-size: 11.5px; background: var(--surface-2);
+  border-bottom: 1px solid var(--border); max-height: 280px; overflow: auto;
+}
+.mono { font-family: var(--mono); }

@@ -14,6 +14,10 @@ MONGO_DB = os.getenv("MONGO_DB", "aihub")
 COLL_BATCH = "batch"
 COLL_GCN = "gcn"
 COLL_USER = "user"
+COLL_SITE_CONFIG = "site_config"
+COLL_S3_CONN = "s3_connections"
+COLL_AUDIT = "audit_log"
+COLL_IMPORT_JOB = "import_jobs"
 
 # ── MinIO (kho riêng AI-HUB) — biến ENDPOINT_URL_MINIO/… do minio_helper đọc ─
 AIHUB_BUCKET = os.getenv("AIHUB_BUCKET", "ai-hub")

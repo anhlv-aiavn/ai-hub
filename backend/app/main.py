@@ -5,9 +5,11 @@ import logging
 from fastapi import FastAPI
 
 from app import auth, config
-from app.db import ensure_indexes, users
+from app.branches import BRANCHES
+from app.db import ensure_indexes, site_config, users
+from app.routes import audit as audit_routes
 from app.routes import auth as auth_routes
-from app.routes import batches, events, gcn
+from app.routes import batches, browse, events, gcn, s3_connections, settings
 from app.routes import users as users_routes
 from src.extentions.minio_helper import minio_client
 
@@ -19,6 +21,10 @@ app.include_router(users_routes.router)
 app.include_router(batches.router)
 app.include_router(gcn.router)
 app.include_router(events.router)
+app.include_router(settings.router)
+app.include_router(s3_connections.router)
+app.include_router(browse.router)
+app.include_router(audit_routes.router)
 
 
 @app.on_event("startup")
@@ -28,7 +34,30 @@ async def _startup() -> None:
     except Exception as e:  # noqa: BLE001
         log.warning("ensure_indexes lỗi: %s", e)
     await _seed_admin()
+    await _seed_site_config()
     await _ensure_bucket()
+
+
+async def _seed_site_config() -> None:
+    """Migrate cấu hình hard-code hôm nay vào DB — Hà Nội chạy y hệt sau migrate.
+    upsert `$setOnInsert`: nhiều API worker khởi động song song vẫn chỉ tạo 1
+    lần, không đè cấu hình admin đã sửa (cùng pattern `_seed_admin`)."""
+    try:
+        await site_config().update_one(
+            {"_id": "site"},
+            {"$setOnInsert": {
+                "name": "AI-HUB",
+                "branches": list(BRANCHES),
+                "branding": {
+                    "org_name": "VP Đăng ký đất đai TP Hà Nội",
+                    "logo_url": "/logo-sotnmt.png",
+                    "copyright_text": "VP Đăng ký đất đai TP Hà Nội",
+                },
+            }},
+            upsert=True,
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("seed_site_config lỗi: %s", e)
 
 
 async def _seed_admin() -> None:

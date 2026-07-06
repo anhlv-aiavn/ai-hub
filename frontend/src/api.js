@@ -12,6 +12,11 @@ export function headers(extra = {}) {
   return h;
 }
 
+// Branding công khai (không cần đăng nhập — Login cần trước khi có token).
+export async function getBranding() {
+  return handle(await fetch(`/v1/settings/branding`));
+}
+
 // Tài khoản
 export async function login(username, password) {
   const res = await fetch(`/v1/auth/login`, {
@@ -48,11 +53,93 @@ export async function deleteUser(username) {
   }));
 }
 
+// ── Cấu hình tổ chức (site_config) — admin ──────────────────────────────────
+export async function getSiteConfig() {
+  return handle(await fetch(`/v1/settings/site`, { headers: headers() }));
+}
+export async function updateSiteConfig(body, confirm = false) {
+  const p = confirm ? "?confirm=true" : "";
+  return handle(await fetch(`/v1/settings/site${p}`, {
+    method: "PATCH", headers: headers({ "Content-Type": "application/json" }),
+    body: JSON.stringify(body),
+  }));
+}
+
+// ── S3 connections (nguồn/đích) — admin ─────────────────────────────────────
+export async function getS3Connections(role) {
+  const p = role ? `?role=${encodeURIComponent(role)}` : "";
+  return handle(await fetch(`/v1/s3-connections${p}`, { headers: headers() }));
+}
+export async function createS3Connection(body) {
+  return handle(await fetch(`/v1/s3-connections`, {
+    method: "POST", headers: headers({ "Content-Type": "application/json" }),
+    body: JSON.stringify(body),
+  }));
+}
+export async function updateS3Connection(id, body) {
+  return handle(await fetch(`/v1/s3-connections/${encodeURIComponent(id)}`, {
+    method: "PATCH", headers: headers({ "Content-Type": "application/json" }),
+    body: JSON.stringify(body),
+  }));
+}
+export async function deleteS3Connection(id, force = false) {
+  const p = force ? "?force=true" : "";
+  return handle(await fetch(`/v1/s3-connections/${encodeURIComponent(id)}${p}`, {
+    method: "DELETE", headers: headers(),
+  }));
+}
+export async function testS3ConnectionDraft(body) {
+  return handle(await fetch(`/v1/s3-connections/test`, {
+    method: "POST", headers: headers({ "Content-Type": "application/json" }),
+    body: JSON.stringify(body),
+  }));
+}
+export async function testS3Connection(id) {
+  return handle(await fetch(`/v1/s3-connections/${encodeURIComponent(id)}/test`, {
+    method: "POST", headers: headers(),
+  }));
+}
+
+// ── Duyệt + import từ kho MinIO nguồn ────────────────────────────────────────
+export async function getBrowseSources() {
+  return handle(await fetch(`/v1/browse/sources`, { headers: headers() }));
+}
+export async function browseMinio(sourceId, prefix = "", token = null) {
+  const p = new URLSearchParams();
+  if (prefix) p.set("prefix", prefix);
+  if (token) p.set("token", token);
+  return handle(await fetch(`/v1/browse/${encodeURIComponent(sourceId)}?${p.toString()}`,
+    { headers: headers() }));
+}
+export async function importFromMinio(sourceId, body) {
+  return handle(await fetch(`/v1/browse/${encodeURIComponent(sourceId)}/import`, {
+    method: "POST", headers: headers({ "Content-Type": "application/json" }),
+    body: JSON.stringify(body),
+  }));
+}
+
+// ── Audit log (admin) ───────────────────────────────────────────────────────
+export async function getAuditLog({ action, actor, target, from, to, limit = 50, beforeId } = {}) {
+  const p = new URLSearchParams();
+  if (action) p.set("action", action);
+  if (actor) p.set("actor", actor);
+  if (target) p.set("target", target);
+  if (from) p.set("from", from);
+  if (to) p.set("to", to);
+  if (limit) p.set("limit", String(limit));
+  if (beforeId) p.set("before_id", beforeId);
+  return handle(await fetch(`/v1/audit-log?${p.toString()}`, { headers: headers() }));
+}
+
 async function handle(res) {
   if (!res.ok) {
     let detail = res.statusText;
-    try { detail = (await res.json()).detail || detail; } catch {}
-    throw new Error(`${res.status} · ${detail}`);
+    try { detail = (await res.json()).detail ?? detail; } catch {}
+    const msg = typeof detail === "string" ? detail : (detail?.message || res.statusText);
+    const err = new Error(`${res.status} · ${msg}`);
+    err.status = res.status;
+    err.detail = detail;   // string HOẶC object có cấu trúc (409 kèm số bản ghi ảnh hưởng)
+    throw err;
   }
   return res.json();
 }

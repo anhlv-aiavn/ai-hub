@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pymongo import ReturnDocument
 
 from app import config
+from app.worker.import_job import claim_import_job, process_import_job
 from app.worker.run_job import process_doc
 from src.extentions.mongo_helper import AsyncMongo
 
@@ -19,6 +20,7 @@ log = logging.getLogger(__name__)
 
 POLL_INTERVAL = float(os.getenv("WORKER_POLL_INTERVAL", "2"))
 PROC_TTL = int(os.getenv("WORKER_PROC_TTL", "1800"))  # claim lại job processing treo
+IMPORT_MAX_CONCURRENT = int(os.getenv("WORKER_IMPORT_MAX_CONCURRENT", "2"))
 
 
 async def _claim(mongo: AsyncMongo) -> dict | None:
@@ -44,6 +46,7 @@ async def run() -> None:
              config.MAX_VLM_CONCURRENT, config.MAX_IN_FLIGHT)
 
     in_flight: set[asyncio.Task] = set()
+    import_in_flight: set[asyncio.Task] = set()
     while True:
         while len(in_flight) < config.MAX_IN_FLIGHT:
             doc = await _claim(mongo)
@@ -51,13 +54,24 @@ async def run() -> None:
                 break
             in_flight.add(asyncio.create_task(process_doc(mongo, doc)))
 
-        if not in_flight:
+        # Claim import_jobs (thư mục lớn) — nhẹ, tách riêng khỏi trần
+        # MAX_IN_FLIGHT (đó là để bound RAM ảnh render GCN, không áp dụng ở đây).
+        while len(import_in_flight) < IMPORT_MAX_CONCURRENT:
+            job = await claim_import_job(mongo, PROC_TTL)
+            if not job:
+                break
+            import_in_flight.add(asyncio.create_task(process_import_job(mongo, job)))
+
+        pending = in_flight | import_in_flight
+        if not pending:
             await asyncio.sleep(POLL_INTERVAL)
             continue
 
-        done, in_flight = await asyncio.wait(
-            in_flight, timeout=POLL_INTERVAL, return_when=asyncio.FIRST_COMPLETED,
+        done, _ = await asyncio.wait(
+            pending, timeout=POLL_INTERVAL, return_when=asyncio.FIRST_COMPLETED,
         )
+        in_flight -= done
+        import_in_flight -= done
         for t in done:
             exc = t.exception()
             if exc:

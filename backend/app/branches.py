@@ -1,5 +1,11 @@
-"""Danh sách chi nhánh cố định (đơn vị nghiệp vụ). Người dùng thuộc 1 trong số này;
-là chiều gộp để thống kê tiến độ. Nguồn chuẩn duy nhất — frontend fetch qua API."""
+"""Danh sách chi nhánh — đọc từ `site_config` (Mongo), cache trong-tiến-trình TTL
+~30s bắt buộc (nhiều API/worker process, `invalidate_site_cache()` chỉ xóa cache
+cục bộ; TTL đảm bảo mọi process hội tụ sau ≤30s). `BRANCHES` giữ lại làm giá trị
+seed ban đầu (dùng bởi `main.py::_seed_site_config`), KHÔNG còn là nguồn chuẩn."""
+
+import time
+
+from app.db import site_config
 
 BRANCHES: list[str] = [
     "Chi nhánh Khu vực Ba Đình – Hoàn Kiếm – Đống Đa",
@@ -32,8 +38,37 @@ BRANCHES: list[str] = [
     "Chi nhánh Mỹ Đức",
 ]
 
-_VALID = set(BRANCHES)
+_TTL = 30.0
+_cache: dict | None = None
+_cache_at: float = 0.0
 
 
-def is_valid_branch(name: str | None) -> bool:
-    return bool(name) and name in _VALID
+async def _load() -> dict:
+    """Đọc site_config qua cache TTL. Miss/hết hạn → query Mongo."""
+    global _cache, _cache_at
+    now = time.monotonic()
+    if _cache is not None and (now - _cache_at) < _TTL:
+        return _cache
+    doc = await site_config().find_one({"_id": "site"}) or {}
+    _cache = doc
+    _cache_at = now
+    return doc
+
+
+def invalidate_site_cache() -> None:
+    """Fast-path cục bộ sau khi PATCH /settings/site — process khác tự hội tụ
+    theo TTL, không cần biết sự kiện này (xem module docstring)."""
+    global _cache, _cache_at
+    _cache = None
+    _cache_at = 0.0
+
+
+async def get_branches() -> list[str]:
+    doc = await _load()
+    return doc.get("branches") or list(BRANCHES)
+
+
+async def is_valid_branch(name: str | None) -> bool:
+    if not name:
+        return False
+    return name in await get_branches()

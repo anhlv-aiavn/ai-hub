@@ -6,9 +6,9 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app import config, storage
-from app.branches import BRANCHES, is_valid_branch
+from app.branches import get_branches, is_valid_branch
 from app.db import batches, gcns
-from app.deps import current_user, ensure_branch_access, is_admin
+from app.deps import current_user, ensure_branch_access, is_admin, require_operator
 
 router = APIRouter(prefix="/v1/batches", tags=["batches"], dependencies=[Depends(current_user)])
 
@@ -19,7 +19,7 @@ async def create_batch(
     name: str | None = Form(default=None),
     branch: str | None = Form(default=None),
     batch_id: str | None = Form(default=None),
-    user: dict = Depends(current_user),
+    user: dict = Depends(require_operator),
 ):
     """Tạo lô MỚI hoặc THÊM file vào lô có sẵn (truyền batch_id).
 
@@ -46,7 +46,7 @@ async def create_batch(
         ensure_branch_access(user, existing.get("branch"))
         branch = existing.get("branch")  # nối thì giữ chi nhánh của lô
     else:
-        if not is_valid_branch(branch):
+        if not await is_valid_branch(branch):
             raise HTTPException(status_code=400, detail="Chi nhánh không hợp lệ")
         batch_id = str(uuid.uuid4())
     created: list[str] = []
@@ -122,8 +122,8 @@ async def list_batches(limit: int = 50, user: dict = Depends(current_user)):
 
 @router.get("/branches")
 async def list_branches():
-    """Danh sách chi nhánh cố định (chọn khi tạo việc + lọc thống kê)."""
-    return {"branches": BRANCHES}
+    """Danh sách chi nhánh (chọn khi tạo việc + lọc thống kê) — đọc từ site_config."""
+    return {"branches": await get_branches()}
 
 
 @router.get("/{batch_id}")

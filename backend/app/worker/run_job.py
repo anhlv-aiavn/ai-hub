@@ -24,7 +24,6 @@ from PIL import Image
 from app import config, storage
 from app.bus import publish_sync
 from app.summary import collect_so_phat_hanhs, group_key_of, per_gcn, summarize
-from src.extentions.minio_helper import minio_client
 from src.extentions.mongo_helper import AsyncMongo
 from src.extentions.multimodal.detect_gcn import classify_page
 from src.extentions.multimodal.extract_gcn import extract
@@ -203,7 +202,12 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
                   "branch": branch, "status": "processing"})
 
     try:
-        pdf_buf = await minio_client.async_get_object(config.AIHUB_BUCKET, doc["s3_key"])
+        # source_connection_id=None → hành vi cũ (kho nội bộ). Có id → đọc kho
+        # nguồn read-only; lỗi (mất/di chuyển/quyền) raise SourceObjectUnavailable,
+        # bắt chung bên dưới → doc "error" message rõ, không kẹt processing.
+        pdf_buf = await storage.get_pdf(doc["s3_key"], doc.get("source_connection_id"))
+        if pdf_buf.getvalue()[:4] != b"%PDF":
+            raise ValueError("File không phải PDF (magic-byte không khớp)")
         records, images = await _pipeline(pdf_buf)
     except Exception as e:  # noqa: BLE001
         log.exception("process %s lỗi: %s", gcn_id, e)

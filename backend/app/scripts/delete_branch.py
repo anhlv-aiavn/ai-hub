@@ -44,7 +44,7 @@ async def _delete_minio(batch_ids: set[str]) -> int:
 
 
 async def main(branch: str, yes: bool) -> None:
-    if not is_valid_branch(branch):
+    if not await is_valid_branch(branch):
         raise SystemExit(f"Chi nhánh không hợp lệ: {branch!r}")
 
     batch_ids = {b["_id"] async for b in batches().find({"branch": branch}, {"_id": 1})}

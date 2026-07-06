@@ -1,12 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
 
+const ROLE_LABEL = { admin: "Admin", operator: "Operator", viewer: "Viewer" };
+
 // Menu tài khoản kiểu popover (tham khảo datalens-agent): avatar ▾ → header + item.
-export default function AccountMenu({ user, isAdmin, onManageUsers, onLogout }) {
+export default function AccountMenu({ user, isAdmin, onManageUsers, onOpenSettings, onLogout }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const initial = (user.username || "?").trim().charAt(0).toUpperCase() || "?";
-  const sub = isAdmin ? "Admin · toàn hệ thống" : (user.branch || "—");
+  const roleLabel = ROLE_LABEL[user.role] || user.role;
+  const sub = isAdmin ? "Admin · toàn hệ thống" : `${roleLabel} · ${user.branch || "—"}`;
 
   useEffect(() => {
     if (!open) return;
@@ -43,6 +46,11 @@ export default function AccountMenu({ user, isAdmin, onManageUsers, onLogout }) 
           {isAdmin && (
             <button className="acct-item" role="menuitem" onClick={() => pick(onManageUsers)}>
               <Icon name="sliders" size={16} /> <span>Quản trị tài khoản</span>
+            </button>
+          )}
+          {isAdmin && (
+            <button className="acct-item" role="menuitem" onClick={() => pick(onOpenSettings)}>
+              <Icon name="settings" size={16} /> <span>Cấu hình hệ thống</span>
             </button>
           )}
           <button className="acct-item is-danger" role="menuitem" onClick={() => pick(onLogout)}>

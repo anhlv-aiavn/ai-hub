@@ -1,12 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
-import { createBatch, getBranches } from "../api.js";
+import { createBatch, getBranches, getBrowseSources } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
+import MinioBrowser from "./MinioBrowser.jsx";
 
-// Số hóa: chọn chi nhánh + thả NHIỀU PDF → 1 đợt → mỗi PDF chạy detect+extract.
-// User thường: chi nhánh CỐ ĐỊNH theo tài khoản. Admin: chọn từ danh sách.
+// Số hóa: chọn chi nhánh + thả NHIỀU PDF ("Từ máy tính") hoặc duyệt kho MinIO
+// nguồn có sẵn ("Từ kho MinIO") → 1 đợt → mỗi PDF chạy detect+extract.
+// Operator: chi nhánh CỐ ĐỊNH theo tài khoản. Admin: chọn từ danh sách.
 export default function CreateBatch({ user, onCreated }) {
   const isAdmin = user?.role === "admin";
+  const [source, setSource] = useState("upload"); // "upload" | "minio"
   const [files, setFiles] = useState([]);
   const [branch, setBranch] = useState(isAdmin ? "" : (user?.branch || ""));
   const [branches, setBranches] = useState([]);
@@ -16,9 +19,24 @@ export default function CreateBatch({ user, onCreated }) {
   const [step, setStep] = useState("");
   const ref = useRef(null);
 
+  const [minioSources, setMinioSources] = useState([]);
+  const [minioSourceId, setMinioSourceId] = useState("");
+
   useEffect(() => {
     if (isAdmin) getBranches().then((d) => setBranches(d.branches || [])).catch(() => {});
   }, [isAdmin]);
+
+  useEffect(() => {
+    getBrowseSources().then((d) => {
+      const list = d.sources || [];
+      setMinioSources(list);
+      if (list.length === 1) setMinioSourceId(list[0].id);
+    }).catch(() => {});
+  }, []);
+
+  function onMinioImported(batchId) {
+    onCreated?.(batchId);
+  }
 
   function addFiles(list) {
     const pdfs = Array.from(list || []).filter((f) => f.type === "application/pdf");
@@ -68,6 +86,33 @@ export default function CreateBatch({ user, onCreated }) {
         <input id="cb-branch" className="text-input" value={branch} disabled readOnly />
       )}
 
+      <div className="seg-toggle cb-source-toggle">
+        <button type="button" className={source === "upload" ? "active" : ""} onClick={() => setSource("upload")}>
+          <Icon name="upload" size={14} /> Từ máy tính
+        </button>
+        <button type="button" className={source === "minio" ? "active" : ""} onClick={() => setSource("minio")}>
+          <Icon name="folder" size={14} /> Từ kho MinIO
+        </button>
+      </div>
+
+      {source === "minio" && (
+        <div className="cb-minio">
+          {minioSources.length > 1 && (
+            <select className="text-input" value={minioSourceId} onChange={(e) => setMinioSourceId(e.target.value)}>
+              <option value="">— Chọn nguồn MinIO —</option>
+              {minioSources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          )}
+          {!minioSources.length && <p className="muted small">Chưa có nguồn MinIO nào — thêm ở "Cấu hình hệ thống" (admin).</p>}
+          {minioSourceId && branch && (
+            <MinioBrowser sourceId={minioSourceId} branch={branch} onImported={onMinioImported} />
+          )}
+          {minioSourceId && !branch && <p className="muted small">Hãy chọn chi nhánh trước.</p>}
+        </div>
+      )}
+
+      {source === "upload" && (
+      <>
       <div className={`dropzone ${drag ? "over" : ""} ${files.length ? "has" : ""}`}
         onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
         onDragLeave={() => setDrag(false)}
@@ -109,6 +154,8 @@ export default function CreateBatch({ user, onCreated }) {
             </button>
           </div>
         </>
+      )}
+      </>
       )}
     </div>
   );

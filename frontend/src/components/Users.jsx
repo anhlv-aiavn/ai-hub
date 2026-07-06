@@ -3,11 +3,15 @@ import Icon from "./Icon.jsx";
 import { listUsers, createUser, updateUser, deleteUser, getBranches } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 
+const ROLE_LABEL = { admin: "Admin", operator: "Operator", viewer: "Viewer" };
+
 // Quản trị tài khoản (admin): tạo user, gán chi nhánh + vai trò, khóa/mở/đổi mật khẩu/xóa.
+// 3 role: admin (config/secret/users, toàn hệ thống) · operator (import/hậu kiểm,
+// khóa chi nhánh) · viewer (tra cứu/xem, khóa chi nhánh) — xem PLAN_.md §Phân quyền.
 export default function Users({ me, onClose }) {
   const [rows, setRows] = useState([]);
   const [branches, setBranches] = useState([]);
-  const [form, setForm] = useState({ username: "", password: "", role: "user", branch: "" });
+  const [form, setForm] = useState({ username: "", password: "", role: "viewer", branch: "" });
   const [busy, setBusy] = useState(false);
 
   async function refresh() {
@@ -20,15 +24,15 @@ export default function Users({ me, onClose }) {
 
   async function add() {
     if (!form.username || form.password.length < 4) { toastErr("Tên đăng nhập / mật khẩu (≥4) chưa hợp lệ"); return; }
-    if (form.role === "user" && !form.branch) { toastErr("User thường phải chọn chi nhánh"); return; }
+    if (form.role !== "admin" && !form.branch) { toastErr("Operator/viewer phải chọn chi nhánh"); return; }
     setBusy(true);
     try {
       await createUser({
         username: form.username.trim(), password: form.password, role: form.role,
-        branch: form.role === "user" ? form.branch : null,
+        branch: form.role !== "admin" ? form.branch : null,
       });
       toastOk("Đã tạo tài khoản");
-      setForm({ username: "", password: "", role: "user", branch: "" });
+      setForm({ username: "", password: "", role: "viewer", branch: "" });
       refresh();
     } catch (e) { toastErr(e.message || e); } finally { setBusy(false); }
   }
@@ -63,7 +67,8 @@ export default function Users({ me, onClose }) {
           onChange={(e) => setForm({ ...form, password: e.target.value })} />
         <select className="text-input" value={form.role}
           onChange={(e) => setForm({ ...form, role: e.target.value })}>
-          <option value="user">User</option>
+          <option value="viewer">Viewer</option>
+          <option value="operator">Operator</option>
           <option value="admin">Admin</option>
         </select>
         <select className="text-input" value={form.branch} disabled={form.role === "admin"}
@@ -85,7 +90,7 @@ export default function Users({ me, onClose }) {
             {rows.map((u) => (
               <tr key={u.username}>
                 <td className="bt-name">{u.username}{u.username === me?.username && " (bạn)"}</td>
-                <td>{u.role === "admin" ? "Admin" : "User"}</td>
+                <td>{ROLE_LABEL[u.role] || u.role}</td>
                 <td>{u.branch || "—"}</td>
                 <td>
                   <span className={`badge ${u.active ? "rv-reviewed" : "st-error"}`}>
