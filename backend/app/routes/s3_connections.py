@@ -73,6 +73,10 @@ async def create_conn(body: ConnIn, admin: dict = Depends(require_admin)):
         raise HTTPException(status_code=400, detail="role phải là source hoặc destination")
     if not body.secret_access_key:
         raise HTTPException(status_code=400, detail="Cần secret_access_key khi tạo mới")
+    if body.role == "destination" and await s3_connections().count_documents({"role": "destination"}):
+        raise HTTPException(status_code=409, detail={
+            "message": "Đã có 1 S3 đích — chỉ hỗ trợ đúng 1 cấu hình đích, xoá cấu hình cũ trước khi thêm mới",
+        })
     now = datetime.now(timezone.utc)
     doc = {
         "_id": str(uuid.uuid4()), "role": body.role, "name": body.name,

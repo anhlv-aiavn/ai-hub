@@ -1,15 +1,22 @@
 """Cấu hình tổ chức (1 deployment = 1 cấu hình duy nhất): tên, danh sách chi
 nhánh, branding. Sửa qua Admin UI, không cần build lại image."""
 
-from fastapi import APIRouter, Depends, HTTPException
+import time
+
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 
+from app import storage
 from app.audit import AuditAction, log_action
 from app.branches import invalidate_site_cache
-from app.db import batches, gcns, site_config, users
-from app.deps import require_admin
+from app.branding_image import validate_and_normalize_logo
+from app.db import batches, gcns, s3_connections, site_config, users
+from app.deps import require_admin, require_viewer
+from app.storage import DestinationNotConfigured
 
 router = APIRouter(prefix="/v1/settings", tags=["settings"])
+
+LOGO_KEY = "branding/logo.png"
 
 
 class Branding(BaseModel):
@@ -76,3 +83,49 @@ async def get_branding():
     """Public — Login cần trước khi đăng nhập. Không field nhạy cảm."""
     doc = await site_config().find_one({"_id": "site"}) or {}
     return doc.get("branding") or {}
+
+
+@router.get("/status")
+async def get_status(user: dict = Depends(require_viewer)):
+    """Trạng thái nhẹ cho UI (mọi role đã đăng nhập) — KHÔNG lộ endpoint/bucket/
+    secret, chỉ để FE biết có nên chặn upload/export/logo hay không (§Backend 5)."""
+    configured = await s3_connections().count_documents({"role": "destination"}) > 0
+    return {"destination_configured": configured}
+
+
+@router.post("/logo")
+async def upload_logo(file: UploadFile = File(...), admin: dict = Depends(require_admin)):
+    data = await file.read()
+    try:
+        normalized = validate_and_normalize_logo(data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    try:
+        await storage.put_object(LOGO_KEY, normalized)
+    except DestinationNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+    before = await site_config().find_one({"_id": "site"}) or {}
+    logo_url = f"/v1/settings/logo?v={int(time.time())}"  # query bust cache trình duyệt sau khi đổi logo
+    branding = dict(before.get("branding") or {})
+    branding["logo_url"] = logo_url
+    await site_config().update_one({"_id": "site"}, {"$set": {"branding": branding}}, upsert=True)
+    after = await site_config().find_one({"_id": "site"}) or {}
+    invalidate_site_cache()
+    await log_action(admin["username"], AuditAction.SITE_CONFIG_UPDATE, "site",
+                     {"before": _public(before), "after": _public(after)})
+    return _public(after)
+
+
+@router.get("/logo")
+async def get_logo():
+    """Public (Login cần logo trước khi đăng nhập, cùng lý do với /branding)."""
+    try:
+        data = await storage.get_object(LOGO_KEY)
+    except DestinationNotConfigured:
+        raise HTTPException(status_code=404, detail="Chưa có logo tải lên") from None
+    except Exception:  # noqa: BLE001 — chưa từng upload hoặc lỗi đọc đích → 404 (FE có fallback ảnh mặc định)
+        raise HTTPException(status_code=404, detail="Chưa có logo tải lên") from None
+    return Response(content=data, media_type="image/png",
+                    headers={"Cache-Control": "public, max-age=31536000, immutable"})

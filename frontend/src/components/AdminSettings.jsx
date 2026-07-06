@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import Icon from "./Icon.jsx";
 import Modal from "./Modal.jsx";
 import {
-  getSiteConfig, updateSiteConfig,
+  getSiteConfig, updateSiteConfig, uploadLogo, getSettingsStatus,
   getS3Connections, createS3Connection, updateS3Connection, deleteS3Connection,
   testS3Connection, testS3ConnectionDraft,
   listBatches, retryErrors,
@@ -43,11 +43,29 @@ function OrgTab() {
   const [newBranch, setNewBranch] = useState("");
   const [busy, setBusy] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState(null); // {message, removed_branches, users, batches, gcns}
+  const [destConfigured, setDestConfigured] = useState(true); // lạc quan khi đang tải, tránh nháy disable rồi lại bật
+  const [logoBusy, setLogoBusy] = useState(false);
+  const logoInputRef = React.useRef(null);
 
   async function refresh() {
     try { setCfg(await getSiteConfig()); } catch (e) { toastErr(e.message || e); }
   }
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    refresh();
+    getSettingsStatus().then((s) => setDestConfigured(!!s.destination_configured)).catch(() => {});
+  }, []);
+
+  async function onLogoFileChange(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // cho phép chọn lại đúng file đó lần sau
+    if (!file) return;
+    setLogoBusy(true);
+    try {
+      const after = await uploadLogo(file);
+      setCfg((prev) => (prev ? { ...prev, branding: after.branding } : prev));
+      toastOk("Đã cập nhật logo");
+    } catch (e2) { toastErr(e2.message || e2); } finally { setLogoBusy(false); }
+  }
 
   function setField(path, value) {
     setCfg((prev) => {
@@ -94,8 +112,21 @@ function OrgTab() {
         onChange={(e) => setField(["name"], e.target.value)} />
 
       <label className="field-label" htmlFor="org-logo">Logo (URL)</label>
-      <input id="org-logo" className="text-input" value={cfg.branding?.logo_url || ""}
-        onChange={(e) => setField(["branding", "logo_url"], e.target.value)} />
+      <div className="logo-edit-row">
+        <input id="org-logo" className="text-input" value={cfg.branding?.logo_url || ""}
+          onChange={(e) => setField(["branding", "logo_url"], e.target.value)} />
+        {cfg.branding?.logo_url && (
+          <img className="logo-preview" src={cfg.branding.logo_url} alt="Logo hiện tại"
+            onError={(e) => { e.currentTarget.style.visibility = "hidden"; }} />
+        )}
+        <input ref={logoInputRef} type="file" accept="image/png,image/jpeg,image/webp"
+          style={{ display: "none" }} onChange={onLogoFileChange} />
+        <button type="button" className="ghost sm" disabled={logoBusy || !destConfigured}
+          title={!destConfigured ? "Cần cấu hình S3 đích trước khi tải logo lên" : undefined}
+          onClick={() => logoInputRef.current?.click()}>
+          <Icon name="upload" size={13} /> {logoBusy ? "Đang tải…" : "Tải ảnh lên"}
+        </button>
+      </div>
 
       <label className="field-label" htmlFor="org-brand">Tên hiển thị (branding)</label>
       <input id="org-brand" className="text-input" value={cfg.branding?.org_name || ""}
@@ -230,11 +261,28 @@ function S3Tab({ role }) {
     }
   }
 
+  const isDest = role === "destination";
+  const destLimitReached = isDest && rows.length >= 1;
+
   return (
     <div className="admin-tab-body">
+      {isDest && !rows.length && (
+        <div className="admin-warn">
+          <Icon name="alertTriangle" size={16} />
+          <div>
+            <b>Chưa cấu hình S3 đích</b>
+            <p>Upload tài liệu, cắt trang, export và upload logo sẽ KHÔNG hoạt động cho tới khi thêm 1 cấu hình đích.</p>
+          </div>
+        </div>
+      )}
       <div className="admin-tab-toolbar">
-        <span className="muted small">{rows.length} connection</span>
-        <button className="primary sm" onClick={openNew}><Icon name="plus" size={13} /> Thêm</button>
+        <span className="muted small">
+          {rows.length} connection
+          {destLimitReached && " · chỉ hỗ trợ 1 cấu hình S3 đích, xoá cấu hình hiện tại trước khi đổi sang kho khác"}
+        </span>
+        {!destLimitReached && (
+          <button className="primary sm" onClick={openNew}><Icon name="plus" size={13} /> Thêm</button>
+        )}
       </div>
 
       <div className="tbl-dense s3-tbl">

@@ -34,6 +34,10 @@ async def create_batch(
     """
     if not files:
         raise HTTPException(status_code=400, detail="Không có tệp nào")
+    try:
+        await storage.ensure_destination_configured()
+    except storage.DestinationNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
 
     now = datetime.now(timezone.utc)
     # User thường: LUÔN ép chi nhánh của họ. Admin: theo chi nhánh được chọn.

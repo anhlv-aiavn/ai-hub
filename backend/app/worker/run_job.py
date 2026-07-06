@@ -25,7 +25,7 @@ from PIL import Image
 from app import config, storage
 from app.batch_counters import bump
 from app.bus import publish_sync
-from app.storage import SourceObjectUnavailable
+from app.storage import DestinationNotConfigured, SourceObjectUnavailable
 from app.summary import collect_so_phat_hanhs, group_key_of, per_gcn, summarize
 from src.extentions.mongo_helper import AsyncMongo
 from src.extentions.multimodal.detect_gcn import classify_page
@@ -266,6 +266,12 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
     if status == "done":
         try:
             cuts = await _build_cuts(gcn_id, batch_id, images, records)
+        except DestinationNotConfigured as e:
+            # Khác các lỗi cắt-trang cục bộ ở nhánh dưới (1 file cắt hỏng thì bỏ
+            # qua, giữ "done" không cuts) — thiếu S3 đích là lỗi HỆ THỐNG, ảnh
+            # hưởng MỌI cut của doc này. Đánh dấu "error" rõ ràng thay vì lặng lẽ
+            # trả "done" mà không có trang đã cắt nào.
+            status, err = "error", str(e)
         except Exception as e:  # noqa: BLE001
             log.warning("build_cuts %s lỗi: %s", gcn_id, e)
 

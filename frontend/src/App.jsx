@@ -22,6 +22,7 @@ const TABS = [
   ["create", "Số hóa", "operator"],
   ["table", "Kết quả trích xuất", "viewer"],
   ["export", "Tổng quan", "viewer"],
+  ["audit", "Audit log", "admin"],
 ];
 const ROLE_RANK = { viewer: 0, operator: 1, admin: 2 };
 
@@ -33,7 +34,6 @@ export default function App() {
   const [openGcn, setOpenGcn] = useState(null);
   const [showUsers, setShowUsers] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [showAuditLog, setShowAuditLog] = useState(false);
   const [branding, setBranding] = useState(FALLBACK_BRANDING);
 
   useEffect(() => {
@@ -54,7 +54,7 @@ export default function App() {
   function onLogin(u) { setUser(u); startEvents(); }
   function onLogout() {
     stopEvents(); logout(); setUser(null);
-    setShowUsers(false); setShowSettings(false); setShowAuditLog(false);
+    setShowUsers(false); setShowSettings(false);
   }
   function onCreated(id) { setBatchId(id); setOpenGcn(null); setTab("table"); }
 
@@ -84,7 +84,6 @@ export default function App() {
             user={user} isAdmin={isAdmin}
             onManageUsers={() => setShowUsers(true)}
             onOpenSettings={() => setShowSettings(true)}
-            onOpenAuditLog={() => setShowAuditLog(true)}
             onLogout={onLogout}
           />
         </div>
@@ -93,7 +92,6 @@ export default function App() {
       <main>
         {showUsers && isAdmin && <Users me={user} onClose={() => setShowUsers(false)} />}
         {showSettings && isAdmin && <AdminSettings onClose={() => setShowSettings(false)} />}
-        {showAuditLog && isAdmin && <AuditLog onClose={() => setShowAuditLog(false)} />}
         {openGcn ? (
           <Reconcile gcnId={openGcn} onBack={() => setOpenGcn(null)} />
         ) : (
@@ -103,6 +101,7 @@ export default function App() {
               <ExtractTable user={user} batchId={batchId} onPickBatch={setBatchId} onOpen={setOpenGcn} />
             )}
             {tab === "export" && <ExportView user={user} />}
+            {tab === "audit" && isAdmin && <AuditLog />}
           </>
         )}
       </main>

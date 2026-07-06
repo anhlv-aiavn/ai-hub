@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
-import { createBatch, getBranches, getBrowseSources } from "../api.js";
+import { createBatch, getBranches, getBrowseSources, getSettingsStatus } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 import MinioBrowser from "./MinioBrowser.jsx";
 
@@ -21,10 +21,15 @@ export default function CreateBatch({ user, onCreated }) {
 
   const [minioSources, setMinioSources] = useState([]);
   const [minioSourceId, setMinioSourceId] = useState("");
+  const [destConfigured, setDestConfigured] = useState(true); // lạc quan khi đang tải, tránh nháy banner
 
   useEffect(() => {
     if (isAdmin) getBranches().then((d) => setBranches(d.branches || [])).catch(() => {});
   }, [isAdmin]);
+
+  useEffect(() => {
+    getSettingsStatus().then((s) => setDestConfigured(!!s.destination_configured)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     getBrowseSources().then((d) => {
@@ -74,6 +79,17 @@ export default function CreateBatch({ user, onCreated }) {
       <h2>Số hóa hồ sơ mới</h2>
       <p className="muted">Tải lên Giấy chứng nhận (PDF). Hệ thống tự nhận diện, trích xuất
         và gom trang bổ sung theo Số phát hành.</p>
+
+      {!destConfigured && (
+        <div className="admin-warn">
+          <Icon name="alertTriangle" size={16} />
+          <div>
+            <b>Chưa cấu hình S3 đích</b>
+            <p>Không thể số hóa hồ sơ mới cho tới khi admin cấu hình S3 đích
+              {isAdmin ? ' ở "Cấu hình hệ thống → S3 đích".' : "."}</p>
+          </div>
+        </div>
+      )}
 
       <label className="field-label" htmlFor="cb-branch">Chi nhánh / Đơn vị</label>
       {isAdmin ? (
@@ -149,7 +165,7 @@ export default function CreateBatch({ user, onCreated }) {
             <span className="muted">
               {files.length} tệp · {totalMB} MB{branch ? ` · ${branch}` : " · chưa chọn chi nhánh"}
             </span>
-            <button className="primary" disabled={busy || !branch} onClick={submit}>
+            <button className="primary" disabled={busy || !branch || !destConfigured} onClick={submit}>
               <Icon name="sparkles" size={15} /> {busy ? "Đang tải lên…" : "Bắt đầu số hóa"}
             </button>
           </div>

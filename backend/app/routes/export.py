@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from app.audit import AuditAction, log_action
 from app.db import export_jobs
 from app.deps import is_admin, require_operator, scoped_branch
-from app.storage import SourceObjectUnavailable, get_pdf
+from app.storage import DestinationNotConfigured, SourceObjectUnavailable, get_pdf
 
 # Toàn bộ export (tạo/xem trạng thái/tải) đều operator trở lên — xuất hàng loạt
 # nhạy hơn xem lẻ 1 doc (PLAN_.md §Phân quyền), không mở cho viewer.
@@ -69,6 +69,8 @@ async def download_export_job(job_id: str, user: dict = Depends(require_operator
         raise HTTPException(status_code=409, detail="Export chưa xong")
     try:
         buf = await get_pdf(job["file_key"])
+    except DestinationNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
     except SourceObjectUnavailable as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     await log_action(user["username"], AuditAction.EXPORT_CREATE, job_id, {"filter": job.get("filter")})

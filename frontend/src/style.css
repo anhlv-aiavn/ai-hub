@@ -990,6 +990,10 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 
 /* ── Xuất dữ liệu (bảng phẳng) ── */
 .export-view { display: flex; flex-direction: column; gap: 10px; }
+
+/* ── Audit log (tab top-nav, không còn modal) ── */
+.audit-log-view { display: flex; flex-direction: column; gap: 10px; }
+.audit-log-view h2 { margin: 0; color: var(--brand); }
 .ev-count { font-size: 12.5px; }
 .flat-grid td { white-space: nowrap; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
 .flat-grid th { white-space: nowrap; }
@@ -1101,6 +1105,11 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .admin-warn > .ico { flex: none; margin-top: 1px; color: var(--amber); }
 .admin-warn b { display: block; margin-bottom: 3px; color: #78350f; }
 .admin-warn .primary.sm, .admin-warn .ghost.sm { margin-top: 8px; margin-right: 8px; }
+
+.logo-edit-row { display: flex; align-items: center; gap: 10px; }
+.logo-edit-row .text-input { flex: 1; }
+.logo-preview { width: 32px; height: 32px; object-fit: contain; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--surface-2); flex: none; }
 
 /* Trạng thái test connection — chấm màu LUÔN kèm text (không dùng màu làm tín hiệu duy nhất) */
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; vertical-align: -1px; }

@@ -43,6 +43,7 @@ export default function Reconcile({ gcnId, onBack }) {
   const [pdfOpen, setPdfOpen] = useState(true);
   const [lockedBy, setLockedBy] = useState(null); // {by, expires_at} nếu người KHÁC đang giữ
   const [haveLock, setHaveLock] = useState(false); // true nếu CHÍNH mình giữ khóa (được sửa)
+  const [lockError, setLockError] = useState(false); // không xác định được trạng thái khóa (lỗi mạng/server) — fail-safe: coi như KHÔNG sửa được, không fail-open
   const haveLockRef = useRef(false); // cùng giá trị haveLock nhưng đọc "live" trong cleanup (tránh stale closure)
 
   function applyDoc(d) {
@@ -64,7 +65,7 @@ export default function Reconcile({ gcnId, onBack }) {
   useEffect(() => {
     if (!gcnId) return;
     let live = true;
-    setHaveLock(false); setLockedBy(null); setPage(1);
+    setHaveLock(false); setLockedBy(null); setLockError(false); setPage(1);
     getGcn(gcnId).then((d) => {
       if (!live) return;
       applyDoc(d);
@@ -72,7 +73,10 @@ export default function Reconcile({ gcnId, onBack }) {
     }).catch((e) => {
       if (!live) return;
       if (e.status === 409 && e.detail?.locked_by) setLockedBy(e.detail);
-      else toastErr(e.message || e);
+      // Không xác định được ai đang giữ khóa (lỗi mạng/500 khác) — vẫn phải CHẶN
+      // sửa (fail-safe), không được coi im lặng = được sửa như trước (bug 2 người
+      // cùng hậu kiểm 1 hồ sơ, người bấm sau vẫn sửa được do lỗi 500 bị bỏ qua).
+      else { setLockError(true); toastErr(e.message || e); }
     });
     return () => {
       live = false;
@@ -189,7 +193,7 @@ export default function Reconcile({ gcnId, onBack }) {
 
   if (!doc) return <div className="panel muted">Đang tải…</div>;
   const dirty = Object.keys(overrides).length > 0 || name !== ((doc.review && doc.review.display_name) || "");
-  const readOnly = !!lockedBy && !haveLock;
+  const readOnly = (!!lockedBy && !haveLock) || lockError;
 
   return (
     <div className="panel reconcile">
@@ -220,7 +224,9 @@ export default function Reconcile({ gcnId, onBack }) {
       {readOnly && (
         <div className="auth-err rc-lock-banner">
           <Icon name="ban" size={14} />
-          Hồ sơ đang được <b>{lockedBy.locked_by}</b> hậu kiểm — chỉ xem, không sửa được lúc này.
+          {lockedBy
+            ? <>Hồ sơ đang được <b>{lockedBy.locked_by}</b> hậu kiểm — chỉ xem, không sửa được lúc này.</>
+            : "Không xác định được ai đang hậu kiểm hồ sơ này (lỗi kết nối) — chỉ xem, tải lại trang để thử lại."}
         </div>
       )}
 

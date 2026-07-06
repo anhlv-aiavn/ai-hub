@@ -14,7 +14,6 @@ from PIL import Image
 from app import config
 from app.db import s3_connections
 from app.s3_util import build_client
-from src.extentions.minio_helper import minio_client
 
 log = logging.getLogger(__name__)
 
@@ -24,10 +23,17 @@ class SourceObjectUnavailable(Exception):
     gọi phải xử lý riêng (409/502 rõ ràng), không để lỗi trần 500."""
 
 
+class DestinationNotConfigured(Exception):
+    """Chưa cấu hình S3 đích (role=destination) — KHÔNG còn fallback ENV ngầm
+    (xem PLAN_PHASE3_menu_logo_s3dest.md §Quyết định 5). Người gọi phải dịch
+    thành lỗi rõ ràng cho người dùng (503 + hướng dẫn vào Cấu hình hệ thống),
+    không để lộ lỗi kết nối boto3 trần."""
+
+
 # Cache client theo nguồn/đích — TTL ~30s BẮT BUỘC (nhiều API/worker process,
 # invalidate_s3_cache() chỉ xóa cache của process nhận request; xem PLAN_.md
-# §Đồng thời). source: dict theo id; destination: 1 slot (role=destination,
-# thiếu → fallback minio_client/AIHUB_BUCKET như trước khi có tính năng này).
+# §Đồng thời). source: dict theo id; destination: 1 slot (role=destination —
+# BẮT BUỘC phải có, không còn fallback minio_client/AIHUB_BUCKET).
 _TTL = 30.0
 _source_cache: dict[str, tuple[float, object, str]] = {}
 _dest_cache: tuple[float, object, str] | None = None
@@ -58,7 +64,10 @@ async def _get_dest_client():
     if _dest_cache and (now - _dest_cache[0]) < _TTL:
         return _dest_cache[1], _dest_cache[2]
     doc = await s3_connections().find_one({"role": "destination"})
-    client, bucket = (build_client(doc), doc["bucket"]) if doc else (minio_client, config.AIHUB_BUCKET)
+    if not doc:
+        raise DestinationNotConfigured(
+            "Chưa cấu hình S3 đích — vào Cấu hình hệ thống → S3 đích để thiết lập")
+    client, bucket = build_client(doc), doc["bucket"]
     _dest_cache = (now, client, bucket)
     return client, bucket
 
@@ -91,10 +100,27 @@ def _orient(image: Image.Image) -> Image.Image:
     return image
 
 
+async def ensure_destination_configured() -> None:
+    """Kiểm nhanh trước khi làm việc (vd upload nhiều file) — raise
+    `DestinationNotConfigured` NGAY, thay vì để lỗi rơi ở file đầu tiên giữa
+    vòng lặp sau khi đã đọc/xử lý dở phần trước."""
+    await _get_dest_client()
+
+
 async def put_object(key: str, data: bytes) -> None:
-    """Ghi ĐÍCH luôn — dùng chung cho PDF (upload gốc/cuts) và tệp khác (export CSV)."""
+    """Ghi ĐÍCH luôn — dùng chung cho PDF (upload gốc/cuts) và tệp khác (export
+    CSV, logo). `DestinationNotConfigured` (từ `_get_dest_client`) truyền
+    nguyên xuống người gọi — KHÔNG bắt ở đây."""
     client, bucket = await _get_dest_client()
     await client.async_put_object(bucket, key, io.BytesIO(data))
+
+
+async def get_object(key: str) -> bytes:
+    """Đọc ĐÍCH (đối xứng `put_object`) — dùng cho logo. `DestinationNotConfigured`
+    truyền nguyên xuống người gọi."""
+    client, bucket = await _get_dest_client()
+    buf = await client.async_get_object(bucket, key)
+    return buf.getvalue()
 
 
 async def put_pdf(key: str, data: bytes) -> None:
@@ -103,20 +129,23 @@ async def put_pdf(key: str, data: bytes) -> None:
 
 
 async def get_pdf(key: str, source_connection_id: str | None = None) -> io.BytesIO:
-    """`source_connection_id=None` → hành vi cũ y nguyên (minio_client/AIHUB_BUCKET,
-    doc nội bộ). Có id → đọc kho nguồn (read-only), lỗi phân loại rõ."""
+    """`source_connection_id=None` → đọc kho ĐÍCH (file nội bộ/cuts — cùng nơi
+    `put_pdf` ghi; trước đây đọc thẳng `minio_client`/`AIHUB_BUCKET` bất kể đích
+    đã cấu hình gì, lệch với đường ghi — đã hợp nhất qua `_get_dest_client`).
+    Có id → đọc kho nguồn (read-only), lỗi phân loại rõ.
+    `DestinationNotConfigured` truyền nguyên xuống (không bắt thành
+    `SourceObjectUnavailable` — người gọi cần phân biệt 2 tình huống)."""
     if source_connection_id is None:
-        return await minio_client.async_get_object(config.AIHUB_BUCKET, key)
-    client, bucket = await _get_source_client(source_connection_id)
+        client, bucket = await _get_dest_client()
+    else:
+        client, bucket = await _get_source_client(source_connection_id)
     try:
         return await client.async_get_object(bucket, key)
     except ClientError as e:
         code = e.response.get("Error", {}).get("Code", "")
-        raise SourceObjectUnavailable(
-            f"Không đọc được file gốc từ kho nguồn ({code or e}): {key}") from e
-    except Exception as e:  # noqa: BLE001 — lỗi mạng/kết nối tới nguồn (không phải ClientError)
-        raise SourceObjectUnavailable(
-            f"Không đọc được file gốc từ kho nguồn ({e}): {key}") from e
+        raise SourceObjectUnavailable(f"Không đọc được file ({code or e}): {key}") from e
+    except Exception as e:  # noqa: BLE001 — lỗi mạng/kết nối (không phải ClientError)
+        raise SourceObjectUnavailable(f"Không đọc được file ({e}): {key}") from e
 
 
 def _render_page_png(pdf_bytes: bytes, page_index: int, width: int) -> bytes:

@@ -1,12 +1,14 @@
 """AI-HUB API — FastAPI. Gắn router batches/gcn/events, đảm bảo index + bucket."""
 
 import logging
+import uuid
+from datetime import datetime, timezone
 
 from fastapi import FastAPI
 
 from app import auth, config
 from app.branches import BRANCHES
-from app.db import ensure_indexes, site_config, users
+from app.db import ensure_indexes, s3_connections as s3_connections_col, site_config, users
 from app.routes import audit as audit_routes
 from app.routes import auth as auth_routes
 from app.routes import batches, browse, events, export, gcn, s3_connections, settings
@@ -36,6 +38,7 @@ async def _startup() -> None:
         log.warning("ensure_indexes lỗi: %s", e)
     await _seed_admin()
     await _seed_site_config()
+    await _seed_dest_from_env()
     await _ensure_bucket()
 
 
@@ -61,6 +64,34 @@ async def _seed_site_config() -> None:
         log.warning("seed_site_config lỗi: %s", e)
 
 
+async def _seed_dest_from_env() -> None:
+    """Deployment ĐANG CHẠY hôm nay sống nhờ fallback ENV vừa bị bỏ ở
+    `storage._get_dest_client` (xem PLAN_PHASE3_menu_logo_s3dest.md §Quyết định
+    5,7) — seed 1 lần thành cấu hình `s3_connections role=destination` tường
+    minh để không đứt tay khi lên bản này. Deployment MỚI (ENV rỗng/mặc định)
+    sẽ KHÔNG được seed → thấy đúng trạng thái "chưa cấu hình", đúng ý đồ bắt
+    cấu hình tường minh từ đầu."""
+    if not minio_client.endpoint_url:  # ENV chưa từng set → đừng seed rác
+        return
+    try:
+        if await s3_connections_col().count_documents({"role": "destination"}):
+            return
+        now = datetime.now(timezone.utc)
+        await s3_connections_col().insert_one({
+            "_id": str(uuid.uuid4()), "role": "destination",
+            "name": "(migrated từ ENV)",
+            "endpoint_url": minio_client.endpoint_url,
+            "access_key_id": minio_client.aws_access_key_id,
+            "secret_access_key": minio_client.aws_secret_access_key,
+            "bucket": config.AIHUB_BUCKET, "verify_tls": bool(minio_client.verify),
+            "created_at": now, "updated_at": now,
+            "last_checked_at": None, "last_check_status": None, "last_check_message": None,
+        })
+        log.info("Đã migrate S3 đích từ ENV vào s3_connections")
+    except Exception as e:  # noqa: BLE001 — race hiếm giữa nhiều worker khởi động cùng lúc
+        log.warning("seed_dest_from_env lỗi: %s", e)
+
+
 async def _seed_admin() -> None:
     """Tạo admin đầu tiên từ env (AIHUB_ADMIN_USER/PASS) nếu chưa tồn tại."""
     if config.JWT_SECRET == "dev-insecure-change-me":
@@ -71,7 +102,6 @@ async def _seed_admin() -> None:
     try:
         if await users().find_one({"username": username}, {"_id": 1}):
             return
-        from datetime import datetime, timezone
         await users().insert_one({
             "username": username,
             "password": auth.hash_password(config.ADMIN_PASS),

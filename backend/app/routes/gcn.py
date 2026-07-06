@@ -16,7 +16,7 @@ from app.audit import AuditAction, log_action
 from app.batch_counters import bump
 from app.db import batches, gcns
 from app.deps import current_user, ensure_branch_access, is_admin, require_operator, scoped_branch
-from app.storage import SourceObjectUnavailable
+from app.storage import DestinationNotConfigured, SourceObjectUnavailable
 from app.flatten import COLUMNS as FLAT_COLUMNS, effective_extractions, flatten_doc
 from app.summary import collect_so_phat_hanhs, group_key_of, per_gcn, summarize
 
@@ -264,6 +264,8 @@ async def get_page(gcn_id: str, n: int, w: int = 1100, user: dict = Depends(curr
     doc = await _authz_gcn(gcn_id, user, {"s3_key": 1, "source_connection_id": 1})
     try:
         png = await storage.render_page(doc["s3_key"], n, w, doc.get("source_connection_id"))
+    except DestinationNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
     except SourceObjectUnavailable as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     return Response(content=png, media_type="image/png",
@@ -301,7 +303,12 @@ async def cut_pageinfo(gcn_id: str, ci: int, user: dict = Depends(current_user))
 async def cut_page(gcn_id: str, ci: int, n: int, w: int = 1100, user: dict = Depends(current_user)):
     doc = await _authz_gcn(gcn_id, user, {"cuts": 1})
     cut = _find_cut(doc, ci)
-    png = await storage.render_page(cut["s3_key"], n, w)
+    try:
+        png = await storage.render_page(cut["s3_key"], n, w)
+    except DestinationNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except SourceObjectUnavailable as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
     return Response(content=png, media_type="image/png",
                     headers={"Cache-Control": "public, max-age=86400"})
 
@@ -353,9 +360,15 @@ async def claim_lock(gcn_id: str, user: dict = Depends(require_operator)):
     )
     if not updated:
         holder = (doc0.get("review") or {}).get("lock") or {}
+        exp = holder.get("expires_at")
+        # HTTPException.detail đi qua JSONResponse thô của Starlette (KHÔNG qua
+        # jsonable_encoder như response 200 bình thường) — để nguyên datetime ở
+        # đây làm json.dumps ném TypeError, FastAPI trả 500 thay vì 409 định làm
+        # (người thứ 2 tưởng lỗi mạng, không thấy thông báo "đang được X giữ").
         raise HTTPException(status_code=409, detail={
             "message": "Hồ sơ đang được người khác hậu kiểm",
-            "locked_by": holder.get("by"), "expires_at": holder.get("expires_at"),
+            "locked_by": holder.get("by"),
+            "expires_at": exp.isoformat() if exp else None,
         })
     return _lock_public(updated.get("review") or {})
 
@@ -473,6 +486,8 @@ async def download(gcn_id: str, user: dict = Depends(current_user)):
     ensure_branch_access(user, doc.get("branch"))
     try:
         pdf = (await storage.get_pdf(doc["s3_key"], doc.get("source_connection_id"))).getvalue()
+    except DestinationNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
     except SourceObjectUnavailable as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     await log_action(user["username"], AuditAction.GCN_DOWNLOAD, gcn_id)

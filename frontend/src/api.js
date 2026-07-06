@@ -64,6 +64,14 @@ export async function updateSiteConfig(body, confirm = false) {
     body: JSON.stringify(body),
   }));
 }
+export async function uploadLogo(file) {
+  const form = new FormData();
+  form.append("file", file);
+  return handle(await fetch(`/v1/settings/logo`, { method: "POST", headers: headers(), body: form }));
+}
+export async function getSettingsStatus() {
+  return handle(await fetch(`/v1/settings/status`, { headers: headers() }));
+}
 
 // ── S3 connections (nguồn/đích) — admin ─────────────────────────────────────
 export async function getS3Connections(role) {

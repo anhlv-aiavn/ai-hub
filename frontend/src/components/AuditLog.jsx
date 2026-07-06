@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import Icon from "./Icon.jsx";
-import Modal from "./Modal.jsx";
 import { getAuditLog } from "../api.js";
 import { toastErr } from "../toast.js";
 
@@ -33,7 +32,7 @@ function fmtRelative(iso) {
   return d.toLocaleDateString("vi-VN");
 }
 
-export default function AuditLog({ onClose }) {
+export default function AuditLog() {
   const [items, setItems] = useState([]);
   const [cursor, setCursor] = useState(null);
   const [action, setAction] = useState("");
@@ -52,7 +51,8 @@ export default function AuditLog({ onClose }) {
   useEffect(() => { load(null); }, [action, actor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <Modal title="Audit log" onClose={onClose} wide>
+    <div className="panel audit-log-view">
+      <h2>Audit log</h2>
       <div className="admin-tab-body">
         <div className="row" style={{ marginBottom: 10 }}>
           <select className="text-input" style={{ width: "auto" }} value={action} onChange={(e) => setAction(e.target.value)}>
@@ -87,6 +87,6 @@ export default function AuditLog({ onClose }) {
           </button>
         )}
       </div>
-    </Modal>
+    </div>
   );
 }
