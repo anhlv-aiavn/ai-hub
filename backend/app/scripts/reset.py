@@ -20,9 +20,11 @@ from src.extentions.minio_helper import minio_client
 
 
 async def _wipe_bucket() -> int:
-    keys = await minio_client.async_list_files(config.AIHUB_BUCKET)
-    if not keys:
-        return 0
+    """Xóa STREAMING theo trang — KHÔNG nạp toàn bộ key vào RAM (bất buộc ở quy
+    mô lớn, xem PLAN_.md §Bất biến 3 / §Quy mô cực lớn 1). Chạy lại sau khi bị
+    ngắt giữa chừng vẫn an toàn: liệt kê chỉ trả key còn sót."""
+    total = 0
+    token = None
     session = aioboto3.Session()
     async with session.client(
         "s3",
@@ -32,13 +34,19 @@ async def _wipe_bucket() -> int:
         verify=minio_client.verify,
         region_name="us-east-1",
     ) as s3:
-        for i in range(0, len(keys), 1000):  # delete_objects giới hạn 1000/lần
-            chunk = keys[i:i + 1000]
-            await s3.delete_objects(
-                Bucket=config.AIHUB_BUCKET,
-                Delete={"Objects": [{"Key": k} for k in chunk]},
+        while True:
+            keys, token = await minio_client.async_list_files_paginated(
+                config.AIHUB_BUCKET, continuation_token=token, max_keys=1000,
             )
-    return len(keys)
+            if keys:
+                await s3.delete_objects(
+                    Bucket=config.AIHUB_BUCKET,
+                    Delete={"Objects": [{"Key": k} for k in keys]},
+                )
+                total += len(keys)
+            if not token:
+                break
+    return total
 
 
 async def main(yes: bool, keep_users: bool) -> None:

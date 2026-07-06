@@ -17,12 +17,15 @@ import functools
 import io
 import logging
 import os
+import time
 from datetime import datetime, timezone
 
 from PIL import Image
 
 from app import config, storage
+from app.batch_counters import bump
 from app.bus import publish_sync
+from app.storage import SourceObjectUnavailable
 from app.summary import collect_so_phat_hanhs, group_key_of, per_gcn, summarize
 from src.extentions.mongo_helper import AsyncMongo
 from src.extentions.multimodal.detect_gcn import classify_page
@@ -198,8 +201,17 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
     gcn_id = doc["_id"]
     batch_id = doc.get("batch_id")
     branch = doc.get("branch")  # nhúng vào event để SSE lọc theo chi nhánh
-    publish_sync({"type": "gcn", "gcn_id": gcn_id, "batch_id": batch_id,
-                  "branch": branch, "status": "processing"})
+
+    # SSE gộp mức lô (§Quy mô cực lớn 3): lô LỚN bỏ ping per-doc "processing"/
+    # "done" bình thường (event "batch" gộp ở _rollup là nguồn tiến độ) — lỗi thì
+    # LUÔN bắn (không mất toast lỗi). Lô nhỏ giữ nguyên hành vi cũ (mọi event bắn).
+    batch_doc = await mongo.db[config.COLL_BATCH].find_one(
+        {"_id": batch_id}, {"file_count": 1}) if batch_id else None
+    is_large = bool(batch_doc and (batch_doc.get("file_count") or 0) > config.SSE_AGG_FILE_THRESHOLD)
+
+    if not is_large:
+        publish_sync({"type": "gcn", "gcn_id": gcn_id, "batch_id": batch_id,
+                      "branch": branch, "status": "processing"})
 
     try:
         # source_connection_id=None → hành vi cũ (kho nội bộ). Có id → đọc kho
@@ -211,14 +223,24 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
         records, images = await _pipeline(pdf_buf)
     except Exception as e:  # noqa: BLE001
         log.exception("process %s lỗi: %s", gcn_id, e)
+        # Dead-letter/retry hàng loạt (§Quy mô cực lớn 6): "permanent" (không phải
+        # PDF) không đáng retry tự động; "transient" (nguồn tạm mất/timeout/lỗi
+        # khác) mặc định retry được — an toàn hơn bỏ sót lỗi có thể tự khỏi.
+        if isinstance(e, ValueError):
+            error_kind = "permanent"
+        elif isinstance(e, SourceObjectUnavailable):
+            error_kind = "transient"
+        else:
+            error_kind = "transient"
         await mongo.update_one(
             config.COLL_GCN, {"_id": gcn_id},
-            {"$set": {"status": "error", "error": str(e),
+            {"$set": {"status": "error", "error": str(e), "error_kind": error_kind,
                       "finished_at": datetime.now(timezone.utc)}},
         )
+        counts = await bump(mongo.db[config.COLL_BATCH], batch_id, processing=-1, error=1)
         publish_sync({"type": "gcn", "gcn_id": gcn_id, "batch_id": batch_id,
                       "branch": branch, "status": "error", "error": str(e)})
-        await _rollup(mongo, batch_id, branch)
+        await _rollup(mongo, batch_id, branch, counts)
         return "error"
 
     records = records or []
@@ -261,8 +283,12 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
         dup_candidates = [d["_id"] for d in dupes]
         dup_suspect = bool(dup_candidates)
 
+    # Lỗi trích xuất (timeout VLM, không nhận diện được bìa...) — mặc định
+    # "transient", cho phép "retry hàng loạt" thử lại (§Quy mô cực lớn 6).
+    error_kind = "transient" if status == "error" else None
+
     update = {
-        "status": status, "error": err, "extractions": records,
+        "status": status, "error": err, "error_kind": error_kind, "extractions": records,
         "page_count": page_count, "skip_reason": skip_reason,
         "group_key": group_key_of(records),
         "extracted_so_phat_hanhs": sph_list,
@@ -277,19 +303,39 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
             {"_id": {"$in": dup_candidates}},
             {"$set": {"dup_suspect": True}, "$addToSet": {"dup_candidates": gcn_id}},
         )
-    publish_sync({"type": "gcn", "gcn_id": gcn_id, "batch_id": batch_id,
-                  "branch": branch, "status": status, "group_key": update["group_key"]})
-    await _rollup(mongo, batch_id, branch)
+    counts = await bump(mongo.db[config.COLL_BATCH], batch_id, processing=-1, **{status: 1})
+    if status == "error" or not is_large:
+        publish_sync({"type": "gcn", "gcn_id": gcn_id, "batch_id": batch_id,
+                      "branch": branch, "status": status, "group_key": update["group_key"]})
+    await _rollup(mongo, batch_id, branch, counts)
     return status
 
 
-async def _rollup(mongo: AsyncMongo, batch_id, branch=None) -> None:
+# Throttle SSE mức lô cho batch LỚN (§Quy mô cực lớn 3) — module-level vì worker
+# xử lý nhiều doc/batch cùng lúc trong 1 process; không cần chính xác tuyệt đối
+# giữa nhiều worker process, chỉ cần "vài giây" như plan yêu cầu.
+_last_batch_sse: dict[str, float] = {}
+
+
+async def _rollup(mongo: AsyncMongo, batch_id, branch=None, counts: dict | None = None) -> None:
+    """Cập nhật `batch.status` từ counter đã duy trì (KHÔNG count_documents —
+    §Quy mô cực lớn 4) + publish SSE mức lô, throttle cho batch lớn (§3)."""
     if not batch_id:
         return
-    pending = await mongo.db[config.COLL_GCN].count_documents(
-        {"batch_id": batch_id, "status": {"$in": ["queued", "processing"]}}
-    )
+    if counts is None:  # phòng hờ (không nên xảy ra — mọi caller đều bump trước)
+        b = await mongo.db[config.COLL_BATCH].find_one({"_id": batch_id}, {"counts": 1})
+        counts = (b or {}).get("counts") or {}
+    pending = counts.get("queued", 0) + counts.get("processing", 0)
     status = "done" if pending == 0 else "processing"
     await mongo.update_one(config.COLL_BATCH, {"_id": batch_id}, {"$set": {"status": status}})
-    publish_sync({"type": "batch", "batch_id": batch_id, "branch": branch,
-                  "status": status, "pending": pending})
+
+    total = sum(counts.values())
+    is_large = total > config.SSE_AGG_FILE_THRESHOLD
+    now = time.monotonic()
+    last = _last_batch_sse.get(batch_id, 0.0)
+    if not is_large or pending == 0 or (now - last) >= config.SSE_MIN_INTERVAL:
+        _last_batch_sse[batch_id] = now
+        publish_sync({"type": "batch", "batch_id": batch_id, "branch": branch,
+                      "status": status, "pending": pending, "counts": counts})
+        if pending == 0:
+            _last_batch_sse.pop(batch_id, None)  # lô xong — dọn cache, tránh rò rỉ dict

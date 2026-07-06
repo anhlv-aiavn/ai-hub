@@ -18,13 +18,13 @@ from src.extentions.minio_helper import minio_client
 
 
 async def _delete_minio(batch_ids: set[str]) -> int:
+    """Xóa STREAMING theo TỪNG batch_id làm prefix — không liệt kê cả bucket rồi
+    lọc trong RAM (bất buộc ở quy mô lớn, xem PLAN_.md §Bất biến 3 / §Quy mô cực
+    lớn 1); vừa an toàn RAM vừa rẻ hơn (chỉ liệt kê đúng phần cần xóa). Object đặt
+    theo "<batch_id>/..." nên prefix=f"{batch_id}/" trúng đúng object của lô đó."""
     if not batch_ids:
         return 0
-    keys = await minio_client.async_list_files(config.AIHUB_BUCKET)
-    # Object đặt theo "<batch_id>/..." → lọc theo tiền tố batch của chi nhánh.
-    targets = [k for k in (keys or []) if k.split("/", 1)[0] in batch_ids]
-    if not targets:
-        return 0
+    total = 0
     session = aioboto3.Session()
     async with session.client(
         "s3",
@@ -34,13 +34,22 @@ async def _delete_minio(batch_ids: set[str]) -> int:
         verify=minio_client.verify,
         region_name="us-east-1",
     ) as s3:
-        for i in range(0, len(targets), 1000):  # delete_objects giới hạn 1000/lần
-            chunk = targets[i:i + 1000]
-            await s3.delete_objects(
-                Bucket=config.AIHUB_BUCKET,
-                Delete={"Objects": [{"Key": k} for k in chunk]},
-            )
-    return len(targets)
+        for batch_id in batch_ids:
+            token = None
+            while True:
+                keys, token = await minio_client.async_list_files_paginated(
+                    config.AIHUB_BUCKET, prefix=f"{batch_id}/",
+                    continuation_token=token, max_keys=1000,
+                )
+                if keys:
+                    await s3.delete_objects(
+                        Bucket=config.AIHUB_BUCKET,
+                        Delete={"Objects": [{"Key": k} for k in keys]},
+                    )
+                    total += len(keys)
+                if not token:
+                    break
+    return total
 
 
 async def main(branch: str, yes: bool) -> None:

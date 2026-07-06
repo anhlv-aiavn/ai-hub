@@ -317,6 +317,15 @@ export async function releaseReviewLock(id) {
   return handle(await fetch(`/v1/gcn/${id}/lock`, { method: "DELETE", headers: headers() }));
 }
 
+// Retry hàng loạt (dead-letter/lỗi) — chỉ 1 lô/lần, "dead" (poison) không nằm
+// trong phạm vi (cần soi thủ công).
+export async function retryErrors({ batchId, errorKind } = {}) {
+  return handle(await fetch(`/v1/gcn/retry-errors`, {
+    method: "POST", headers: headers({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ batch_id: batchId, error_kind: errorKind || undefined }),
+  }));
+}
+
 // Tra cứu quy mô lớn — cursor theo created_at.
 export async function searchGcn({ soPhatHanh, branch, status, before, limit = 50 } = {}) {
   const p = new URLSearchParams();

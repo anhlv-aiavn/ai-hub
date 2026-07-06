@@ -10,6 +10,8 @@ import CreateBatch from "./components/CreateBatch.jsx";
 import ExtractTable from "./components/ExtractTable.jsx";
 import Reconcile from "./components/Reconcile.jsx";
 import ExportView from "./components/ExportView.jsx";
+import SearchGcn from "./components/SearchGcn.jsx";
+import ReviewQueue from "./components/ReviewQueue.jsx";
 
 const FALLBACK_BRANDING = {
   org_name: "VP Đăng ký đất đai TP Hà Nội",
@@ -20,6 +22,8 @@ const FALLBACK_BRANDING = {
 const TABS = [
   ["create", "Số hóa", "operator"],
   ["table", "Kết quả trích xuất", "viewer"],
+  ["search", "Tra cứu", "viewer"],
+  ["review", "Hậu kiểm", "operator"],
   ["export", "Tổng quan", "viewer"],
 ];
 const ROLE_RANK = { viewer: 0, operator: 1, admin: 2 };
@@ -72,7 +76,7 @@ export default function App() {
           <nav>
             {tabs.map(([k, label]) => (
               <button key={k} className={k === tab ? "tab active" : "tab"}
-                onClick={() => { setTab(k); if (k === "table") setOpenGcn(null); }}>{label}</button>
+                onClick={() => { setTab(k); setOpenGcn(null); }}>{label}</button>
             ))}
           </nav>
           <AccountMenu
@@ -87,13 +91,19 @@ export default function App() {
       <main>
         {showUsers && isAdmin && <Users me={user} onClose={() => setShowUsers(false)} />}
         {showSettings && isAdmin && <AdminSettings onClose={() => setShowSettings(false)} />}
-        {tab === "create" && rank >= ROLE_RANK.operator && <CreateBatch user={user} onCreated={onCreated} />}
-        {tab === "table" && (
-          openGcn
-            ? <Reconcile gcnId={openGcn} onBack={() => setOpenGcn(null)} />
-            : <ExtractTable user={user} batchId={batchId} onPickBatch={setBatchId} onOpen={setOpenGcn} />
+        {openGcn ? (
+          <Reconcile gcnId={openGcn} onBack={() => setOpenGcn(null)} />
+        ) : (
+          <>
+            {tab === "create" && rank >= ROLE_RANK.operator && <CreateBatch user={user} onCreated={onCreated} />}
+            {tab === "table" && (
+              <ExtractTable user={user} batchId={batchId} onPickBatch={setBatchId} onOpen={setOpenGcn} />
+            )}
+            {tab === "search" && <SearchGcn user={user} onOpen={setOpenGcn} />}
+            {tab === "review" && rank >= ROLE_RANK.operator && <ReviewQueue user={user} onOpen={setOpenGcn} />}
+            {tab === "export" && <ExportView user={user} />}
+          </>
         )}
-        {tab === "export" && <ExportView user={user} />}
       </main>
       <Toaster />
     </div>

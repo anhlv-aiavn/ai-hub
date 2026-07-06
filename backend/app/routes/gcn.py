@@ -13,7 +13,8 @@ from pymongo import ReturnDocument
 
 from app import config, storage
 from app.access_log import log_access
-from app.db import gcns
+from app.batch_counters import bump
+from app.db import batches, gcns
 from app.deps import current_user, ensure_branch_access, is_admin, require_operator, scoped_branch
 from app.storage import SourceObjectUnavailable
 from app.flatten import COLUMNS as FLAT_COLUMNS, effective_extractions, flatten_doc
@@ -233,6 +234,31 @@ async def search_gcn(
     } for d in docs]
     next_cursor = docs[-1]["created_at"].isoformat() if len(docs) == limit and docs[-1].get("created_at") else None
     return {"items": items, "next_cursor": next_cursor}
+
+
+class RetryErrorsIn(BaseModel):
+    batch_id: str
+    error_kind: str | None = None  # None = mọi error_kind; "dead" (poison) không nằm trong phạm vi
+
+
+@router.post("/retry-errors")
+async def retry_errors(body: RetryErrorsIn, user: dict = Depends(require_operator)):
+    """Retry hàng loạt (§Quy mô cực lớn 6) — đặt lại `queued` cho doc `status=error`
+    của 1 lô (giới hạn 1 lô/lần để cộng dồn `batch.counts` đơn giản, đúng). Doc
+    `status="dead"` (poison, §Backend worker) KHÔNG nằm trong phạm vi — cần soi thủ công."""
+    batch = await batches().find_one({"_id": body.batch_id}, {"branch": 1})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Không tìm thấy lô")
+    ensure_branch_access(user, batch.get("branch"))
+
+    flt: dict = {"batch_id": body.batch_id, "status": "error"}
+    if body.error_kind:
+        flt["error_kind"] = body.error_kind
+    res = await gcns().update_many(
+        flt, {"$set": {"status": "queued", "error": None, "error_kind": None}})
+    if res.modified_count:
+        await bump(batches(), body.batch_id, error=-res.modified_count, queued=res.modified_count)
+    return {"requeued": res.modified_count}
 
 
 @router.get("/{gcn_id}")

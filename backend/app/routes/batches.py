@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app import config, storage
+from app.batch_counters import bump, init_counts
 from app.branches import get_branches, is_valid_branch
 from app.db import batches, gcns
 from app.deps import current_user, ensure_branch_access, is_admin, require_operator
@@ -90,6 +91,7 @@ async def create_batch(
             {"_id": batch_id},
             {"$inc": {"file_count": len(created)}, "$set": {"status": "processing"}},
         )
+        await bump(batches(), batch_id, queued=len(created))
         b = await batches().find_one({"_id": batch_id}, {"file_count": 1})
         total = (b or {}).get("file_count", len(created))
     else:
@@ -101,6 +103,7 @@ async def create_batch(
             "file_count": len(created),
             "status": "processing",
         })
+        await init_counts(batches(), batch_id, queued=len(created))
         total = len(created)
 
     return {"batch_id": batch_id, "file_count": total, "branch": branch, "gcn_ids": created}
@@ -112,7 +115,7 @@ async def list_batches(limit: int = 50, user: dict = Depends(current_user)):
     rows = await batches().find(flt).sort("created_at", -1).limit(limit).to_list(length=limit)
     out = []
     for b in rows:
-        counts = await _status_counts(b["_id"])
+        counts = await _status_counts(b)
         out.append({
             "batch_id": b["_id"], "name": b.get("name"), "branch": b.get("branch"),
             "status": b.get("status"), "file_count": b.get("file_count", 0),
@@ -136,14 +139,22 @@ async def get_batch(batch_id: str, user: dict = Depends(current_user)):
     return {
         "batch_id": b["_id"], "name": b.get("name"), "status": b.get("status"),
         "file_count": b.get("file_count", 0), "created_at": b.get("created_at"),
-        "counts": await _status_counts(batch_id),
+        "counts": await _status_counts(b),
     }
 
 
-async def _status_counts(batch_id: str) -> dict:
+async def _status_counts(b: dict) -> dict:
+    """Đọc `batch.counts` đã duy trì (không aggregate mỗi lần gọi — N+1 đắt ở
+    `list_batches`). Batch cũ trước khi có counter → tính 1 lần rồi lưu lại
+    (tự chữa lành, không cần script backfill riêng)."""
+    counts = b.get("counts")
+    if counts is not None:
+        return counts
     pipeline = [
-        {"$match": {"batch_id": batch_id}},
+        {"$match": {"batch_id": b["_id"]}},
         {"$group": {"_id": "$status", "n": {"$sum": 1}}},
     ]
     rows = await gcns().aggregate(pipeline).to_list(length=None)
-    return {r["_id"]: r["n"] for r in rows}
+    counts = {r["_id"]: r["n"] for r in rows}
+    await batches().update_one({"_id": b["_id"]}, {"$set": {"counts": counts}})
+    return counts

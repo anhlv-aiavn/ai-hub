@@ -5,6 +5,7 @@ import {
   getSiteConfig, updateSiteConfig,
   getS3Connections, createS3Connection, updateS3Connection, deleteS3Connection,
   testS3Connection, testS3ConnectionDraft, getAuditLog, getAccessLog,
+  listBatches, retryErrors,
 } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 
@@ -12,6 +13,7 @@ const TABS = [
   ["org", "Tổ chức & chi nhánh"],
   ["source", "S3 nguồn"],
   ["dest", "S3 đích"],
+  ["errors", "Dead-letter/lỗi"],
   ["audit", "Audit log"],
   ["access", "Audit truy cập"],
 ];
@@ -31,6 +33,7 @@ export default function AdminSettings({ onClose }) {
         {tab === "org" && <OrgTab />}
         {tab === "source" && <S3Tab role="source" />}
         {tab === "dest" && <S3Tab role="destination" />}
+        {tab === "errors" && <ErrorsTab />}
         {tab === "audit" && <AuditTab />}
         {tab === "access" && <AccessLogTab />}
       </div>
@@ -284,6 +287,67 @@ function S3Tab({ role }) {
             <button className="ghost sm" onClick={() => setEditing(null)}>Hủy</button>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── Tab: Dead-letter/lỗi (§Quy mô cực lớn 6) — retry hàng loạt theo lô ──────
+function ErrorsTab() {
+  const [rows, setRows] = useState([]);
+  const [batchId, setBatchId] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() {
+    try { const d = await listBatches(200); setRows(d.batches || []); }
+    catch (e) { toastErr(e.message || e); }
+  }
+  useEffect(() => { refresh(); }, []);
+
+  const current = rows.find((b) => b.batch_id === batchId);
+  const counts = current?.counts || {};
+
+  async function retry(errorKind) {
+    if (!batchId) return;
+    setBusy(true);
+    try {
+      const res = await retryErrors({ batchId, errorKind });
+      toastOk(`Đã đưa lại vào hàng chờ ${res.requeued} hồ sơ`);
+      refresh();
+    } catch (e) { toastErr(e.message || e); } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="admin-tab-body">
+      <label className="field-label" htmlFor="errors-batch">Chọn lô</label>
+      <select id="errors-batch" className="text-input" value={batchId}
+        onChange={(e) => setBatchId(e.target.value)}>
+        <option value="">— Chọn lô —</option>
+        {rows.map((b) => (
+          <option key={b.batch_id} value={b.batch_id}>{b.name} · {b.file_count} hồ sơ</option>
+        ))}
+      </select>
+
+      {current && (
+        <>
+          <p className="muted small" style={{ marginTop: 10 }}>
+            Lỗi: <b>{counts.error || 0}</b> · Poison/dead: <b>{counts.dead || 0}</b>
+          </p>
+          <div className="admin-tab-foot">
+            <button className="primary sm" disabled={busy || !counts.error} onClick={() => retry("transient")}>
+              Retry lỗi tạm thời
+            </button>
+            <button className="ghost sm" disabled={busy || !counts.error} onClick={() => retry(undefined)}>
+              Retry mọi lỗi
+            </button>
+          </div>
+          {!!counts.dead && (
+            <p className="muted small">
+              {counts.dead} hồ sơ "dead" (nghi làm worker treo — poison doc) KHÔNG nằm trong phạm vi retry
+              hàng loạt, cần soi thủ công.
+            </p>
+          )}
+        </>
       )}
     </div>
   );

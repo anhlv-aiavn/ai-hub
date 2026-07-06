@@ -53,3 +53,10 @@ LOGIN_LOCK_SECONDS = int(os.getenv("AIHUB_LOGIN_LOCK_SECONDS", "300"))
 
 # ── Đối soát: DPI/scale render ảnh trang ────────────────────────────────────
 PAGE_RENDER_MAX_W = int(os.getenv("PAGE_RENDER_MAX_W", "2200"))
+
+# ── SSE gộp mức lô (quy mô lớn) ──────────────────────────────────────────────
+# Lô có file_count vượt ngưỡng này → publish per-doc (processing/done, KHÔNG
+# phải error) bị bỏ, chỉ event "batch" gộp (throttle theo SSE_MIN_INTERVAL) là
+# nguồn tiến độ. Lô nhỏ giữ nguyên hành vi cũ (mọi event bắn ngay).
+SSE_AGG_FILE_THRESHOLD = int(os.getenv("AIHUB_SSE_AGG_THRESHOLD", "500"))
+SSE_MIN_INTERVAL = float(os.getenv("AIHUB_SSE_MIN_INTERVAL_SECONDS", "2"))

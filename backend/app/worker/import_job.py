@@ -12,6 +12,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import BulkWriteError
 
 from app import config
+from app.batch_counters import bump
 from app.s3_util import build_client
 from src.extentions.mongo_helper import AsyncMongo
 
@@ -88,6 +89,7 @@ async def process_import_job(mongo: AsyncMongo, job: dict) -> None:
                 if n_ins:
                     await mongo.db[config.COLL_BATCH].update_one(
                         {"_id": batch_id}, {"$inc": {"file_count": n_ins}})
+                    await bump(mongo.db[config.COLL_BATCH], batch_id, queued=n_ins)
             token = next_token
             # Heartbeat mỗi chunk: job đang khỏe không bị stale-reclaim nhặt nhầm
             # giữa lúc liệt kê lâu; list_token cho lần chạy lại tiếp gần chỗ dừng.
