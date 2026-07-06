@@ -42,6 +42,14 @@ def import_jobs():
     return get_db()[config.COLL_IMPORT_JOB]
 
 
+def access_log():
+    return get_db()[config.COLL_ACCESS_LOG]
+
+
+def export_jobs():
+    return get_db()[config.COLL_EXPORT_JOB]
+
+
 async def ensure_indexes() -> None:
     await gcns().create_index("batch_id")
     await gcns().create_index("group_key")
@@ -63,3 +71,8 @@ async def ensure_indexes() -> None:
     )
     await import_jobs().create_index("status")
     await import_jobs().create_index("started_at")
+    await access_log().create_index([("at", -1)])
+    await access_log().create_index("actor")
+    await access_log().create_index("gcn_id")
+    await export_jobs().create_index("status")
+    await gcns().create_index([("branch", 1), ("created_at", -1)])

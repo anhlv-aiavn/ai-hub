@@ -116,6 +116,11 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
                     <td colSpan={9}>
                       <Icon name="layers" size={13} /> {f.display_name || f.filename}
                       <span className="gh-count">{multi ? `${items.length} giấy chứng nhận` : "1 giấy chứng nhận"}</span>
+                      {f.dup_suspect && (
+                        <span className="dup-flag" title={`Nghi trùng nội dung với ${(f.dup_candidates || []).length} hồ sơ khác`}>
+                          <Icon name="alertTriangle" size={12} /> Nghi trùng
+                        </span>
+                      )}
                     </td>
                   </tr>
                   {items.map((r) => {

@@ -1,7 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
 import GcnPdf from "./GcnPdf.jsx";
-import { listRows, listBatches, downloadCsv, getStats, getBranches } from "../api.js";
+import {
+  listRows, listBatches, downloadCsv, getStats, getBranches,
+  createExportJob, getExportJob, downloadExportJob,
+} from "../api.js";
 import { subscribeEvents } from "../events.js";
 import { toastOk, toastErr } from "../toast.js";
 
@@ -107,6 +110,7 @@ function BranchTable({ rows }) {
 // Thống kê: KPI + breakdown trạng thái/hậu kiểm + cảnh báo, kèm xuất CSV/bảng phẳng (FME).
 export default function ExportView({ user }) {
   const isAdmin = user?.role === "admin";
+  const canExportJob = user?.role !== "viewer";
   const [batches, setBatches] = useState([]);
   const [branches, setBranches] = useState([]);
   const [batchId, setBatchId] = useState("");
@@ -118,6 +122,8 @@ export default function ExportView({ user }) {
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState(null); // {gcnId, cutIndex, title}
   const [pvPage, setPvPage] = useState(1);
+  const [job, setJob] = useState(null); // {job_id, status, row_count, error}
+  const pollRef = useRef(null);
 
   function openPreview(p) { setPvPage(1); setPreview(p); }
 
@@ -150,6 +156,25 @@ export default function ExportView({ user }) {
     try {
       await downloadCsv({ batchId: batchId || undefined, branch: branch || undefined, review: review || undefined });
       toastOk("Đã tải CSV");
+    } catch (e) { toastErr(e.message || e); }
+  }
+
+  // Xuất nền: không cap dòng, không chặn request — worker đọc Mongo qua cursor.
+  useEffect(() => () => clearInterval(pollRef.current), []);
+  async function startExportJob() {
+    clearInterval(pollRef.current);
+    try {
+      const { job_id } = await createExportJob({
+        batchId: batchId || undefined, branch: branch || undefined, review: review || undefined,
+      });
+      setJob({ job_id, status: "queued" });
+      pollRef.current = setInterval(async () => {
+        try {
+          const j = await getExportJob(job_id);
+          setJob(j);
+          if (j.status === "done" || j.status === "error") clearInterval(pollRef.current);
+        } catch { clearInterval(pollRef.current); }
+      }, 2000);
     } catch (e) { toastErr(e.message || e); }
   }
 
@@ -212,8 +237,31 @@ export default function ExportView({ user }) {
             </select>
             <span className="muted ev-count">{rows.length} dòng</span>
             <button className="primary sm" onClick={csv}><Icon name="download" size={14} /> Tải CSV</button>
+            {canExportJob && (
+              <button className="ghost sm" disabled={job && job.status !== "done" && job.status !== "error"}
+                onClick={startExportJob} title="Không giới hạn số dòng — chạy nền, không cap 5000 dòng như Tải CSV">
+                <Icon name="upload" size={14} /> Xuất nền
+              </button>
+            )}
           </div>
         </div>
+
+        {job && (
+          <div className="export-job-status">
+            {job.status === "queued" && <>Đang chờ worker…</>}
+            {job.status === "processing" && <>Đang xuất… {job.row_count ? `(${job.row_count} dòng)` : ""}</>}
+            {job.status === "error" && <span className="error">Lỗi xuất: {job.error}</span>}
+            {job.status === "done" && (
+              <>
+                <Icon name="checkCircle" size={14} />
+                Xong · {job.row_count} dòng
+                <button className="ghost xs" onClick={() => downloadExportJob(job.job_id)}>
+                  <Icon name="download" size={12} /> Tải xuống
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
         <div className="et-scroll">
           <table className="et-grid flat-grid">

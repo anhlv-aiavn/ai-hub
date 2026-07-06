@@ -49,7 +49,7 @@ def _gcn_doc(batch_id: str, branch: str, source_id: str, key: str, meta: dict, n
         "status": "queued", "page_count": 0, "extractions": [],
         "extracted_so_phat_hanhs": [], "group_key": None, "summary": {},
         "review": {"display_name": None, "overrides": {}, "status": "unreviewed",
-                   "reviewer": None, "at": None},
+                   "reviewer": None, "at": None, "lock": None, "version": 0},
         "source_connection_id": source_id, "source_etag": meta.get("etag"),
         "source_mtime": meta.get("last_modified"), "attempts": 0,
         "created_at": now,
@@ -89,25 +89,41 @@ async def import_from_minio(source_id: str, body: ImportIn, user: dict = Depends
     if body.keys:
         batch_id, branch = await _ensure_batch(body.batch_id, branch, None, "processing", user)
         client = build_client(conn)
-        created, skipped = 0, 0
+        created, skipped, requeued = 0, 0, 0
         now = datetime.now(timezone.utc)
         for key in body.keys:
             try:
                 meta = await async_head_object(client, conn["bucket"], key)
             except Exception:  # noqa: BLE001
                 meta = {}
+            existing = await gcns().find_one(
+                {"source_connection_id": source_id, "s3_key": key, "batch_id": batch_id},
+                {"source_etag": 1},
+            )
+            if existing:
+                # Nguồn đổi nội dung (etag khác, key giữ nguyên) → xử lý lại thay vì
+                # bỏ qua vĩnh viễn (PLAN_PHASE2.md §①). Etag giống hoặc thiếu → skip.
+                if meta.get("etag") and existing.get("source_etag") and meta["etag"] != existing["source_etag"]:
+                    await gcns().update_one({"_id": existing["_id"]}, {"$set": {
+                        "status": "queued", "error": None,
+                        "source_etag": meta.get("etag"), "source_mtime": meta.get("last_modified"),
+                    }})
+                    requeued += 1
+                else:
+                    skipped += 1
+                continue
             doc = _gcn_doc(batch_id, branch, source_id, key, meta, now)
             try:
                 await gcns().insert_one(doc)
                 created += 1
-            except DuplicateKeyError:
+            except DuplicateKeyError:  # race hiếm: 2 request cùng lúc chèn cùng key
                 skipped += 1
         if created:
             await batches().update_one(
                 {"_id": batch_id},
                 {"$inc": {"file_count": created}, "$set": {"status": "processing"}},
             )
-        return {"batch_id": batch_id, "created": created, "skipped": skipped}
+        return {"batch_id": batch_id, "created": created, "skipped": skipped, "requeued": requeued}
 
     if not body.prefix and not body.recursive:
         raise HTTPException(status_code=400, detail="Cần 'keys' hoặc 'prefix'+recursive")

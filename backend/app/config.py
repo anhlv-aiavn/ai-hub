@@ -18,6 +18,11 @@ COLL_SITE_CONFIG = "site_config"
 COLL_S3_CONN = "s3_connections"
 COLL_AUDIT = "audit_log"
 COLL_IMPORT_JOB = "import_jobs"
+COLL_ACCESS_LOG = "access_log"
+COLL_EXPORT_JOB = "export_jobs"
+
+# Hậu kiểm: TTL soft-lock (giữ chỗ khi đang sửa, tránh 2 người ghi đè nhau).
+REVIEW_LOCK_TTL = int(os.getenv("AIHUB_REVIEW_LOCK_TTL", "300"))
 
 # ── MinIO (kho riêng AI-HUB) — biến ENDPOINT_URL_MINIO/… do minio_helper đọc ─
 AIHUB_BUCKET = os.getenv("AIHUB_BUCKET", "ai-hub")

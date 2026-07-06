@@ -1,6 +1,6 @@
 """Đọc audit log cấu hình — admin-only, phân trang cursor (không skip/limit sâu)."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, Query
@@ -11,9 +11,18 @@ from app.deps import require_admin
 router = APIRouter(prefix="/v1/audit-log", tags=["audit-log"], dependencies=[Depends(require_admin)])
 
 
+def _utc(dt: datetime | None) -> datetime | None:
+    """pymongo trả datetime NAIVE khi đọc lại từ Mongo (BSON không giữ tzinfo) dù
+    lúc ghi là datetime.now(timezone.utc) → gắn lại UTC để JSON ISO có offset,
+    không thì JS `new Date()` hiểu nhầm thành giờ địa phương (lệch UTC+7 ở VN)."""
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def _public(r: dict) -> dict:
     return {
-        "id": str(r["_id"]), "at": r.get("at"), "actor": r.get("actor"),
+        "id": str(r["_id"]), "at": _utc(r.get("at")), "actor": r.get("actor"),
         "action": r.get("action"), "target": r.get("target"), "detail": r.get("detail"),
     }
 

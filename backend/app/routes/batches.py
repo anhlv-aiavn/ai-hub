@@ -75,7 +75,8 @@ async def create_batch(
             "group_key": None,
             "summary": {},
             "review": {"display_name": None, "overrides": {},
-                       "status": "unreviewed", "reviewer": None, "at": None},
+                       "status": "unreviewed", "reviewer": None, "at": None,
+                       "lock": None, "version": 0},
             "created_at": now,
         })
         # Không cần enqueue: worker tự poll & claim doc status=queued từ Mongo.

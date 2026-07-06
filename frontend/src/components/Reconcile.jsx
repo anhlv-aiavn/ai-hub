@@ -1,9 +1,14 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
 import GcnPdf from "./GcnPdf.jsx";
 import EditableTree, { setAt } from "./EditableTree.jsx";
-import { getGcn, putReview, downloadGcn } from "../api.js";
+import {
+  getGcn, putReview, downloadGcn,
+  claimReviewLock, heartbeatReviewLock, releaseReviewLock,
+} from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
+
+const HEARTBEAT_MS = 90_000; // TTL khóa 300s ở server — bump giữa chừng cho an toàn
 
 // Thứ tự cột ưu tiên khi hậu kiểm (các trường quan trọng lên trước, còn lại giữ sau).
 const CHU_COLS = ["Loại đối tượng", "Tên chủ", "Loại giấy tờ", "Số giấy tờ", "Địa chỉ"];
@@ -36,27 +41,54 @@ export default function Reconcile({ gcnId, onBack }) {
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState("");
   const [pdfOpen, setPdfOpen] = useState(true);
+  const [lockedBy, setLockedBy] = useState(null); // {by, expires_at} nếu người KHÁC đang giữ
+  const [haveLock, setHaveLock] = useState(false); // true nếu CHÍNH mình giữ khóa (được sửa)
+  const haveLockRef = useRef(false); // cùng giá trị haveLock nhưng đọc "live" trong cleanup (tránh stale closure)
+
+  function applyDoc(d) {
+    const ov = (d.review && d.review.overrides) || {};
+    // Áp overrides ĐÃ LƯU lên bản làm việc để mở lại thấy đúng giá trị đã sửa.
+    const w = structuredClone(d.extractions || []);
+    for (const [path, val] of Object.entries(ov)) {
+      try { setAt(w, path, val); } catch { /* path lệch → bỏ qua */ }
+    }
+    setDoc(d);
+    setWork(w);
+    setOverrides(ov);
+    setDeleted((d.review && d.review.deleted) || []);
+    setName((d.review && d.review.display_name) || "");  // để trống → tên tệp tự theo SPH
+  }
+
+  useEffect(() => { haveLockRef.current = haveLock; }, [haveLock]);
 
   useEffect(() => {
     if (!gcnId) return;
     let live = true;
+    setHaveLock(false); setLockedBy(null); setPage(1);
     getGcn(gcnId).then((d) => {
       if (!live) return;
-      const ov = (d.review && d.review.overrides) || {};
-      // Áp overrides ĐÃ LƯU lên bản làm việc để mở lại thấy đúng giá trị đã sửa.
-      const w = structuredClone(d.extractions || []);
-      for (const [path, val] of Object.entries(ov)) {
-        try { setAt(w, path, val); } catch { /* path lệch → bỏ qua */ }
-      }
-      setDoc(d);
-      setWork(w);
-      setOverrides(ov);
-      setDeleted((d.review && d.review.deleted) || []);
-      setName((d.review && d.review.display_name) || "");  // để trống → tên tệp tự theo SPH
-      setPage(1);
-    }).catch((e) => toastErr(e.message || e));
-    return () => { live = false; };
+      applyDoc(d);
+      return claimReviewLock(gcnId).then(() => { if (live) setHaveLock(true); });
+    }).catch((e) => {
+      if (!live) return;
+      if (e.status === 409 && e.detail?.locked_by) setLockedBy(e.detail);
+      else toastErr(e.message || e);
+    });
+    return () => {
+      live = false;
+      // haveLockRef (không phải biến haveLock đóng gói lúc effect chạy) để thấy
+      // đúng trạng thái MỚI NHẤT — claim thường resolve SAU khi effect này chạy.
+      if (haveLockRef.current) releaseReviewLock(gcnId).catch(() => {});
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gcnId]);
+
+  // Heartbeat khi đang giữ khóa — không để hết hạn giữa chừng thao tác dài.
+  useEffect(() => {
+    if (!haveLock || !gcnId) return;
+    const id = setInterval(() => { heartbeatReviewLock(gcnId).catch(() => {}); }, HEARTBEAT_MS);
+    return () => clearInterval(id);
+  }, [haveLock, gcnId]);
 
   function onLeaf(path, val) {
     setWork((prev) => {
@@ -67,17 +99,31 @@ export default function Reconcile({ gcnId, onBack }) {
     setOverrides((o) => ({ ...o, [path]: val }));
   }
 
+  // 409 (version lệch) → người khác vừa lưu trong lúc mình đang sửa. KHÔNG ghi
+  // đè mù: tải lại bản mới nhất, báo rõ để người dùng tự áp lại thay đổi của họ.
+  async function reloadAfterConflict() {
+    toastErr("Người khác vừa sửa hồ sơ này — đã tải lại bản mới nhất");
+    try { applyDoc(await getGcn(gcnId)); } catch { /* giữ bản cũ nếu tải lại cũng lỗi */ }
+  }
+
   async function save(status) {
     setBusy(status || "save");
     try {
-      await putReview(gcnId, {
+      const res = await putReview(gcnId, {
         display_name: name.trim() || null,
         overrides,
         deleted,
         status: status || undefined,
+        version: doc?.review?.version ?? 0,
       });
+      // Cập nhật version cục bộ ngay — thiếu bước này thì lần LƯU KẾ TIẾP trong
+      // cùng phiên vẫn gửi version cũ → server từ chối nhầm dù chính mình vừa lưu.
+      setDoc((prev) => (prev ? { ...prev, review: res.review } : prev));
       toastOk(status === "reviewed" ? "Đã duyệt" : "Đã lưu");
-    } catch (e) { toastErr(e.message || e); } finally { setBusy(""); }
+    } catch (e) {
+      if (e.status === 409) await reloadAfterConflict();
+      else toastErr(e.message || e);
+    } finally { setBusy(""); }
   }
 
   async function removeGcn(ri) {
@@ -85,10 +131,17 @@ export default function Reconcile({ gcnId, onBack }) {
     const nd = [...new Set([...deleted, ri])].sort((a, b) => a - b);
     setBusy("del");
     try {
-      await putReview(gcnId, { display_name: name.trim() || null, overrides, deleted: nd });
+      const res = await putReview(gcnId, {
+        display_name: name.trim() || null, overrides, deleted: nd,
+        version: doc?.review?.version ?? 0,
+      });
       setDeleted(nd);
+      setDoc((prev) => (prev ? { ...prev, review: res.review } : prev));
       toastOk("Đã xoá giấy chứng nhận");
-    } catch (e) { toastErr(e.message || e); } finally { setBusy(""); }
+    } catch (e) {
+      if (e.status === 409) await reloadAfterConflict();
+      else toastErr(e.message || e);
+    } finally { setBusy(""); }
   }
 
   const entries = useMemo(() => {
@@ -136,28 +189,40 @@ export default function Reconcile({ gcnId, onBack }) {
 
   if (!doc) return <div className="panel muted">Đang tải…</div>;
   const dirty = Object.keys(overrides).length > 0 || name !== ((doc.review && doc.review.display_name) || "");
+  const readOnly = !!lockedBy && !haveLock;
 
   return (
     <div className="panel reconcile">
       <div className="rc-toolbar">
         <button className="ghost sm" onClick={onBack}><Icon name="chevronLeft" size={14} /> Kết quả trích xuất</button>
         <span className={`badge st-${doc.status}`}>{doc.status}</span>
-        <input className="rc-name" placeholder="Đặt tên hồ sơ…" value={name}
+        <input className="rc-name" placeholder="Đặt tên hồ sơ…" value={name} disabled={readOnly}
           onChange={(e) => setName(e.target.value)} title="Tên hiển thị / tên file khi tải" />
         <span className="tb-gap" />
         <button className="ghost sm" onClick={() => setPdfOpen((v) => !v)}>
           <Icon name="image" size={14} /> {pdfOpen ? "Ẩn PDF" : "Hiện PDF"}
         </button>
-        <button className="ghost sm" disabled={busy} onClick={() => save()}>
-          {busy === "save" ? "…" : "Lưu"}
-        </button>
-        <button className="ghost sm" disabled={busy} onClick={() => save("reviewed")}>
-          <Icon name="check" size={14} /> Duyệt
-        </button>
+        {!readOnly && (
+          <>
+            <button className="ghost sm" disabled={busy} onClick={() => save()}>
+              {busy === "save" ? "…" : "Lưu"}
+            </button>
+            <button className="ghost sm" disabled={busy} onClick={() => save("reviewed")}>
+              <Icon name="check" size={14} /> Duyệt
+            </button>
+          </>
+        )}
         <button className="primary sm" onClick={() => downloadGcn(gcnId, `${(name || gcnId)}.zip`)}>
           <Icon name="download" size={14} /> Tải hồ sơ
         </button>
       </div>
+
+      {readOnly && (
+        <div className="auth-err rc-lock-banner">
+          <Icon name="ban" size={14} />
+          Hồ sơ đang được <b>{lockedBy.locked_by}</b> hậu kiểm — chỉ xem, không sửa được lúc này.
+        </div>
+      )}
 
       <div className={`rc-body ${pdfOpen ? "with-pdf" : "no-pdf"}`}>
         {pdfOpen && (
@@ -165,7 +230,7 @@ export default function Reconcile({ gcnId, onBack }) {
             <GcnPdf gcnId={gcnId} page={page} onPageChange={setPage} />
           </div>
         )}
-        <div className="rc-right">
+        <div className={`rc-right ${readOnly ? "rc-readonly" : ""}`}>
           {doc.error && <div className="rc-err">Lỗi: {doc.error}</div>}
           {!entries.length && <div className="muted">Không có dữ liệu bóc tách.</div>}
           {entries.map(({ ri, ei, entry, rec }) => {
@@ -182,10 +247,12 @@ export default function Reconcile({ gcnId, onBack }) {
                     Trang gốc {range}
                   </button>
                 )}
-                <button type="button" className="rc-del" disabled={busy} title="Xoá giấy chứng nhận này"
-                  onClick={() => removeGcn(ri)}>
-                  <Icon name="trash" size={14} />
-                </button>
+                {!readOnly && (
+                  <button type="button" className="rc-del" disabled={busy} title="Xoá giấy chứng nhận này"
+                    onClick={() => removeGcn(ri)}>
+                    <Icon name="trash" size={14} />
+                  </button>
+                )}
               </div>
               {Object.entries(entry).map(([block, val]) => (
                 <div className="rc-block" key={block}>

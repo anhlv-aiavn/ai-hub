@@ -41,7 +41,7 @@ def _gcn_doc(batch_id: str, branch: str | None, source_id: str, key: str, now) -
         "status": "queued", "page_count": 0, "extractions": [],
         "extracted_so_phat_hanhs": [], "group_key": None, "summary": {},
         "review": {"display_name": None, "overrides": {}, "status": "unreviewed",
-                   "reviewer": None, "at": None},
+                   "reviewer": None, "at": None, "lock": None, "version": 0},
         "source_connection_id": source_id, "source_etag": None, "source_mtime": None,
         "attempts": 0, "created_at": now,
     }

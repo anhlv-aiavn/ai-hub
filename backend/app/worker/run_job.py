@@ -225,7 +225,10 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
     normalize_extractions(records)
 
     first = records[0] if records else {}
-    page_count = first.get("page_count", doc.get("page_count", 0))
+    # records rỗng KHÔNG có nghĩa là không đọc được file — có thể do không phát
+    # hiện được bìa (không nhóm nào) dù ảnh đã render thành công (`images`).
+    # Ưu tiên số trang từ ảnh đã render thật để vẫn xem được PDF dù trích xuất lỗi.
+    page_count = first.get("page_count") or len(images) or doc.get("page_count", 0)
     skip_reason = first.get("skip_reason")
     has_error = any(r.get("error") for r in records if isinstance(r, dict))
 
@@ -244,16 +247,36 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
         except Exception as e:  # noqa: BLE001
             log.warning("build_cuts %s lỗi: %s", gcn_id, e)
 
+    sph_list = collect_so_phat_hanhs(records)
+    dup_suspect, dup_candidates = False, []
+    if status == "done" and sph_list:
+        # Đánh dấu nghi trùng nội dung (PLAN_PHASE2.md §⑧): unique index chống
+        # trùng theo KEY, không theo NỘI DUNG — 2 lần scan cùng GCN dưới 2 tên
+        # khác nhau vẫn ra 2 doc. Không chặn cứng (2 bản scan có thể khác chất
+        # lượng), chỉ cảnh báo để hậu kiểm biết mà xử lý.
+        dupes = await mongo.db[config.COLL_GCN].find(
+            {"extracted_so_phat_hanhs": {"$in": sph_list}, "_id": {"$ne": gcn_id}},
+            {"_id": 1},
+        ).to_list(length=5)
+        dup_candidates = [d["_id"] for d in dupes]
+        dup_suspect = bool(dup_candidates)
+
     update = {
         "status": status, "error": err, "extractions": records,
         "page_count": page_count, "skip_reason": skip_reason,
         "group_key": group_key_of(records),
-        "extracted_so_phat_hanhs": collect_so_phat_hanhs(records),
+        "extracted_so_phat_hanhs": sph_list,
         "summary": summarize(records),
         "gcn_rows": per_gcn(records, cuts), "cuts": cuts,
+        "dup_suspect": dup_suspect, "dup_candidates": dup_candidates,
         "finished_at": datetime.now(timezone.utc),
     }
     await mongo.update_one(config.COLL_GCN, {"_id": gcn_id}, {"$set": update})
+    if dup_suspect:  # 2 chiều: doc trước cũng cần biết doc mới trùng với nó
+        await mongo.db[config.COLL_GCN].update_many(
+            {"_id": {"$in": dup_candidates}},
+            {"$set": {"dup_suspect": True}, "$addToSet": {"dup_candidates": gcn_id}},
+        )
     publish_sync({"type": "gcn", "gcn_id": gcn_id, "batch_id": batch_id,
                   "branch": branch, "status": status, "group_key": update["group_key"]})
     await _rollup(mongo, batch_id, branch)

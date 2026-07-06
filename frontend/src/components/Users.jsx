@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import Icon from "./Icon.jsx";
+import Modal from "./Modal.jsx";
 import { listUsers, createUser, updateUser, deleteUser, getBranches } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 
@@ -54,12 +55,8 @@ export default function Users({ me, onClose }) {
   }
 
   return (
-    <div className="panel users-panel">
-      <div className="export-head">
-        <h3>Quản trị tài khoản</h3>
-        <button className="icon-btn" onClick={onClose} aria-label="Đóng"><Icon name="x" size={16} /></button>
-      </div>
-
+    <Modal title="Quản trị tài khoản" onClose={onClose} wide>
+      <div className="users-panel">
       <div className="user-form">
         <input className="text-input" placeholder="Tên đăng nhập" value={form.username}
           onChange={(e) => setForm({ ...form, username: e.target.value })} />
@@ -114,6 +111,7 @@ export default function Users({ me, onClose }) {
           </tbody>
         </table>
       </div>
-    </div>
+      </div>
+    </Modal>
   );
 }

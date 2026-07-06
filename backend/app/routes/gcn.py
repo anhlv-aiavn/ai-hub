@@ -4,13 +4,15 @@ import csv
 import io
 import json
 import zipfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from pymongo import ReturnDocument
 
-from app import storage
+from app import config, storage
+from app.access_log import log_access
 from app.db import gcns
 from app.deps import current_user, ensure_branch_access, is_admin, require_operator, scoped_branch
 from app.storage import SourceObjectUnavailable
@@ -184,12 +186,62 @@ async def stats(batch_id: str | None = None, branch: str | None = None,
     }
 
 
+@router.get("/search")
+async def search_gcn(
+    so_phat_hanh: str | None = None,
+    branch: str | None = None,
+    status: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    limit: int = 50,
+    before: datetime | None = None,
+    user: dict = Depends(current_user),
+):
+    """Tra cứu quy mô lớn — cursor theo `created_at` (KHÔNG skip/limit sâu), trả
+    field tóm tắt (không nhồi `extractions`). Dùng compound index
+    `{branch:1, created_at:-1}` ([db.py::ensure_indexes])."""
+    branch = scoped_branch(user, branch)
+    flt: dict = {}
+    if branch:
+        flt["branch"] = branch
+    if status:
+        flt["status"] = status
+    if so_phat_hanh:
+        flt["extracted_so_phat_hanhs"] = so_phat_hanh
+    created: dict = {}
+    if date_from:
+        created["$gte"] = date_from
+    if date_to:
+        created["$lte"] = date_to
+    if before:
+        created["$lt"] = before
+    if created:
+        flt["created_at"] = created
+
+    limit = max(1, min(limit, 200))
+    proj = {"filename": 1, "status": 1, "review.status": 1, "review.display_name": 1,
+            "group_key": 1, "extracted_so_phat_hanhs": 1, "branch": 1, "created_at": 1,
+            "dup_suspect": 1}
+    docs = await gcns().find(flt, proj).sort("created_at", -1).limit(limit).to_list(length=limit)
+    items = [{
+        "gcn_id": d["_id"], "filename": d.get("filename"),
+        "display_name": (d.get("review") or {}).get("display_name"),
+        "status": d.get("status"), "review_status": (d.get("review") or {}).get("status", "unreviewed"),
+        "group_key": d.get("group_key"), "extracted_so_phat_hanhs": d.get("extracted_so_phat_hanhs", []),
+        "branch": d.get("branch"), "created_at": d.get("created_at"),
+        "dup_suspect": bool(d.get("dup_suspect")),
+    } for d in docs]
+    next_cursor = docs[-1]["created_at"].isoformat() if len(docs) == limit and docs[-1].get("created_at") else None
+    return {"items": items, "next_cursor": next_cursor}
+
+
 @router.get("/{gcn_id}")
 async def get_gcn(gcn_id: str, user: dict = Depends(current_user)):
     doc = await gcns().find_one({"_id": gcn_id})
     if not doc:
         raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
     ensure_branch_access(user, doc.get("branch"))
+    await log_access(user["username"], gcn_id, "view")
     return _detail(doc)
 
 
@@ -206,8 +258,15 @@ async def get_page(gcn_id: str, n: int, w: int = 1100, user: dict = Depends(curr
 
 @router.get("/{gcn_id}/pageinfo")
 async def page_info(gcn_id: str, user: dict = Depends(current_user)):
-    doc = await _authz_gcn(gcn_id, user, {"page_count": 1})
-    return {"pages": doc.get("page_count", 0)}
+    doc = await _authz_gcn(gcn_id, user, {"page_count": 1, "status": 1, "error": 1})
+    pages = doc.get("page_count", 0)
+    # File nguồn (nhất là import từ MinIO ngoài) không đọc được khi xử lý → lỗi
+    # đã lưu trên doc nhưng page_count vẫn = 0 (chưa từng đếm được trang) → nếu
+    # trả {pages:0} trần, FE hiểu nhầm là "còn đang tải" và kẹt loading vĩnh viễn.
+    # Báo lỗi rõ ràng thay vì im lặng.
+    if not pages and doc.get("status") == "error":
+        raise HTTPException(status_code=502, detail=doc.get("error") or "Không đọc được file gốc")
+    return {"pages": pages}
 
 
 def _find_cut(doc: dict, ci: int) -> dict:
@@ -252,6 +311,63 @@ class ReviewIn(BaseModel):
     status: str | None = None  # unreviewed | needs_review | reviewed
     reviewer: str | None = None
     deleted: list[int] | None = None  # chỉ số bản ghi GCN bị xoá khi hậu kiểm
+    version: int | None = None  # optimistic concurrency — xem review.version
+
+
+# ── Hậu kiểm đồng thời: soft-lock (mở thẳng qua URL/search, không qua hàng chờ)
+# + optimistic concurrency (chốt chặn cuối khi lưu). Xem PLAN_PHASE2.md §③. ────
+
+def _lock_public(review: dict) -> dict:
+    lock = review.get("lock")
+    return {"lock": lock, "version": review.get("version", 0)}
+
+
+@router.post("/{gcn_id}/lock")
+async def claim_lock(gcn_id: str, user: dict = Depends(require_operator)):
+    doc0 = await _authz_gcn(gcn_id, user, {"review": 1})
+    now = datetime.now(timezone.utc)
+    expires = now + timedelta(seconds=config.REVIEW_LOCK_TTL)
+    updated = await gcns().find_one_and_update(
+        {"_id": gcn_id, "$or": [
+            {"review.lock": None},
+            {"review.lock": {"$exists": False}},
+            {"review.lock.expires_at": {"$lt": now}},
+            {"review.lock.by": user["username"]},
+        ]},
+        {"$set": {"review.lock": {"by": user["username"], "at": now, "expires_at": expires}}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not updated:
+        holder = (doc0.get("review") or {}).get("lock") or {}
+        raise HTTPException(status_code=409, detail={
+            "message": "Hồ sơ đang được người khác hậu kiểm",
+            "locked_by": holder.get("by"), "expires_at": holder.get("expires_at"),
+        })
+    return _lock_public(updated.get("review") or {})
+
+
+@router.post("/{gcn_id}/lock/heartbeat")
+async def heartbeat_lock(gcn_id: str, user: dict = Depends(require_operator)):
+    now = datetime.now(timezone.utc)
+    expires = now + timedelta(seconds=config.REVIEW_LOCK_TTL)
+    updated = await gcns().find_one_and_update(
+        {"_id": gcn_id, "review.lock.by": user["username"]},
+        {"$set": {"review.lock.expires_at": expires}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not updated:
+        raise HTTPException(status_code=409, detail="Bạn không giữ khóa hồ sơ này (có thể đã hết hạn)")
+    return _lock_public(updated.get("review") or {})
+
+
+@router.delete("/{gcn_id}/lock")
+async def release_lock(gcn_id: str, user: dict = Depends(require_operator)):
+    """Best-effort — không lỗi nếu khóa đã hết hạn hoặc đã bị người khác chiếm."""
+    await gcns().update_one(
+        {"_id": gcn_id, "review.lock.by": user["username"]},
+        {"$set": {"review.lock": None}},
+    )
+    return {"ok": True}
 
 
 @router.put("/{gcn_id}")
@@ -265,6 +381,11 @@ async def put_review(gcn_id: str, body: ReviewIn, user: dict = Depends(require_o
         raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
     ensure_branch_access(user, doc.get("branch"))
     review = doc.get("review") or {}
+    current_version = review.get("version", 0)
+    if body.version is not None and body.version != current_version:
+        raise HTTPException(status_code=409, detail={
+            "message": "Người khác vừa sửa hồ sơ này, hãy tải lại", "current_version": current_version,
+        })
     if body.display_name is not None:
         review["display_name"] = body.display_name
     if body.overrides is not None:
@@ -276,6 +397,7 @@ async def put_review(gcn_id: str, body: ReviewIn, user: dict = Depends(require_o
     if body.reviewer is not None:
         review["reviewer"] = body.reviewer
     review["at"] = datetime.now(timezone.utc)
+    review["version"] = current_version + 1
 
     update: dict = {"review": review}
     # Sửa tay (overrides) / xoá GCN phải phản chiếu vào bảng list, nếu không bảng
@@ -300,7 +422,19 @@ async def put_review(gcn_id: str, body: ReviewIn, user: dict = Depends(require_o
             "cuts": cuts,
         })
 
-    await gcns().update_one({"_id": gcn_id}, {"$set": update})
+    # Điều kiện version chặn ghi đè mù: nếu client gửi version, update PHẢI khớp
+    # đúng version đã đọc — dù đã pass check ở trên, race hiếm (2 request cùng
+    # lúc) vẫn được chặn ở tầng Mongo (atomic), không chỉ ở tầng Python.
+    filt: dict = {"_id": gcn_id}
+    if body.version is not None:
+        filt["review.version"] = body.version
+    res = await gcns().update_one(filt, {"$set": update})
+    if res.matched_count == 0:
+        fresh = await gcns().find_one({"_id": gcn_id}, {"review.version": 1})
+        raise HTTPException(status_code=409, detail={
+            "message": "Người khác vừa sửa hồ sơ này, hãy tải lại",
+            "current_version": (fresh or {}).get("review", {}).get("version", 0),
+        })
     return {"ok": True, "review": review}
 
 
@@ -314,6 +448,7 @@ async def download(gcn_id: str, user: dict = Depends(current_user)):
         pdf = (await storage.get_pdf(doc["s3_key"], doc.get("source_connection_id"))).getvalue()
     except SourceObjectUnavailable as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
+    await log_access(user["username"], gcn_id, "download")
     name = (doc.get("review") or {}).get("display_name") or doc.get("group_key") \
         or doc.get("filename", gcn_id)
     name = _safe(name)
@@ -348,6 +483,8 @@ def _expand(doc: dict) -> list[dict]:
         "review_status": rev.get("status", "unreviewed"),
         "error": doc.get("error"),
         "created_at": doc.get("created_at"),
+        "dup_suspect": bool(doc.get("dup_suspect")),
+        "dup_candidates": doc.get("dup_candidates") or [],
     }
     gcn_rows = doc.get("gcn_rows") or []
     if not gcn_rows:
@@ -389,4 +526,6 @@ def _detail(doc: dict) -> dict:
         "review": doc.get("review", {}),
         "cuts": doc.get("cuts", []),
         "created_at": doc.get("created_at"),
+        "dup_suspect": bool(doc.get("dup_suspect")),
+        "dup_candidates": doc.get("dup_candidates") or [],
     }

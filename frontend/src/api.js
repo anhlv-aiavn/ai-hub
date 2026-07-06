@@ -305,3 +305,58 @@ export async function downloadGcn(id, filename) {
   a.click();
   URL.revokeObjectURL(a.href);
 }
+
+// Hậu kiểm đồng thời: soft-lock (mở thẳng không qua hàng chờ vẫn tránh ghi đè).
+export async function claimReviewLock(id) {
+  return handle(await fetch(`/v1/gcn/${id}/lock`, { method: "POST", headers: headers() }));
+}
+export async function heartbeatReviewLock(id) {
+  return handle(await fetch(`/v1/gcn/${id}/lock/heartbeat`, { method: "POST", headers: headers() }));
+}
+export async function releaseReviewLock(id) {
+  return handle(await fetch(`/v1/gcn/${id}/lock`, { method: "DELETE", headers: headers() }));
+}
+
+// Tra cứu quy mô lớn — cursor theo created_at.
+export async function searchGcn({ soPhatHanh, branch, status, before, limit = 50 } = {}) {
+  const p = new URLSearchParams();
+  if (soPhatHanh) p.set("so_phat_hanh", soPhatHanh);
+  if (branch) p.set("branch", branch);
+  if (status) p.set("status", status);
+  if (before) p.set("before", before);
+  if (limit) p.set("limit", String(limit));
+  return handle(await fetch(`/v1/gcn/search?${p.toString()}`, { headers: headers() }));
+}
+
+// Xuất nền (không cap dòng, không chặn request) — job chạy ở worker.
+export async function createExportJob(body) {
+  return handle(await fetch(`/v1/gcn/export-jobs`, {
+    method: "POST", headers: headers({ "Content-Type": "application/json" }), body: JSON.stringify(body),
+  }));
+}
+export async function getExportJob(id) {
+  return handle(await fetch(`/v1/gcn/export-jobs/${id}`, { headers: headers() }));
+}
+export async function downloadExportJob(id) {
+  const p = new URLSearchParams();
+  if (auth.token) p.set("token", auth.token);
+  const res = await fetch(`/v1/gcn/export-jobs/${id}/download?${p.toString()}`, { headers: headers() });
+  if (!res.ok) throw new Error(`tải lỗi: ${res.status}`);
+  const blob = await res.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `ai-hub-export-${id.slice(0, 8)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// Audit truy cập dữ liệu nhạy cảm (xem/tải/xuất) — admin.
+export async function getAccessLog({ actor, gcnId, action, limit = 50, beforeId } = {}) {
+  const p = new URLSearchParams();
+  if (actor) p.set("actor", actor);
+  if (gcnId) p.set("gcn_id", gcnId);
+  if (action) p.set("action", action);
+  if (limit) p.set("limit", String(limit));
+  if (beforeId) p.set("before_id", beforeId);
+  return handle(await fetch(`/v1/access-log?${p.toString()}`, { headers: headers() }));
+}

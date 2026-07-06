@@ -91,10 +91,15 @@ def _orient(image: Image.Image) -> Image.Image:
     return image
 
 
-async def put_pdf(key: str, data: bytes) -> None:
-    """Ghi ĐÍCH luôn (upload gốc + cuts) — không bao giờ ghi kho nguồn."""
+async def put_object(key: str, data: bytes) -> None:
+    """Ghi ĐÍCH luôn — dùng chung cho PDF (upload gốc/cuts) và tệp khác (export CSV)."""
     client, bucket = await _get_dest_client()
     await client.async_put_object(bucket, key, io.BytesIO(data))
+
+
+async def put_pdf(key: str, data: bytes) -> None:
+    """Ghi ĐÍCH luôn (upload gốc + cuts) — không bao giờ ghi kho nguồn."""
+    await put_object(key, data)
 
 
 async def get_pdf(key: str, source_connection_id: str | None = None) -> io.BytesIO:

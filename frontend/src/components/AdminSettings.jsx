@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
 import Icon from "./Icon.jsx";
+import Modal from "./Modal.jsx";
 import {
   getSiteConfig, updateSiteConfig,
   getS3Connections, createS3Connection, updateS3Connection, deleteS3Connection,
-  testS3Connection, testS3ConnectionDraft, getAuditLog,
+  testS3Connection, testS3ConnectionDraft, getAuditLog, getAccessLog,
 } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 
@@ -12,6 +13,7 @@ const TABS = [
   ["source", "S3 nguồn"],
   ["dest", "S3 đích"],
   ["audit", "Audit log"],
+  ["access", "Audit truy cập"],
 ];
 
 // Modal cấu hình hệ thống (admin-only) — tabs. Mở từ AccountMenu, cạnh "Quản trị
@@ -19,21 +21,20 @@ const TABS = [
 export default function AdminSettings({ onClose }) {
   const [tab, setTab] = useState("org");
   return (
-    <div className="panel admin-settings">
-      <div className="export-head">
-        <h3>Cấu hình hệ thống</h3>
-        <button className="icon-btn" onClick={onClose} aria-label="Đóng"><Icon name="x" size={16} /></button>
+    <Modal title="Cấu hình hệ thống" onClose={onClose} wide>
+      <div className="admin-settings">
+        <nav className="admin-tabs">
+          {TABS.map(([k, label]) => (
+            <button key={k} className={k === tab ? "tab active" : "tab"} onClick={() => setTab(k)}>{label}</button>
+          ))}
+        </nav>
+        {tab === "org" && <OrgTab />}
+        {tab === "source" && <S3Tab role="source" />}
+        {tab === "dest" && <S3Tab role="destination" />}
+        {tab === "audit" && <AuditTab />}
+        {tab === "access" && <AccessLogTab />}
       </div>
-      <nav className="admin-tabs">
-        {TABS.map(([k, label]) => (
-          <button key={k} className={k === tab ? "tab active" : "tab"} onClick={() => setTab(k)}>{label}</button>
-        ))}
-      </nav>
-      {tab === "org" && <OrgTab />}
-      {tab === "source" && <S3Tab role="source" />}
-      {tab === "dest" && <S3Tab role="destination" />}
-      {tab === "audit" && <AuditTab />}
-    </div>
+    </Modal>
   );
 }
 
@@ -336,6 +337,59 @@ function AuditTab() {
             {open === r.id && (
               <pre className="audit-detail">{JSON.stringify(r.detail, null, 2)}</pre>
             )}
+          </div>
+        ))}
+        {!items.length && !loading && <div className="muted center" style={{ padding: 16 }}>Chưa có bản ghi.</div>}
+      </div>
+
+      {cursor && (
+        <button type="button" className="ghost sm" disabled={loading} onClick={() => load(cursor)}>
+          {loading ? "Đang tải…" : "Tải thêm"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Tab: Audit truy cập (xem/tải/xuất bản gốc — dữ liệu cá nhân) ────────────
+function AccessLogTab() {
+  const [items, setItems] = useState([]);
+  const [cursor, setCursor] = useState(null);
+  const [action, setAction] = useState("");
+  const [actor, setActor] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function load(before) {
+    setLoading(true);
+    try {
+      const d = await getAccessLog({ action: action || undefined, actor: actor || undefined, beforeId: before });
+      setItems((prev) => (before ? [...prev, ...d.items] : d.items));
+      setCursor(d.next_cursor);
+    } catch (e) { toastErr(e.message || e); } finally { setLoading(false); }
+  }
+  useEffect(() => { load(null); }, [action, actor]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="admin-tab-body">
+      <div className="row" style={{ marginBottom: 10 }}>
+        <select className="text-input" style={{ width: "auto" }} value={action} onChange={(e) => setAction(e.target.value)}>
+          <option value="">Mọi hành động</option>
+          <option value="view">Xem</option>
+          <option value="download">Tải</option>
+          <option value="export">Xuất</option>
+        </select>
+        <input className="text-input" style={{ width: "auto", flex: "1 1 150px" }} placeholder="Lọc theo actor…"
+          value={actor} onChange={(e) => setActor(e.target.value)} />
+      </div>
+
+      <div className="tbl-dense audit-tbl">
+        {items.map((r) => (
+          <div key={r.id} className="file-row audit-row">
+            <span className="fr-meta mono" title={r.at}>{fmtRelative(r.at)}</span>
+            <span className="fr-name">{r.actor}</span>
+            <span className="badge">{r.action}</span>
+            <span className="fr-meta mono">{r.gcn_id || "—"}</span>
+            <span />
           </div>
         ))}
         {!items.length && !loading && <div className="muted center" style={{ padding: 16 }}>Chưa có bản ghi.</div>}

@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pymongo import ReturnDocument
 
 from app import config
+from app.worker.export_job import claim_export_job, process_export_job
 from app.worker.import_job import claim_import_job, process_import_job
 from app.worker.run_job import process_doc
 from src.extentions.mongo_helper import AsyncMongo
@@ -21,6 +22,7 @@ log = logging.getLogger(__name__)
 POLL_INTERVAL = float(os.getenv("WORKER_POLL_INTERVAL", "2"))
 PROC_TTL = int(os.getenv("WORKER_PROC_TTL", "1800"))  # claim lại job processing treo
 IMPORT_MAX_CONCURRENT = int(os.getenv("WORKER_IMPORT_MAX_CONCURRENT", "2"))
+EXPORT_MAX_CONCURRENT = int(os.getenv("WORKER_EXPORT_MAX_CONCURRENT", "1"))
 
 
 async def _claim(mongo: AsyncMongo) -> dict | None:
@@ -47,6 +49,7 @@ async def run() -> None:
 
     in_flight: set[asyncio.Task] = set()
     import_in_flight: set[asyncio.Task] = set()
+    export_in_flight: set[asyncio.Task] = set()
     while True:
         while len(in_flight) < config.MAX_IN_FLIGHT:
             doc = await _claim(mongo)
@@ -62,7 +65,13 @@ async def run() -> None:
                 break
             import_in_flight.add(asyncio.create_task(process_import_job(mongo, job)))
 
-        pending = in_flight | import_in_flight
+        while len(export_in_flight) < EXPORT_MAX_CONCURRENT:
+            job = await claim_export_job(mongo, PROC_TTL)
+            if not job:
+                break
+            export_in_flight.add(asyncio.create_task(process_export_job(mongo, job)))
+
+        pending = in_flight | import_in_flight | export_in_flight
         if not pending:
             await asyncio.sleep(POLL_INTERVAL)
             continue
@@ -72,6 +81,7 @@ async def run() -> None:
         )
         in_flight -= done
         import_in_flight -= done
+        export_in_flight -= done
         for t in done:
             exc = t.exception()
             if exc:
