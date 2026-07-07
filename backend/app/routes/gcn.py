@@ -556,6 +556,12 @@ def _expand(doc: dict) -> list[dict]:
     rev = doc.get("review") or {}
     lock = rev.get("lock") or {}
     lock_exp = lock.get("expires_at")
+    # pymongo trả datetime NAIVE khi đọc lại (BSON không giữ tzinfo) dù lúc ghi là
+    # datetime.now(timezone.utc) — phải gắn lại tzinfo trước khi so, nếu không
+    # TypeError (naive vs aware) sẽ sập CẢ request list_gcn hễ có 1 bản ghi đang
+    # khóa (bug thực tế: người khác không mở nổi danh sách khi ai đó đang hậu kiểm).
+    if lock_exp is not None and lock_exp.tzinfo is None:
+        lock_exp = lock_exp.replace(tzinfo=timezone.utc)
     # Khóa đã hết hạn (TTL) coi như không còn ai giữ — không hiện "đang được X hậu
     # kiểm" nhầm cho bản ghi thực ra đã rảnh (tránh chặn nhầm ở bảng danh sách).
     locked_by = lock.get("by") if lock_exp and lock_exp > datetime.now(timezone.utc) else None
