@@ -15,6 +15,7 @@ from pymongo import ReturnDocument
 from app import config, storage
 from app.audit import AuditAction, log_action
 from app.batch_counters import bump
+from app.bus import publish
 from app.db import batches, gcns
 from app.deps import current_user, ensure_branch_access, is_admin, require_operator, scoped_branch
 from app.storage import DestinationNotConfigured, SourceObjectUnavailable
@@ -179,6 +180,9 @@ async def export_csv(batch_id: str | None = None, status: str | None = None,
 
 @router.get("/stats")
 async def stats(batch_id: str | None = None, branch: str | None = None,
+                reviewer_days: int | None = Query(default=None, description=(
+                    "Chỉ tính by_reviewer trong N ngày gần nhất (theo review.reviewed_at); "
+                    "bỏ trống/0 = toàn thời gian")),
                 user: dict = Depends(current_user)):
     """Tổng hợp cho bảng Thống kê: tổng tệp/GCN/trang, breakdown trạng thái & hậu
     kiểm, theo chi nhánh, và các chỉ số cảnh báo. Một lần aggregate ($facet)."""
@@ -188,6 +192,20 @@ async def stats(batch_id: str | None = None, branch: str | None = None,
         match["batch_id"] = batch_id
     if branch:
         match["branch"] = branch
+
+    by_reviewer_stage: list[dict] = [{"$match": {"review.reviewer": {"$ne": None}}}]
+    if reviewer_days and reviewer_days > 0:
+        since = datetime.now(timezone.utc) - timedelta(days=reviewer_days)
+        by_reviewer_stage.append({"$match": {"review.reviewed_at": {"$gte": since}}})
+    by_reviewer_stage += [
+        {"$group": {
+            "_id": "$review.reviewer",
+            "reviewed": {"$sum": {"$cond": [{"$eq": ["$review.status", "reviewed"]}, 1, 0]}},
+            "rejected": {"$sum": {"$cond": [{"$eq": ["$review.status", "needs_review"]}, 1, 0]}},
+        }},
+        {"$sort": {"reviewed": -1}},
+    ]
+
     pipeline = [
         {"$match": match},
         {"$facet": {
@@ -216,15 +234,8 @@ async def stats(batch_id: str | None = None, branch: str | None = None,
             # Theo người hậu kiểm (§ thống kê cho quản lý) — reviewer chỉ được server
             # gán khi có hành động Duyệt/Không duyệt (xem put_review), nên số liệu ở
             # đây phản ánh trạng thái HIỆN TẠI của từng hồ sơ là do ai đặt gần nhất.
-            "by_reviewer": [
-                {"$match": {"review.reviewer": {"$ne": None}}},
-                {"$group": {
-                    "_id": "$review.reviewer",
-                    "reviewed": {"$sum": {"$cond": [{"$eq": ["$review.status", "reviewed"]}, 1, 0]}},
-                    "rejected": {"$sum": {"$cond": [{"$eq": ["$review.status", "needs_review"]}, 1, 0]}},
-                }},
-                {"$sort": {"reviewed": -1}},
-            ],
+            # Lọc theo `reviewer_days` (nếu có) dựa trên `review.reviewed_at`.
+            "by_reviewer": by_reviewer_stage,
         }},
     ]
     agg = await gcns().aggregate(pipeline).to_list(length=1)
@@ -405,6 +416,10 @@ async def claim_lock(gcn_id: str, user: dict = Depends(require_operator)):
             "locked_by": holder.get("by"),
             "expires_at": exp.isoformat() if exp else None,
         })
+    # Đẩy realtime cho MỌI phiên đang mở bảng danh sách (kể cả tab khác của chính
+    # mình) — không thì badge "đang hậu kiểm" chỉ hiện sau khi ai đó bấm Làm mới.
+    # Bắt buộc kèm "branch": /v1/events lọc bỏ event thiếu branch cho user thường.
+    await publish({"type": "review_lock", "gcn_id": gcn_id, "branch": doc0.get("branch")})
     return _lock_public(updated.get("review") or {})
 
 
@@ -425,10 +440,15 @@ async def heartbeat_lock(gcn_id: str, user: dict = Depends(require_operator)):
 @router.delete("/{gcn_id}/lock")
 async def release_lock(gcn_id: str, user: dict = Depends(require_operator)):
     """Best-effort — không lỗi nếu khóa đã hết hạn hoặc đã bị người khác chiếm."""
-    await gcns().update_one(
+    updated = await gcns().find_one_and_update(
         {"_id": gcn_id, "review.lock.by": user["username"]},
         {"$set": {"review.lock": None}},
+        projection={"branch": 1},
     )
+    # Chỉ đẩy event khi THỰC SỰ vừa mở khóa (match được nghĩa là lock đang là của
+    # mình — tránh refresh thừa khi khóa đã hết hạn/bị người khác chiếm từ trước).
+    if updated:
+        await publish({"type": "review_lock", "gcn_id": gcn_id, "branch": updated.get("branch")})
     return {"ok": True}
 
 
@@ -460,6 +480,10 @@ async def put_review(gcn_id: str, body: ReviewIn, user: dict = Depends(require_o
         # Người BẤM Duyệt/Không duyệt mới là reviewer — lấy từ user đã xác thực
         # (server-trusted), không tin `body.reviewer` cho hành động này (tránh giả mạo).
         review["reviewer"] = user["username"]
+        # Mốc thời gian RIÊNG cho lần Duyệt/Không duyệt gần nhất — khác `at` (mọi
+        # lần lưu, kể cả autosave/sửa tay không đổi status) để thống kê theo thời
+        # gian ở dưới phản ánh đúng lúc ra quyết định, không bị autosave làm lệch.
+        review["reviewed_at"] = datetime.now(timezone.utc)
     elif body.reviewer is not None:
         review["reviewer"] = body.reviewer
     review["at"] = datetime.now(timezone.utc)

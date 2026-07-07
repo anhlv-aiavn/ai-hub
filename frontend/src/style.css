@@ -1073,6 +1073,9 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 
 .branch-stats { margin-bottom: 22px; }
 .branch-stats .seg-title { margin-bottom: 9px; }
+.rt-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; flex-wrap: wrap; }
+.rt-head .seg-title { margin-bottom: 0; }
+.rt-head .seg-toggle { margin-top: 0; }
 .bt-scroll { max-height: 42vh; }
 .bt-name { font-weight: 600; }
 .bt-rank { font-variant-numeric: tabular-nums; color: var(--text-3); font-weight: 700; text-align: center; width: 34px; }

@@ -258,10 +258,11 @@ export function cutPageImageUrl(gcnId, ci, n, w = 1100) {
 }
 
 // Thống kê tổng hợp (KPI + breakdown + cảnh báo) cho bảng Thống kê.
-export async function getStats({ batchId, branch } = {}) {
+export async function getStats({ batchId, branch, reviewerDays } = {}) {
   const p = new URLSearchParams();
   if (batchId) p.set("batch_id", batchId);
   if (branch) p.set("branch", branch);
+  if (reviewerDays) p.set("reviewer_days", String(reviewerDays));
   return handle(await fetch(`/v1/gcn/stats?${p.toString()}`, { headers: headers() }));
 }
 

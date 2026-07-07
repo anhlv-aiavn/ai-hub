@@ -19,6 +19,18 @@ def publish_sync(event: dict) -> None:
         pass
 
 
+async def publish(event: dict) -> None:
+    """Gọi từ route handler API (async, vd claim/release khóa hậu kiểm) — để các
+    phiên khác (và chính phiên mình, tab khác) thấy ngay qua SSE, khỏi phải bấm
+    Làm mới. Bỏ qua lỗi để không làm hỏng response chính."""
+    try:
+        r = aioredis.Redis.from_url(config.REDIS_URL)
+        await r.publish(config.EVENT_CHANNEL, json.dumps(event, default=str))
+        await r.aclose()
+    except Exception:
+        pass
+
+
 async def subscribe():
     """Async generator → yield từng event dict cho SSE."""
     r = aioredis.Redis.from_url(config.REDIS_URL)

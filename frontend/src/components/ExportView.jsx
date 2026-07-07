@@ -106,31 +106,51 @@ function BranchTable({ rows }) {
   );
 }
 
-function ReviewerTable({ rows }) {
-  if (!rows.length) return null;
+const REVIEWER_DAYS = [
+  { key: 1, label: "Hôm nay" },
+  { key: 7, label: "7 ngày" },
+  { key: 30, label: "30 ngày" },
+  { key: 0, label: "Tất cả" },
+];
+
+function ReviewerTable({ rows, days, onDaysChange }) {
   const ranked = [...rows].sort((a, b) => (b.reviewed - a.reviewed) || (b.rejected - a.rejected));
 
   return (
     <div className="branch-stats">
-      <div className="seg-title">Theo người hậu kiểm · xếp hạng theo số đã duyệt</div>
-      <div className="et-scroll bt-scroll">
-        <table className="et-grid">
-          <thead>
-            <tr><th>#</th><th>Người hậu kiểm</th><th>Đã duyệt</th><th>Không duyệt</th><th>Tổng</th></tr>
-          </thead>
-          <tbody>
-            {ranked.map((r, i) => (
-              <tr key={r.reviewer || `__${i}`}>
-                <td className="bt-rank">{i + 1}</td>
-                <td className="bt-name">{r.reviewer}</td>
-                <td>{fmt(r.reviewed)}</td>
-                <td>{fmt(r.rejected)}</td>
-                <td>{fmt(r.reviewed + r.rejected)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="rt-head">
+        <div className="seg-title">Theo người hậu kiểm · xếp hạng theo số đã duyệt</div>
+        <div className="seg-toggle sm">
+          {REVIEWER_DAYS.map((o) => (
+            <button key={o.key} type="button" className={days === o.key ? "active" : ""}
+              onClick={() => onDaysChange(o.key)}>{o.label}</button>
+          ))}
+        </div>
       </div>
+      {ranked.length ? (
+        <div className="et-scroll bt-scroll">
+          <table className="et-grid">
+            <thead>
+              <tr><th>#</th><th>Người hậu kiểm</th><th>Đã duyệt</th><th>Không duyệt</th><th>Tổng</th></tr>
+            </thead>
+            <tbody>
+              {ranked.map((r, i) => (
+                <tr key={r.reviewer || `__${i}`}>
+                  <td className="bt-rank">{i + 1}</td>
+                  <td className="bt-name">{r.reviewer}</td>
+                  <td>{fmt(r.reviewed)}</td>
+                  <td>{fmt(r.rejected)}</td>
+                  <td>{fmt(r.reviewed + r.rejected)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="muted center" style={{ padding: 16 }}>
+          Chưa có ai duyệt/không duyệt hồ sơ nào trong khoảng thời gian này.
+        </div>
+      )}
     </div>
   );
 }
@@ -144,6 +164,7 @@ export default function ExportView({ user }) {
   const [batchId, setBatchId] = useState("");
   const [branch, setBranch] = useState("");
   const [review, setReview] = useState("");
+  const [reviewerDays, setReviewerDays] = useState(0); // 0 = toàn thời gian
   const [stats, setStats] = useState(null);
   const [cols, setCols] = useState([]);
   const [rows, setRows] = useState([]);
@@ -159,22 +180,33 @@ export default function ExportView({ user }) {
 
   function openPreview(p) { setPvPage(1); setPreview(p); }
 
+  async function refreshStats() {
+    try {
+      setStats(await getStats({
+        batchId: batchId || undefined, branch: branch || undefined, reviewerDays: reviewerDays || undefined,
+      }));
+    } catch (e) { toastErr(e.message || e); }
+  }
+
   async function refresh(p = rowsPage) {
     setLoading(true);
     try {
-      const [d, st] = await Promise.all([
+      const [d] = await Promise.all([
         listRows({ batchId: batchId || undefined, branch: branch || undefined, review: review || undefined,
                    page: p, pageSize: ROWS_PAGE_SIZE }),
-        getStats({ batchId: batchId || undefined, branch: branch || undefined }),
+        refreshStats(),
       ]);
       setCols(d.columns || []);
       setRows(d.rows || []);
       setRowsTotal(d.total || 0);
       setRowsTotalPages(d.total_pages || 1);
-      setStats(st);
     } catch (e) { toastErr(e.message || e); } finally { setLoading(false); }
   }
   useEffect(() => { refreshRef.current = refresh; });
+
+  // Đổi khoảng thời gian bảng "Theo người hậu kiểm" → chỉ gọi lại stats (nhẹ),
+  // không đụng tới trang/bộ lọc của bảng dòng phẳng bên dưới.
+  useEffect(() => { refreshStats(); /* eslint-disable-next-line */ }, [reviewerDays]);
 
   useEffect(() => {
     listBatches().then((d) => setBatches(d.batches || [])).catch(() => {});
@@ -265,7 +297,9 @@ export default function ExportView({ user }) {
       </div>
 
       {isAdmin && <BranchTable rows={s.by_branch || []} />}
-      {isAdmin && <ReviewerTable rows={s.by_reviewer || []} />}
+      {isAdmin && (
+        <ReviewerTable rows={s.by_reviewer || []} days={reviewerDays} onDaysChange={setReviewerDays} />
+      )}
 
       <div className="export-sec">
         <div className="export-head">
