@@ -17,7 +17,9 @@ from app.audit import AuditAction, log_action
 from app.batch_counters import bump
 from app.bus import publish
 from app.db import batches, gcns
-from app.deps import current_user, ensure_branch_access, is_admin, require_operator, scoped_branch
+from app.deps import (
+    current_user, ensure_branch_access, is_admin, require_operator, require_viewer, scoped_branch,
+)
 from app.storage import DestinationNotConfigured, SourceObjectUnavailable
 from app.flatten import COLUMNS as FLAT_COLUMNS, effective_extractions, flatten_doc
 from app.summary import collect_so_phat_hanhs, group_key_of, per_gcn, summarize
@@ -390,7 +392,7 @@ def _lock_public(review: dict) -> dict:
 
 
 @router.post("/{gcn_id}/lock")
-async def claim_lock(gcn_id: str, user: dict = Depends(require_operator)):
+async def claim_lock(gcn_id: str, user: dict = Depends(require_viewer)):
     doc0 = await _authz_gcn(gcn_id, user, {"review": 1})
     now = datetime.now(timezone.utc)
     expires = now + timedelta(seconds=config.REVIEW_LOCK_TTL)
@@ -424,7 +426,7 @@ async def claim_lock(gcn_id: str, user: dict = Depends(require_operator)):
 
 
 @router.post("/{gcn_id}/lock/heartbeat")
-async def heartbeat_lock(gcn_id: str, user: dict = Depends(require_operator)):
+async def heartbeat_lock(gcn_id: str, user: dict = Depends(require_viewer)):
     now = datetime.now(timezone.utc)
     expires = now + timedelta(seconds=config.REVIEW_LOCK_TTL)
     updated = await gcns().find_one_and_update(
@@ -438,7 +440,7 @@ async def heartbeat_lock(gcn_id: str, user: dict = Depends(require_operator)):
 
 
 @router.delete("/{gcn_id}/lock")
-async def release_lock(gcn_id: str, user: dict = Depends(require_operator)):
+async def release_lock(gcn_id: str, user: dict = Depends(require_viewer)):
     """Best-effort — không lỗi nếu khóa đã hết hạn hoặc đã bị người khác chiếm."""
     updated = await gcns().find_one_and_update(
         {"_id": gcn_id, "review.lock.by": user["username"]},
@@ -453,7 +455,7 @@ async def release_lock(gcn_id: str, user: dict = Depends(require_operator)):
 
 
 @router.put("/{gcn_id}")
-async def put_review(gcn_id: str, body: ReviewIn, user: dict = Depends(require_operator)):
+async def put_review(gcn_id: str, body: ReviewIn, user: dict = Depends(require_viewer)):
     proj = {"review": 1, "branch": 1}
     recompute = body.overrides is not None or body.deleted is not None
     if recompute:  # cần raw để tính lại cột dẫn xuất

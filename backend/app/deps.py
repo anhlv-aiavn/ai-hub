@@ -48,9 +48,10 @@ def is_admin(user: dict) -> bool:
     return user.get("role") == "admin"
 
 
-# RBAC 3-role: admin (config/secret/users) > operator (import/hậu kiểm, khóa chi
-# nhánh, không thấy secret) > viewer (tra cứu/xem, khóa chi nhánh). Cấp bậc để
-# require_operator/require_viewer chấp nhận cả role cao hơn.
+# RBAC 3-role: admin (config/secret/users) > operator (số hóa: upload/import
+# MinIO, retry lỗi, khóa chi nhánh, không thấy secret) > viewer (tra cứu/xem +
+# HẬU KIỂM — khóa/sửa/duyệt GCN, khóa chi nhánh). Cấp bậc để require_operator/
+# require_viewer chấp nhận cả role cao hơn.
 ROLES = ("viewer", "operator", "admin")
 
 

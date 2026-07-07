@@ -890,8 +890,14 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
   border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text);
   max-width: 200px; text-overflow: ellipsis; }
 .search-box { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--border-2);
-  border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text-3); }
-.search-box input { border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--text); width: 200px; }
+  border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text-3);
+  flex: 1 1 260px; min-width: 180px; max-width: 420px; }
+.search-box input {
+  /* Reset input[type=text]/input:not([type]) toàn cục (padding 9px 11px + margin-top
+  6px) — nếu không input cao hơn hẳn nút cạnh bên và đè lệch placeholder. */
+  border: none; outline: none; background: transparent; font: inherit; font-size: 13px;
+  color: var(--text); width: 100%; padding: 0; margin: 0; min-width: 0;
+}
 
 .et-scroll { overflow: auto; max-height: calc(100vh - 200px); border: 1px solid var(--border); border-radius: var(--radius); }
 .et-grid { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--surface); }
