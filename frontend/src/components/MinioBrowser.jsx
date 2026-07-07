@@ -16,6 +16,25 @@ function fmtDate(v) {
   return d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
+// Hàng đợi giới hạn số request tiến độ thư mục chạy đồng thời — tránh dội một
+// loạt request nặng lên server khi 1 trang hiện nhiều thư mục cùng lúc. Chậm
+// hơn (xử lý tuần tự theo lô) nhưng KHÔNG bỏ sót — mọi thư mục đều được tính,
+// chỉ là tới lượt. Đặt ở module scope: áp dụng chung dù có nhiều MinioBrowser.
+const MAX_CONCURRENT_PROGRESS = 10;
+let runningProgress = 0;
+const progressQueue = [];
+function scheduleProgress(task) {
+  progressQueue.push(task);
+  pumpProgressQueue();
+}
+function pumpProgressQueue() {
+  while (runningProgress < MAX_CONCURRENT_PROGRESS && progressQueue.length) {
+    const task = progressQueue.shift();
+    runningProgress++;
+    task().finally(() => { runningProgress--; pumpProgressQueue(); });
+  }
+}
+
 // Duyệt 1 cấp kho MinIO nguồn + chọn file lẻ (đồng bộ) hoặc nhập cả thư mục
 // (nền, qua worker-queue) — dense list theo PLAN_.md §Chuẩn UI dense.
 export default function MinioBrowser({ sourceId, branch, batchId, onImported }) {
@@ -31,6 +50,8 @@ export default function MinioBrowser({ sourceId, branch, batchId, onImported }) 
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState({}); // "sourceId:prefix" → {total,imported,capped} | null (lỗi)
   const requestedRef = useRef(new Set()); // tránh gọi lại tiến độ 1 thư mục nhiều lần
+  const aliveRef = useRef(true); // né setState sau khi unmount (task còn xếp hàng/đang chạy)
+  useEffect(() => () => { aliveRef.current = false; }, []);
 
   async function load(p, token) {
     if (!token) { setLoading(true); setError(""); } else { setLoadingMore(true); }
@@ -53,16 +74,18 @@ export default function MinioBrowser({ sourceId, branch, batchId, onImported }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceId, prefix]);
 
-  // Tiến độ import (x/y) từng thư mục con — lười tải theo trang đang xem, cache
-  // theo session (không tải lại khi quay về thư mục đã xem).
+  // Tiến độ import (x/y) từng thư mục con — lười tải theo trang đang xem, xếp
+  // hàng giới hạn đồng thời (scheduleProgress) thay vì bắn hết cùng lúc. Cache
+  // server-side theo source+prefix (dùng chung mọi phiên/tài khoản) nên quay
+  // lại thư mục đã xem hoặc người khác xem không phải đếm lại từ đầu.
   useEffect(() => {
     folders.forEach((f) => {
       const k = `${sourceId}:${f}`;
       if (requestedRef.current.has(k)) return;
       requestedRef.current.add(k);
-      browseFolderProgress(sourceId, f)
-        .then((d) => setProgress((prev) => ({ ...prev, [k]: d })))
-        .catch(() => setProgress((prev) => ({ ...prev, [k]: null })));
+      scheduleProgress(() => browseFolderProgress(sourceId, f)
+        .then((d) => { if (aliveRef.current) setProgress((prev) => ({ ...prev, [k]: d })); })
+        .catch(() => { if (aliveRef.current) setProgress((prev) => ({ ...prev, [k]: null })); }));
     });
   }, [folders, sourceId]);
 

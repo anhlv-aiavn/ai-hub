@@ -20,6 +20,7 @@ COLL_AUDIT = "audit_log"
 COLL_IMPORT_JOB = "import_jobs"
 COLL_ACCESS_LOG = "access_log"
 COLL_EXPORT_JOB = "export_jobs"
+COLL_BROWSE_PROGRESS = "browse_progress_cache"
 
 # Hậu kiểm: TTL soft-lock (giữ chỗ khi đang sửa, tránh 2 người ghi đè nhau).
 REVIEW_LOCK_TTL = int(os.getenv("AIHUB_REVIEW_LOCK_TTL", "300"))
@@ -58,6 +59,11 @@ PAGE_RENDER_MAX_W = int(os.getenv("PAGE_RENDER_MAX_W", "2200"))
 # Duyệt đệ quy để đếm x/y — giới hạn số file đếm để không treo UI với cây quá
 # lớn; vượt ngưỡng thì trả capped=true, FE hiện "≥ N" thay vì số đếm chính xác.
 BROWSE_PROGRESS_CAP = int(os.getenv("AIHUB_BROWSE_PROGRESS_CAP", "2000"))
+# Cache phần ĐẮT (liệt kê đệ quy MinIO ra danh sách key) theo source+prefix, dùng
+# chung cho MỌI người/phiên xem — phần "đã import bao nhiêu" luôn đếm lại tươi
+# (rẻ, 1 query) nên số hóa xong là thấy đúng ngay, không cần invalidate cache.
+# TTL để tự làm mới nếu nội dung kho nguồn đổi ngoài luồng của hệ thống.
+BROWSE_PROGRESS_CACHE_TTL = int(os.getenv("AIHUB_BROWSE_PROGRESS_CACHE_TTL", str(3600)))
 
 # ── SSE gộp mức lô (quy mô lớn) ──────────────────────────────────────────────
 # Lô có file_count vượt ngưỡng này → publish per-doc (processing/done, KHÔNG

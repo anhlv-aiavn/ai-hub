@@ -12,7 +12,7 @@ from app import config
 from app.audit import AuditAction, log_action
 from app.batch_counters import bump, init_counts
 from app.branches import is_valid_branch
-from app.db import batches, gcns, import_jobs, s3_connections
+from app.db import batches, browse_progress_cache, gcns, import_jobs, s3_connections
 from app.deps import is_admin, require_operator
 from app.s3_util import async_head_object, async_list_folder, build_client
 
@@ -47,15 +47,10 @@ async def browse_folder(source_id: str, prefix: str = "", token: str | None = No
     return {"prefix": prefix, "folders": folders, "files": files, "next_token": next_token}
 
 
-@router.get("/{source_id}/progress")
-async def folder_progress(source_id: str, prefix: str = ""):
-    """Tiến độ import (x/y) của 1 thư mục — duyệt đệ quy toàn bộ file bên dưới,
-    giới hạn an toàn `BROWSE_PROGRESS_CAP` (thư mục cực lớn → capped=true, FE
-    hiện "≥ N" thay vì số đếm chính xác thay vì treo UI chờ liệt kê hết)."""
-    conn = await s3_connections().find_one({"_id": source_id, "role": "source"})
-    if not conn:
-        raise HTTPException(status_code=404, detail="Không tìm thấy nguồn")
-    client = build_client(conn)
+async def _list_recursive_capped(client, bucket: str, prefix: str) -> tuple[list[str], bool]:
+    """Duyệt đệ quy TOÀN BỘ file dưới 1 prefix, dừng khi chạm `BROWSE_PROGRESS_CAP`
+    (không chỉ giới hạn số file mà còn tránh cây quá RỘNG khiến tốn hàng trăm lần
+    gọi S3 liệt kê tuần tự — mỗi lần đó lại mở 1 session mới, khá đắt)."""
     keys: list[str] = []
     capped = False
     stack = [prefix]
@@ -63,7 +58,7 @@ async def folder_progress(source_id: str, prefix: str = ""):
         p = stack.pop()
         token = None
         while True:
-            folders, files, token = await async_list_folder(client, conn["bucket"], p, token)
+            folders, files, token = await async_list_folder(client, bucket, p, token)
             stack.extend(folders)
             keys.extend(f["key"] for f in files)
             if len(keys) >= config.BROWSE_PROGRESS_CAP:
@@ -71,6 +66,43 @@ async def folder_progress(source_id: str, prefix: str = ""):
                 break
             if not token:
                 break
+    return keys, capped
+
+
+@router.get("/{source_id}/progress")
+async def folder_progress(source_id: str, prefix: str = ""):
+    """Tiến độ import (x/y) của 1 thư mục.
+
+    Phần ĐẮT (liệt kê đệ quy MinIO ra danh sách key) được cache theo
+    source+prefix, DÙNG CHUNG cho mọi người/phiên xem (kể cả tài khoản khác) —
+    xem lại không phải đếm từ đầu. Phần "đã import bao nhiêu" KHÔNG cache, luôn
+    đếm lại (rẻ — 1 `count_documents`) nên số hóa xong là thấy đúng ngay lập
+    tức, khỏi cần cơ chế invalidate riêng: nội dung kho nguồn bất biến trong
+    lúc dùng (§ bất biến 1, không copy/ghi/xóa ở nguồn), chỉ có SỐ ĐÃ IMPORT đổi
+    theo thời gian — nên cache đúng phần không đổi, luôn tính tươi phần hay đổi.
+    Cache hết hạn theo TTL (Mongo tự dọn, xem `BROWSE_PROGRESS_CACHE_TTL`) —
+    phòng khi nội dung kho nguồn đổi ngoài luồng hệ thống.
+    """
+    conn = await s3_connections().find_one({"_id": source_id, "role": "source"})
+    if not conn:
+        raise HTTPException(status_code=404, detail="Không tìm thấy nguồn")
+
+    cache_id = f"{source_id}::{prefix}"
+    cached = await browse_progress_cache().find_one({"_id": cache_id})
+    if cached:
+        keys, capped = cached["keys"], cached["capped"]
+    else:
+        client = build_client(conn)
+        keys, capped = await _list_recursive_capped(client, conn["bucket"], prefix)
+        await browse_progress_cache().update_one(
+            {"_id": cache_id},
+            {"$set": {
+                "source_connection_id": source_id, "prefix": prefix,
+                "keys": keys, "capped": capped, "computed_at": datetime.now(timezone.utc),
+            }},
+            upsert=True,
+        )
+
     total = len(keys)
     imported = 0
     if keys:

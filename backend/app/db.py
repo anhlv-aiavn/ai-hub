@@ -46,6 +46,10 @@ def export_jobs():
     return get_db()[config.COLL_EXPORT_JOB]
 
 
+def browse_progress_cache():
+    return get_db()[config.COLL_BROWSE_PROGRESS]
+
+
 async def ensure_indexes() -> None:
     await gcns().create_index("batch_id")
     await gcns().create_index("group_key")
@@ -69,3 +73,8 @@ async def ensure_indexes() -> None:
     await import_jobs().create_index("started_at")
     await export_jobs().create_index("status")
     await gcns().create_index([("branch", 1), ("created_at", -1)])
+    # TTL: Mongo tự xóa cache tiến độ MinIO đã hết hạn — không cần dọn tay/kiểm
+    # tra tuổi bằng Python (xem app.config.BROWSE_PROGRESS_CACHE_TTL).
+    await browse_progress_cache().create_index(
+        "computed_at", expireAfterSeconds=config.BROWSE_PROGRESS_CACHE_TTL,
+    )
