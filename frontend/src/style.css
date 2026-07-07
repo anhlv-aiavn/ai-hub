@@ -1155,6 +1155,15 @@ span.fr-check { visibility: hidden; }  /* folder row: giữ chỗ, không hiện
 }
 .fr-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fr-meta { flex: none; color: var(--text-3); font-size: 12px; white-space: nowrap; }
+
+/* Badge "đã xử lý" khi duyệt kho MinIO nguồn (§ đánh dấu tiến độ) */
+.mb-imported { flex: none; display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px;
+  background: #d1fae5; color: #065f46; white-space: nowrap; }
+.mb-progress { flex: none; display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mb-progress.done { color: var(--ok); font-weight: 600; }
+.mb-progress-loading { font-style: italic; }
 label.file-row { width: 100%; }
 
 .minio-browser { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }

@@ -54,6 +54,11 @@ LOGIN_LOCK_SECONDS = int(os.getenv("AIHUB_LOGIN_LOCK_SECONDS", "300"))
 # ── Đối soát: DPI/scale render ảnh trang ────────────────────────────────────
 PAGE_RENDER_MAX_W = int(os.getenv("PAGE_RENDER_MAX_W", "2200"))
 
+# ── Duyệt kho MinIO: đếm tiến độ import theo thư mục (§ badge "đã xử lý") ────
+# Duyệt đệ quy để đếm x/y — giới hạn số file đếm để không treo UI với cây quá
+# lớn; vượt ngưỡng thì trả capped=true, FE hiện "≥ N" thay vì số đếm chính xác.
+BROWSE_PROGRESS_CAP = int(os.getenv("AIHUB_BROWSE_PROGRESS_CAP", "2000"))
+
 # ── SSE gộp mức lô (quy mô lớn) ──────────────────────────────────────────────
 # Lô có file_count vượt ngưỡng này → publish per-doc (processing/done, KHÔNG
 # phải error) bị bỏ, chỉ event "batch" gộp (throttle theo SSE_MIN_INTERVAL) là

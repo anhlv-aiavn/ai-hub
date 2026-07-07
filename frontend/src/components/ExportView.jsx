@@ -177,6 +177,7 @@ export default function ExportView({ user }) {
   const [job, setJob] = useState(null); // {job_id, status, row_count, error}
   const pollRef = useRef(null);
   const refreshRef = useRef(() => {});
+  const reviewerDaysMounted = useRef(false); // né gọi getStats trùng lúc mount (đã có refresh() lo)
 
   function openPreview(p) { setPvPage(1); setPreview(p); }
 
@@ -205,8 +206,13 @@ export default function ExportView({ user }) {
   useEffect(() => { refreshRef.current = refresh; });
 
   // Đổi khoảng thời gian bảng "Theo người hậu kiểm" → chỉ gọi lại stats (nhẹ),
-  // không đụng tới trang/bộ lọc của bảng dòng phẳng bên dưới.
-  useEffect(() => { refreshStats(); /* eslint-disable-next-line */ }, [reviewerDays]);
+  // không đụng tới trang/bộ lọc của bảng dòng phẳng bên dưới. Bỏ qua lần đầu vì
+  // effect [batchId, branch, review] bên dưới đã gọi refresh() (kèm stats) lúc mount.
+  useEffect(() => {
+    if (!reviewerDaysMounted.current) { reviewerDaysMounted.current = true; return; }
+    refreshStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewerDays]);
 
   useEffect(() => {
     listBatches().then((d) => setBatches(d.batches || [])).catch(() => {});

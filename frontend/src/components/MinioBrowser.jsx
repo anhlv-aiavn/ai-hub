@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
-import { browseMinio, importFromMinio } from "../api.js";
+import { browseMinio, browseFolderProgress, importFromMinio } from "../api.js";
 import { toastErr, toastOk } from "../toast.js";
 
 function fmtSize(n) {
@@ -29,6 +29,8 @@ export default function MinioBrowser({ sourceId, branch, batchId, onImported }) 
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState(() => new Set());
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState({}); // "sourceId:prefix" → {total,imported,capped} | null (lỗi)
+  const requestedRef = useRef(new Set()); // tránh gọi lại tiến độ 1 thư mục nhiều lần
 
   async function load(p, token) {
     if (!token) { setLoading(true); setError(""); } else { setLoadingMore(true); }
@@ -50,6 +52,19 @@ export default function MinioBrowser({ sourceId, branch, batchId, onImported }) 
     load(prefix, null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceId, prefix]);
+
+  // Tiến độ import (x/y) từng thư mục con — lười tải theo trang đang xem, cache
+  // theo session (không tải lại khi quay về thư mục đã xem).
+  useEffect(() => {
+    folders.forEach((f) => {
+      const k = `${sourceId}:${f}`;
+      if (requestedRef.current.has(k)) return;
+      requestedRef.current.add(k);
+      browseFolderProgress(sourceId, f)
+        .then((d) => setProgress((prev) => ({ ...prev, [k]: d })))
+        .catch(() => setProgress((prev) => ({ ...prev, [k]: null })));
+    });
+  }, [folders, sourceId]);
 
   const crumbs = useMemo(() => {
     const parts = prefix.split("/").filter(Boolean);
@@ -149,15 +164,26 @@ export default function MinioBrowser({ sourceId, branch, batchId, onImported }) 
           </div>
         )}
 
-        {!loading && !error && visFolders.map((f) => (
-          <div key={f} className="file-row is-folder" role="button" tabIndex={0}
-            onClick={() => setPrefix(f)} onKeyDown={(e) => { if (e.key === "Enter") setPrefix(f); }}>
-            <span className="fr-check" />
-            <Icon name="folder" size={16} className="fr-ico folder" />
-            <span className="fr-name">{folderName(f)}</span>
-            <span className="fr-meta" />
-          </div>
-        ))}
+        {!loading && !error && visFolders.map((f) => {
+          const prog = progress[`${sourceId}:${f}`];
+          const done = prog && prog.total > 0 && prog.imported >= prog.total;
+          return (
+            <div key={f} className="file-row is-folder" role="button" tabIndex={0}
+              onClick={() => setPrefix(f)} onKeyDown={(e) => { if (e.key === "Enter") setPrefix(f); }}>
+              <span className="fr-check" />
+              <Icon name="folder" size={16} className="fr-ico folder" />
+              <span className="fr-name">{folderName(f)}</span>
+              {prog === undefined && <span className="mb-progress mb-progress-loading">đang đếm…</span>}
+              {prog && (
+                <span className={`mb-progress ${done ? "done" : ""}`}
+                  title="Số file trong thư mục đã từng import / tổng số file">
+                  {done && <Icon name="checkCircle" size={12} />}
+                  {prog.imported}{prog.capped ? "+" : ""}/{prog.total}{prog.capped ? "+" : ""} đã nhập
+                </span>
+              )}
+            </div>
+          );
+        })}
 
         {!loading && !error && visFiles.map((f) => (
           <label key={f.key} className={`file-row ${selected.has(f.key) ? "sel" : ""}`}>
@@ -165,6 +191,11 @@ export default function MinioBrowser({ sourceId, branch, batchId, onImported }) 
               onChange={() => toggle(f.key)} />
             <span className="fr-chip">PDF</span>
             <span className="fr-name" title={f.name}>{f.name}</span>
+            {f.imported && (
+              <span className="mb-imported" title="Đã từng import vào hệ thống">
+                <Icon name="checkCircle" size={12} /> Đã nhập
+              </span>
+            )}
             <span className="fr-meta">{fmtSize(f.size)} · {fmtDate(f.last_modified)}</span>
           </label>
         ))}

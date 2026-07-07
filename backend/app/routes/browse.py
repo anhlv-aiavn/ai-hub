@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from pymongo.errors import DuplicateKeyError
 
+from app import config
 from app.audit import AuditAction, log_action
 from app.batch_counters import bump, init_counts
 from app.branches import is_valid_branch
@@ -33,7 +34,50 @@ async def browse_folder(source_id: str, prefix: str = "", token: str | None = No
         raise HTTPException(status_code=404, detail="Không tìm thấy nguồn")
     client = build_client(conn)
     folders, files, next_token = await async_list_folder(client, conn["bucket"], prefix, token)
+    # Đánh dấu file đã từng import (BẤT KỂ lô nào — chỉ để hiển thị badge, không
+    # đụng tới logic chống trùng lúc import vốn đang khoanh theo batch_id).
+    if files:
+        cursor = gcns().find(
+            {"source_connection_id": source_id, "s3_key": {"$in": [f["key"] for f in files]}},
+            {"s3_key": 1},
+        )
+        imported_keys = {d["s3_key"] async for d in cursor}
+        for f in files:
+            f["imported"] = f["key"] in imported_keys
     return {"prefix": prefix, "folders": folders, "files": files, "next_token": next_token}
+
+
+@router.get("/{source_id}/progress")
+async def folder_progress(source_id: str, prefix: str = ""):
+    """Tiến độ import (x/y) của 1 thư mục — duyệt đệ quy toàn bộ file bên dưới,
+    giới hạn an toàn `BROWSE_PROGRESS_CAP` (thư mục cực lớn → capped=true, FE
+    hiện "≥ N" thay vì số đếm chính xác thay vì treo UI chờ liệt kê hết)."""
+    conn = await s3_connections().find_one({"_id": source_id, "role": "source"})
+    if not conn:
+        raise HTTPException(status_code=404, detail="Không tìm thấy nguồn")
+    client = build_client(conn)
+    keys: list[str] = []
+    capped = False
+    stack = [prefix]
+    while stack and not capped:
+        p = stack.pop()
+        token = None
+        while True:
+            folders, files, token = await async_list_folder(client, conn["bucket"], p, token)
+            stack.extend(folders)
+            keys.extend(f["key"] for f in files)
+            if len(keys) >= config.BROWSE_PROGRESS_CAP:
+                capped = True
+                break
+            if not token:
+                break
+    total = len(keys)
+    imported = 0
+    if keys:
+        imported = await gcns().count_documents({
+            "source_connection_id": source_id, "s3_key": {"$in": keys},
+        })
+    return {"total": total, "imported": imported, "capped": capped}
 
 
 class ImportIn(BaseModel):

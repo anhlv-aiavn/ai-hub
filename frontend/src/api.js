@@ -125,6 +125,13 @@ export async function importFromMinio(sourceId, body) {
     body: JSON.stringify(body),
   }));
 }
+// Tiến độ import (x/y) của 1 thư mục — duyệt đệ quy phía server, có giới hạn an toàn.
+export async function browseFolderProgress(sourceId, prefix = "") {
+  const p = new URLSearchParams();
+  if (prefix) p.set("prefix", prefix);
+  return handle(await fetch(`/v1/browse/${encodeURIComponent(sourceId)}/progress?${p.toString()}`,
+    { headers: headers() }));
+}
 
 // ── Audit log (admin) ───────────────────────────────────────────────────────
 export async function getAuditLog({ action, actor, target, from, to, limit = 50, beforeId } = {}) {

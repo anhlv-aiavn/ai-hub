@@ -105,7 +105,7 @@ export default function Reconcile({ gcnId, onBack }) {
     if (!haveLock || lockError || busy) return;
     const cur = JSON.stringify({ overrides, deleted, name });
     if (cur === savedSnapshotRef.current) return;
-    const t = setTimeout(() => { save(undefined, { silent: true }); }, AUTOSAVE_MS);
+    const t = setTimeout(() => { save(undefined, { auto: true }); }, AUTOSAVE_MS);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overrides, deleted, name, haveLock, lockError, busy]);
@@ -126,7 +126,7 @@ export default function Reconcile({ gcnId, onBack }) {
     try { applyDoc(await getGcn(gcnId)); } catch { /* giữ bản cũ nếu tải lại cũng lỗi */ }
   }
 
-  async function save(status, { silent } = {}) {
+  async function save(status, { auto } = {}) {
     setBusy(status || "save");
     try {
       const res = await putReview(gcnId, {
@@ -140,10 +140,11 @@ export default function Reconcile({ gcnId, onBack }) {
       // cùng phiên vẫn gửi version cũ → server từ chối nhầm dù chính mình vừa lưu.
       setDoc((prev) => (prev ? { ...prev, review: res.review } : prev));
       savedSnapshotRef.current = JSON.stringify({ overrides, deleted, name });
-      if (!silent) {
-        toastOk(status === "reviewed" ? "Đã duyệt"
-          : status === "needs_review" ? "Đã đánh dấu không duyệt" : "Đã lưu");
-      }
+      // Autosave vẫn báo (chỉ đổi message) — trước đây im lặng hoàn toàn khiến
+      // người dùng không biết nội dung có được lưu hay chưa khi rời ô nhập.
+      toastOk(auto ? "Đã tự động lưu"
+        : status === "reviewed" ? "Đã duyệt"
+        : status === "needs_review" ? "Đã đánh dấu không duyệt" : "Đã lưu");
     } catch (e) {
       if (e.status === 409) await reloadAfterConflict();
       else toastErr(e.message || e);
