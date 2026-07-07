@@ -10,7 +10,7 @@ import { subscribeEvents } from "../events.js";
 import { toastOk, toastErr } from "../toast.js";
 
 const ROWS_PAGE_SIZE = 50;
-const REVIEW = { "": "Mọi hậu kiểm", reviewed: "Đã duyệt", needs_review: "Cần xem", unreviewed: "Chưa kiểm" };
+const REVIEW = { "": "Mọi hậu kiểm", reviewed: "Đã duyệt", needs_review: "Không duyệt", unreviewed: "Chưa kiểm" };
 const FILE_COLS = new Set(["Tệp gốc", "Tệp cắt"]);
 
 const STATUS_SEGS = [
@@ -22,7 +22,7 @@ const STATUS_SEGS = [
 ];
 const REVIEW_SEGS = [
   { key: "reviewed", label: "Đã duyệt", cls: "ok" },
-  { key: "needs_review", label: "Cần xem", cls: "warn" },
+  { key: "needs_review", label: "Không duyệt", cls: "danger" },
   { key: "unreviewed", label: "Chưa kiểm", cls: "muted" },
 ];
 
@@ -99,6 +99,35 @@ function BranchTable({ rows }) {
                 </tr>
               );
             })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ReviewerTable({ rows }) {
+  if (!rows.length) return null;
+  const ranked = [...rows].sort((a, b) => (b.reviewed - a.reviewed) || (b.rejected - a.rejected));
+
+  return (
+    <div className="branch-stats">
+      <div className="seg-title">Theo người hậu kiểm · xếp hạng theo số đã duyệt</div>
+      <div className="et-scroll bt-scroll">
+        <table className="et-grid">
+          <thead>
+            <tr><th>#</th><th>Người hậu kiểm</th><th>Đã duyệt</th><th>Không duyệt</th><th>Tổng</th></tr>
+          </thead>
+          <tbody>
+            {ranked.map((r, i) => (
+              <tr key={r.reviewer || `__${i}`}>
+                <td className="bt-rank">{i + 1}</td>
+                <td className="bt-name">{r.reviewer}</td>
+                <td>{fmt(r.reviewed)}</td>
+                <td>{fmt(r.rejected)}</td>
+                <td>{fmt(r.reviewed + r.rejected)}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -236,6 +265,7 @@ export default function ExportView({ user }) {
       </div>
 
       {isAdmin && <BranchTable rows={s.by_branch || []} />}
+      {isAdmin && <ReviewerTable rows={s.by_reviewer || []} />}
 
       <div className="export-sec">
         <div className="export-head">

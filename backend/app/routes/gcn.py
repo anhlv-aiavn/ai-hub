@@ -3,6 +3,7 @@
 import csv
 import io
 import json
+import re
 import zipfile
 from datetime import datetime, timedelta, timezone
 
@@ -45,7 +46,9 @@ async def list_gcn(
     branch: str | None = None,
     status: str | None = None,
     review: str | None = None,
-    q: str | None = Query(default=None, description="Tìm theo Số phát hành / tên tệp"),
+    q: str | None = Query(default=None, description=(
+        "Tìm theo Số phát hành, Số tờ, Số thửa, Số vào sổ, tên tệp/tên hồ sơ, "
+        "tên file GCN (cắt) hoặc Chủ sử dụng")),
     page: int = 1,
     page_size: int = 50,
     user: dict = Depends(current_user),
@@ -65,10 +68,22 @@ async def list_gcn(
     if review:
         flt["review.status"] = review
     if q:
+        # re.escape: q là chuỗi người dùng gõ tự do, không phải regex họ tự viết —
+        # escape để ký tự đặc biệt (. * ( ) ...) được hiểu là literal, tránh khớp
+        # sai/lỗi cú pháp regex.
+        qr = re.escape(q.strip())
+        # Mongo tự động dò vào từng phần tử của mảng (kể cả mảng lồng trong mảng
+        # con của `gcn_rows`), nên không cần $elemMatch cho các field dạng list.
         flt["$or"] = [
-            {"extracted_so_phat_hanhs": {"$regex": q, "$options": "i"}},
-            {"group_key": {"$regex": q, "$options": "i"}},
-            {"filename": {"$regex": q, "$options": "i"}},
+            {"extracted_so_phat_hanhs": {"$regex": qr, "$options": "i"}},  # Số phát hành
+            {"filename": {"$regex": qr, "$options": "i"}},  # tên tệp gốc
+            {"review.display_name": {"$regex": qr, "$options": "i"}},  # tên hồ sơ đã đổi
+            {"cuts.name": {"$regex": qr, "$options": "i"}},  # tên file GCN đã cắt
+            {"gcn_rows.so_phat_hanh": {"$regex": qr, "$options": "i"}},
+            {"gcn_rows.so_vao_so": {"$regex": qr, "$options": "i"}},
+            {"gcn_rows.to_ban_do": {"$regex": qr, "$options": "i"}},  # Số tờ
+            {"gcn_rows.so_thua": {"$regex": qr, "$options": "i"}},  # Số thửa
+            {"gcn_rows.chu_su_dung": {"$regex": qr, "$options": "i"}},
         ]
 
     page = max(1, page)
@@ -78,13 +93,16 @@ async def list_gcn(
         {"$facet": {
             "data": [
                 {"$addFields": {
+                    # Bản ghi CHƯA hậu kiểm xong (unreviewed/needs_review) lên đầu —
+                    # để không phải chuyển trang mới tìm ra việc cần làm.
+                    "_rev_rank": {"$cond": [{"$eq": ["$review.status", "reviewed"]}, 1, 0]},
                     "_gk_null": {"$eq": ["$group_key", None]},
                     "_gk": {"$ifNull": ["$group_key", ""]},
                 }},
-                {"$sort": {"_gk_null": 1, "_gk": 1, "created_at": 1}},
+                {"$sort": {"_rev_rank": 1, "_gk_null": 1, "_gk": 1, "created_at": 1}},
                 {"$skip": (page - 1) * page_size},
                 {"$limit": page_size},
-                {"$project": {**_TABLE_PROJ, "_gk_null": 0, "_gk": 0}},
+                {"$project": {**_TABLE_PROJ, "_rev_rank": 0, "_gk_null": 0, "_gk": 0}},
             ],
             "count": [{"$count": "n"}],
         }},
@@ -195,6 +213,18 @@ async def stats(batch_id: str | None = None, branch: str | None = None,
             "missing_sph": [{"$match": {"status": "done", "group_key": None}}, {"$count": "n"}],
             "unreviewed_done": [
                 {"$match": {"status": "done", "review.status": "unreviewed"}}, {"$count": "n"}],
+            # Theo người hậu kiểm (§ thống kê cho quản lý) — reviewer chỉ được server
+            # gán khi có hành động Duyệt/Không duyệt (xem put_review), nên số liệu ở
+            # đây phản ánh trạng thái HIỆN TẠI của từng hồ sơ là do ai đặt gần nhất.
+            "by_reviewer": [
+                {"$match": {"review.reviewer": {"$ne": None}}},
+                {"$group": {
+                    "_id": "$review.reviewer",
+                    "reviewed": {"$sum": {"$cond": [{"$eq": ["$review.status", "reviewed"]}, 1, 0]}},
+                    "rejected": {"$sum": {"$cond": [{"$eq": ["$review.status", "needs_review"]}, 1, 0]}},
+                }},
+                {"$sort": {"reviewed": -1}},
+            ],
         }},
     ]
     agg = await gcns().aggregate(pipeline).to_list(length=1)
@@ -212,6 +242,10 @@ async def stats(batch_id: str | None = None, branch: str | None = None,
          "done": r.get("done", 0), "reviewed": r.get("reviewed", 0)}
         for r in (f.get("by_branch") or [])
     ]
+    by_reviewer = [
+        {"reviewer": r.get("_id"), "reviewed": r.get("reviewed", 0), "rejected": r.get("rejected", 0)}
+        for r in (f.get("by_reviewer") or [])
+    ]
     return {
         "files": totals.get("files", 0),
         "gcns": totals.get("gcns", 0),
@@ -219,6 +253,7 @@ async def stats(batch_id: str | None = None, branch: str | None = None,
         "by_status": _kv(f.get("by_status")),
         "by_review": _kv(f.get("by_review")),
         "by_branch": by_branch,
+        "by_reviewer": by_reviewer,
         "missing_sph": _one(f.get("missing_sph")),
         "unreviewed_done": _one(f.get("unreviewed_done")),
     }
@@ -422,7 +457,10 @@ async def put_review(gcn_id: str, body: ReviewIn, user: dict = Depends(require_o
         review["deleted"] = sorted({int(i) for i in body.deleted})
     if body.status is not None:
         review["status"] = body.status
-    if body.reviewer is not None:
+        # Người BẤM Duyệt/Không duyệt mới là reviewer — lấy từ user đã xác thực
+        # (server-trusted), không tin `body.reviewer` cho hành động này (tránh giả mạo).
+        review["reviewer"] = user["username"]
+    elif body.reviewer is not None:
         review["reviewer"] = body.reviewer
     review["at"] = datetime.now(timezone.utc)
     review["version"] = current_version + 1
@@ -516,6 +554,11 @@ def _expand(doc: dict) -> list[dict]:
     """1 doc (1 file) → NHIỀU dòng nếu file chứa nhiều GCN (theo gcn_rows worker lưu).
     Chưa xong / không có GCN → 1 dòng cấp file."""
     rev = doc.get("review") or {}
+    lock = rev.get("lock") or {}
+    lock_exp = lock.get("expires_at")
+    # Khóa đã hết hạn (TTL) coi như không còn ai giữ — không hiện "đang được X hậu
+    # kiểm" nhầm cho bản ghi thực ra đã rảnh (tránh chặn nhầm ở bảng danh sách).
+    locked_by = lock.get("by") if lock_exp and lock_exp > datetime.now(timezone.utc) else None
     base = {
         "gcn_id": doc["_id"],
         "batch_id": doc.get("batch_id"),
@@ -523,6 +566,7 @@ def _expand(doc: dict) -> list[dict]:
         "display_name": rev.get("display_name"),
         "status": doc.get("status"),
         "review_status": rev.get("status", "unreviewed"),
+        "locked_by": locked_by,
         "error": doc.get("error"),
         "created_at": doc.get("created_at"),
         "dup_suspect": bool(doc.get("dup_suspect")),

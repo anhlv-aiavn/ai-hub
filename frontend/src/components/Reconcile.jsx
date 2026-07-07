@@ -9,6 +9,7 @@ import {
 import { toastOk, toastErr } from "../toast.js";
 
 const HEARTBEAT_MS = 90_000; // TTL khóa 300s ở server — bump giữa chừng cho an toàn
+const AUTOSAVE_MS = 4_000; // debounce sau khi ngừng sửa — tránh mất việc nếu quên bấm Lưu
 
 // Thứ tự cột ưu tiên khi hậu kiểm (các trường quan trọng lên trước, còn lại giữ sau).
 const CHU_COLS = ["Loại đối tượng", "Tên chủ", "Loại giấy tờ", "Số giấy tờ", "Địa chỉ"];
@@ -45,6 +46,7 @@ export default function Reconcile({ gcnId, onBack }) {
   const [haveLock, setHaveLock] = useState(false); // true nếu CHÍNH mình giữ khóa (được sửa)
   const [lockError, setLockError] = useState(false); // không xác định được trạng thái khóa (lỗi mạng/server) — fail-safe: coi như KHÔNG sửa được, không fail-open
   const haveLockRef = useRef(false); // cùng giá trị haveLock nhưng đọc "live" trong cleanup (tránh stale closure)
+  const savedSnapshotRef = useRef(""); // {overrides,deleted,name} đã lưu gần nhất — so sánh để biết còn gì chưa lưu
 
   function applyDoc(d) {
     const ov = (d.review && d.review.overrides) || {};
@@ -53,11 +55,14 @@ export default function Reconcile({ gcnId, onBack }) {
     for (const [path, val] of Object.entries(ov)) {
       try { setAt(w, path, val); } catch { /* path lệch → bỏ qua */ }
     }
+    const dl = (d.review && d.review.deleted) || [];
+    const nm = (d.review && d.review.display_name) || "";
     setDoc(d);
     setWork(w);
     setOverrides(ov);
-    setDeleted((d.review && d.review.deleted) || []);
-    setName((d.review && d.review.display_name) || "");  // để trống → tên tệp tự theo SPH
+    setDeleted(dl);
+    setName(nm);  // để trống → tên tệp tự theo SPH
+    savedSnapshotRef.current = JSON.stringify({ overrides: ov, deleted: dl, name: nm });
   }
 
   useEffect(() => { haveLockRef.current = haveLock; }, [haveLock]);
@@ -94,6 +99,17 @@ export default function Reconcile({ gcnId, onBack }) {
     return () => clearInterval(id);
   }, [haveLock, gcnId]);
 
+  // Autosave: debounce sau khi ngừng sửa — không đợi người dùng nhớ bấm Lưu, chỉ
+  // lưu overrides/tên (KHÔNG đổi review.status, giống "Lưu" thủ công).
+  useEffect(() => {
+    if (!haveLock || lockError || busy) return;
+    const cur = JSON.stringify({ overrides, deleted, name });
+    if (cur === savedSnapshotRef.current) return;
+    const t = setTimeout(() => { save(undefined, { silent: true }); }, AUTOSAVE_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overrides, deleted, name, haveLock, lockError, busy]);
+
   function onLeaf(path, val) {
     setWork((prev) => {
       const clone = structuredClone(prev);
@@ -110,7 +126,7 @@ export default function Reconcile({ gcnId, onBack }) {
     try { applyDoc(await getGcn(gcnId)); } catch { /* giữ bản cũ nếu tải lại cũng lỗi */ }
   }
 
-  async function save(status) {
+  async function save(status, { silent } = {}) {
     setBusy(status || "save");
     try {
       const res = await putReview(gcnId, {
@@ -123,7 +139,11 @@ export default function Reconcile({ gcnId, onBack }) {
       // Cập nhật version cục bộ ngay — thiếu bước này thì lần LƯU KẾ TIẾP trong
       // cùng phiên vẫn gửi version cũ → server từ chối nhầm dù chính mình vừa lưu.
       setDoc((prev) => (prev ? { ...prev, review: res.review } : prev));
-      toastOk(status === "reviewed" ? "Đã duyệt" : "Đã lưu");
+      savedSnapshotRef.current = JSON.stringify({ overrides, deleted, name });
+      if (!silent) {
+        toastOk(status === "reviewed" ? "Đã duyệt"
+          : status === "needs_review" ? "Đã đánh dấu không duyệt" : "Đã lưu");
+      }
     } catch (e) {
       if (e.status === 409) await reloadAfterConflict();
       else toastErr(e.message || e);
@@ -141,6 +161,7 @@ export default function Reconcile({ gcnId, onBack }) {
       });
       setDeleted(nd);
       setDoc((prev) => (prev ? { ...prev, review: res.review } : prev));
+      savedSnapshotRef.current = JSON.stringify({ overrides, deleted: nd, name });
       toastOk("Đã xoá giấy chứng nhận");
     } catch (e) {
       if (e.status === 409) await reloadAfterConflict();
@@ -210,6 +231,10 @@ export default function Reconcile({ gcnId, onBack }) {
           <>
             <button className="ghost sm" disabled={busy} onClick={() => save()}>
               {busy === "save" ? "…" : "Lưu"}
+            </button>
+            <button className="ghost sm danger" disabled={busy} onClick={() => save("needs_review")}
+              title="Lưu và đánh dấu hồ sơ này KHÔNG đạt — cần người khác xử lý lại">
+              <Icon name="ban" size={14} /> Không duyệt
             </button>
             <button className="ghost sm" disabled={busy} onClick={() => save("reviewed")}>
               <Icon name="check" size={14} /> Duyệt

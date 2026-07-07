@@ -36,11 +36,25 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [branding, setBranding] = useState(FALLBACK_BRANDING);
 
-  useEffect(() => {
+  function refreshBranding() {
     getBranding().then((b) => {
       if (b && (b.org_name || b.logo_url || b.copyright_text)) setBranding({ ...FALLBACK_BRANDING, ...b });
     }).catch(() => {});
-  }, []);
+  }
+
+  useEffect(refreshBranding, []);
+
+  // Đồng bộ favicon của tab trình duyệt với logo hiện tại.
+  useEffect(() => {
+    if (!branding.logo_url) return;
+    let link = document.querySelector("link[rel~='icon']");
+    if (!link) {
+      link = document.createElement("link");
+      link.rel = "icon";
+      document.head.appendChild(link);
+    }
+    link.href = branding.logo_url;
+  }, [branding.logo_url]);
 
   // Khôi phục phiên từ token.
   useEffect(() => {
@@ -91,7 +105,9 @@ export default function App() {
 
       <main>
         {showUsers && isAdmin && <Users me={user} onClose={() => setShowUsers(false)} />}
-        {showSettings && isAdmin && <AdminSettings onClose={() => setShowSettings(false)} />}
+        {showSettings && isAdmin && (
+          <AdminSettings onClose={() => { setShowSettings(false); refreshBranding(); }} />
+        )}
         {openGcn ? (
           <Reconcile gcnId={openGcn} onBack={() => setOpenGcn(null)} />
         ) : (

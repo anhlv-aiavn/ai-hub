@@ -11,8 +11,9 @@ const STATUS_LABEL = {
   queued: "Chờ", processing: "Đang xử lý", done: "Xong", error: "Lỗi", skip: "Bỏ qua",
 };
 const REVIEW_LABEL = {
-  unreviewed: "Chưa kiểm", needs_review: "Cần xem", reviewed: "Đã duyệt",
+  unreviewed: "Chưa kiểm", needs_review: "Không duyệt", reviewed: "Đã duyệt",
 };
+const REVIEW_FILTER = { "": "Mọi hậu kiểm", ...REVIEW_LABEL };
 
 export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initialStatus = "" }) {
   const isAdmin = user?.role === "admin";
@@ -21,6 +22,7 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
   const [branch, setBranch] = useState("");
   const [rows, setRows] = useState([]);
   const [status, setStatus] = useState(initialStatus);
+  const [review, setReview] = useState("");
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
   const [hasPending, setHasPending] = useState(false);
@@ -34,7 +36,7 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
     try {
       const d = await listGcn({
         batchId, branch: branch || undefined, status: status || undefined,
-        q: q.trim() || undefined, page: p, pageSize: PAGE_SIZE,
+        review: review || undefined, q: q.trim() || undefined, page: p, pageSize: PAGE_SIZE,
       });
       const list = d.gcn || [];
       setRows(list);
@@ -51,7 +53,7 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
   }, [isAdmin]);
   useEffect(() => { setStatus(initialStatus); }, [initialStatus]);
   // Đổi bộ lọc → về trang 1 (không dùng state `page` cũ để tránh closure lệch nhịp).
-  useEffect(() => { setPage(1); refresh(1); /* eslint-disable-next-line */ }, [batchId, branch, status]);
+  useEffect(() => { setPage(1); refresh(1); /* eslint-disable-next-line */ }, [batchId, branch, status, review]);
 
   function goToPage(p) { setPage(p); refresh(p); }
   function runSearch() { setPage(1); refresh(1); }
@@ -102,9 +104,14 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
             <option value="">Mọi trạng thái</option>
             {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
+          <select value={review} onChange={(e) => setReview(e.target.value)}>
+            {Object.entries(REVIEW_FILTER).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
           <div className="search-box">
             <Icon name="search" size={15} />
-            <input placeholder="Tìm Số phát hành / tên tệp" value={q}
+            <input
+              placeholder="Tìm số phát hành, số tờ, số thửa, số vào sổ, tên hồ sơ, tên file GCN, chủ sử dụng"
+              value={q}
               onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && runSearch()} />
           </div>
           <button className="ghost sm" onClick={() => refresh()}><Icon name="refresh" size={14} /> Làm mới</button>
@@ -133,6 +140,11 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
                       {f.dup_suspect && (
                         <span className="dup-flag" title={`Nghi trùng nội dung với ${(f.dup_candidates || []).length} hồ sơ khác`}>
                           <Icon name="alertTriangle" size={12} /> Nghi trùng
+                        </span>
+                      )}
+                      {f.locked_by && (
+                        <span className="lock-flag" title="Đang được hậu kiểm — mở ra sẽ ở chế độ chỉ xem">
+                          <Icon name="clock" size={12} /> Đang hậu kiểm: {f.locked_by}
                         </span>
                       )}
                     </td>
