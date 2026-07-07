@@ -111,9 +111,10 @@ const REVIEWER_DAYS = [
   { key: 7, label: "7 ngày" },
   { key: 30, label: "30 ngày" },
   { key: 0, label: "Tất cả" },
+  { key: "custom", label: "Khoảng ngày…" },
 ];
 
-function ReviewerTable({ rows, days, onDaysChange }) {
+function ReviewerTable({ rows, days, onDaysChange, rangeFrom, rangeTo, onRangeChange }) {
   const ranked = [...rows].sort((a, b) => (b.reviewed - a.reviewed) || (b.rejected - a.rejected));
 
   return (
@@ -126,6 +127,15 @@ function ReviewerTable({ rows, days, onDaysChange }) {
               onClick={() => onDaysChange(o.key)}>{o.label}</button>
           ))}
         </div>
+        {days === "custom" && (
+          <div className="rt-range">
+            <input type="date" value={rangeFrom} max={rangeTo || undefined}
+              onChange={(e) => onRangeChange(e.target.value, rangeTo)} />
+            <span className="muted">–</span>
+            <input type="date" value={rangeTo} min={rangeFrom || undefined}
+              onChange={(e) => onRangeChange(rangeFrom, e.target.value)} />
+          </div>
+        )}
       </div>
       {ranked.length ? (
         <div className="et-scroll bt-scroll">
@@ -164,7 +174,9 @@ export default function ExportView({ user }) {
   const [batchId, setBatchId] = useState("");
   const [branch, setBranch] = useState("");
   const [review, setReview] = useState("");
-  const [reviewerDays, setReviewerDays] = useState(0); // 0 = toàn thời gian
+  const [reviewerDays, setReviewerDays] = useState(0); // 0 = toàn thời gian, "custom" = dùng reviewerFrom/To
+  const [reviewerFrom, setReviewerFrom] = useState("");
+  const [reviewerTo, setReviewerTo] = useState("");
   const [stats, setStats] = useState(null);
   const [cols, setCols] = useState([]);
   const [rows, setRows] = useState([]);
@@ -184,7 +196,10 @@ export default function ExportView({ user }) {
   async function refreshStats() {
     try {
       setStats(await getStats({
-        batchId: batchId || undefined, branch: branch || undefined, reviewerDays: reviewerDays || undefined,
+        batchId: batchId || undefined, branch: branch || undefined,
+        reviewerDays: reviewerDays !== "custom" ? (reviewerDays || undefined) : undefined,
+        reviewerFrom: reviewerDays === "custom" ? (reviewerFrom || undefined) : undefined,
+        reviewerTo: reviewerDays === "custom" ? (reviewerTo || undefined) : undefined,
       }));
     } catch (e) { toastErr(e.message || e); }
   }
@@ -212,7 +227,9 @@ export default function ExportView({ user }) {
     if (!reviewerDaysMounted.current) { reviewerDaysMounted.current = true; return; }
     refreshStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reviewerDays]);
+  }, [reviewerDays, reviewerFrom, reviewerTo]);
+
+  function onReviewerRangeChange(from, to) { setReviewerFrom(from); setReviewerTo(to); }
 
   useEffect(() => {
     listBatches().then((d) => setBatches(d.batches || [])).catch(() => {});
@@ -304,7 +321,8 @@ export default function ExportView({ user }) {
 
       {isAdmin && <BranchTable rows={s.by_branch || []} />}
       {isAdmin && (
-        <ReviewerTable rows={s.by_reviewer || []} days={reviewerDays} onDaysChange={setReviewerDays} />
+        <ReviewerTable rows={s.by_reviewer || []} days={reviewerDays} onDaysChange={setReviewerDays}
+          rangeFrom={reviewerFrom} rangeTo={reviewerTo} onRangeChange={onReviewerRangeChange} />
       )}
 
       <div className="export-sec">

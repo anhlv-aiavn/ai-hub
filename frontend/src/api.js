@@ -265,11 +265,16 @@ export function cutPageImageUrl(gcnId, ci, n, w = 1100) {
 }
 
 // Thống kê tổng hợp (KPI + breakdown + cảnh báo) cho bảng Thống kê.
-export async function getStats({ batchId, branch, reviewerDays } = {}) {
+export async function getStats({ batchId, branch, reviewerDays, reviewerFrom, reviewerTo } = {}) {
   const p = new URLSearchParams();
   if (batchId) p.set("batch_id", batchId);
   if (branch) p.set("branch", branch);
-  if (reviewerDays) p.set("reviewer_days", String(reviewerDays));
+  if (reviewerFrom || reviewerTo) {
+    if (reviewerFrom) p.set("reviewer_from", reviewerFrom);
+    if (reviewerTo) p.set("reviewer_to", reviewerTo);
+  } else if (reviewerDays) {
+    p.set("reviewer_days", String(reviewerDays));
+  }
   return handle(await fetch(`/v1/gcn/stats?${p.toString()}`, { headers: headers() }));
 }
 

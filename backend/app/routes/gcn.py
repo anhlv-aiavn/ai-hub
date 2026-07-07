@@ -26,6 +26,10 @@ from app.summary import collect_so_phat_hanhs, group_key_of, per_gcn, summarize
 
 router = APIRouter(prefix="/v1/gcn", tags=["gcn"], dependencies=[Depends(current_user)])
 
+# Giờ VN (UTC+7, không DST) — dùng để quy đổi ngày lịch chọn trên UI (khoảng ngày
+# hậu kiểm) sang UTC trước khi so với các trường lưu bằng datetime.now(timezone.utc).
+VN_TZ = timezone(timedelta(hours=7))
+
 
 async def _authz_gcn(gcn_id: str, user: dict, proj: dict | None = None) -> dict:
     """Lấy doc + chặn user thường truy cập GCN ngoài chi nhánh (403/404)."""
@@ -185,6 +189,10 @@ async def stats(batch_id: str | None = None, branch: str | None = None,
                 reviewer_days: int | None = Query(default=None, description=(
                     "Chỉ tính by_reviewer trong N ngày gần nhất (theo review.reviewed_at); "
                     "bỏ trống/0 = toàn thời gian")),
+                reviewer_from: str | None = Query(default=None, description=(
+                    "Khoảng ngày tùy chọn (YYYY-MM-DD, đầu ngày) — ưu tiên hơn reviewer_days")),
+                reviewer_to: str | None = Query(default=None, description=(
+                    "Khoảng ngày tùy chọn (YYYY-MM-DD, cuối ngày) — ưu tiên hơn reviewer_days")),
                 user: dict = Depends(current_user)):
     """Tổng hợp cho bảng Thống kê: tổng tệp/GCN/trang, breakdown trạng thái & hậu
     kiểm, theo chi nhánh, và các chỉ số cảnh báo. Một lần aggregate ($facet)."""
@@ -196,7 +204,21 @@ async def stats(batch_id: str | None = None, branch: str | None = None,
         match["branch"] = branch
 
     by_reviewer_stage: list[dict] = [{"$match": {"review.reviewer": {"$ne": None}}}]
-    if reviewer_days and reviewer_days > 0:
+    if reviewer_from or reviewer_to:
+        try:
+            rng: dict = {}
+            # `reviewer_from/to` là ngày lịch theo giờ VN (UTC+7, không DST) từ input
+            # date trên UI — phải quy đổi sang UTC trước khi so với review.reviewed_at
+            # (luôn lưu bằng datetime.now(timezone.utc)), nếu không mốc ngày sẽ lệch
+            # 7 tiếng: đầu ngày VN bị loại, và đầu ngày hôm sau VN bị tính nhầm vào.
+            if reviewer_from:
+                rng["$gte"] = datetime.strptime(reviewer_from, "%Y-%m-%d").replace(tzinfo=VN_TZ)
+            if reviewer_to:
+                rng["$lt"] = (datetime.strptime(reviewer_to, "%Y-%m-%d") + timedelta(days=1)).replace(tzinfo=VN_TZ)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail="Ngày không hợp lệ (định dạng YYYY-MM-DD)") from e
+        by_reviewer_stage.append({"$match": {"review.reviewed_at": rng}})
+    elif reviewer_days and reviewer_days > 0:
         since = datetime.now(timezone.utc) - timedelta(days=reviewer_days)
         by_reviewer_stage.append({"$match": {"review.reviewed_at": {"$gte": since}}})
     by_reviewer_stage += [

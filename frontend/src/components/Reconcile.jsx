@@ -127,13 +127,16 @@ export default function Reconcile({ gcnId, onBack }) {
   }
 
   async function save(status, { auto } = {}) {
-    setBusy(status || "save");
+    // Bấm lại nút đang được chọn → quay về "chưa kiểm" thay vì không đổi gì.
+    const curStatus = doc?.review?.status || "unreviewed";
+    const effStatus = status && status === curStatus ? "unreviewed" : status;
+    setBusy(effStatus || "save");
     try {
       const res = await putReview(gcnId, {
         display_name: name.trim() || null,
         overrides,
         deleted,
-        status: status || undefined,
+        status: effStatus || undefined,
         version: doc?.review?.version ?? 0,
       });
       // Cập nhật version cục bộ ngay — thiếu bước này thì lần LƯU KẾ TIẾP trong
@@ -143,8 +146,9 @@ export default function Reconcile({ gcnId, onBack }) {
       // Autosave vẫn báo (chỉ đổi message) — trước đây im lặng hoàn toàn khiến
       // người dùng không biết nội dung có được lưu hay chưa khi rời ô nhập.
       toastOk(auto ? "Đã tự động lưu"
-        : status === "reviewed" ? "Đã duyệt"
-        : status === "needs_review" ? "Đã đánh dấu không duyệt" : "Đã lưu");
+        : effStatus === "reviewed" ? "Đã duyệt"
+        : effStatus === "needs_review" ? "Đã đánh dấu không duyệt"
+        : status ? "Đã bỏ đánh dấu, chuyển về chưa kiểm" : "Đã lưu");
     } catch (e) {
       if (e.status === 409) await reloadAfterConflict();
       else toastErr(e.message || e);
@@ -216,6 +220,7 @@ export default function Reconcile({ gcnId, onBack }) {
   if (!doc) return <div className="panel muted">Đang tải…</div>;
   const dirty = Object.keys(overrides).length > 0 || name !== ((doc.review && doc.review.display_name) || "");
   const readOnly = (!!lockedBy && !haveLock) || lockError;
+  const reviewStatus = doc.review?.status || "unreviewed";
 
   return (
     <div className="panel reconcile">
@@ -233,11 +238,14 @@ export default function Reconcile({ gcnId, onBack }) {
             <button className="ghost sm" disabled={busy} onClick={() => save()}>
               {busy === "save" ? "…" : "Lưu"}
             </button>
-            <button className="ghost sm danger" disabled={busy} onClick={() => save("needs_review")}
-              title="Lưu và đánh dấu hồ sơ này KHÔNG đạt — cần người khác xử lý lại">
+            <button className={`ghost sm danger${reviewStatus === "needs_review" ? " active" : ""}`}
+              disabled={busy} onClick={() => save("needs_review")}
+              title="Lưu và đánh dấu hồ sơ này KHÔNG đạt — cần người khác xử lý lại (bấm lại để bỏ đánh dấu)">
               <Icon name="ban" size={14} /> Không duyệt
             </button>
-            <button className="ghost sm" disabled={busy} onClick={() => save("reviewed")}>
+            <button className={`ghost sm${reviewStatus === "reviewed" ? " active" : ""}`}
+              disabled={busy} onClick={() => save("reviewed")}
+              title="Lưu và đánh dấu hồ sơ này đã duyệt (bấm lại để bỏ đánh dấu)">
               <Icon name="check" size={14} /> Duyệt
             </button>
           </>
