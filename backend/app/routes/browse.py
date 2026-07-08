@@ -35,15 +35,20 @@ async def browse_folder(source_id: str, prefix: str = "", token: str | None = No
     client = build_client(conn)
     folders, files, next_token = await async_list_folder(client, conn["bucket"], prefix, token)
     # Đánh dấu file đã từng import (BẤT KỂ lô nào — chỉ để hiển thị badge, không
-    # đụng tới logic chống trùng lúc import vốn đang khoanh theo batch_id).
+    # đụng tới logic chống trùng lúc import vốn đang khoanh theo batch_id). Kèm
+    # lô/ngày/trạng thái lần import gần nhất để người dùng biết đang trùng với
+    # hồ sơ nào trước khi chọn lại, thay vì chỉ thấy dấu tích chung chung.
     if files:
         cursor = gcns().find(
             {"source_connection_id": source_id, "s3_key": {"$in": [f["key"] for f in files]}},
-            {"s3_key": 1},
+            {"s3_key": 1, "batch_id": 1, "created_at": 1, "status": 1},
         )
-        imported_keys = {d["s3_key"] async for d in cursor}
+        imported_info = {d["s3_key"]: {
+            "batch_id": d.get("batch_id"), "created_at": d.get("created_at"), "status": d.get("status"),
+        } async for d in cursor}
         for f in files:
-            f["imported"] = f["key"] in imported_keys
+            f["imported"] = f["key"] in imported_info
+            f["imported_info"] = imported_info.get(f["key"])
     return {"prefix": prefix, "folders": folders, "files": files, "next_token": next_token}
 
 

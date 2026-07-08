@@ -321,7 +321,12 @@ code { background: var(--surface-3); padding: 1px 6px; border-radius: 4px; font-
 .ws-toolbar h3 { font-size: 15px; color: var(--brand); }
 
 /* ---------- PDF viewer ---------- */
-.pdf-pane { display: grid; grid-template-columns: 80px 1fr; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; height: calc(100vh - 96px); box-shadow: var(--shadow-sm); }
+/* grid-template-rows: minmax(0,1fr) — BẮT BUỘC để hàng grid có chiều cao XÁC
+   ĐỊNH bằng .pdf-pane (mặc định hàng "auto" co theo nội dung); thiếu dòng này
+   thì .pdf-main không có chiều cao xác định để truyền xuống .pdf-canvas-wrap
+   (flex:1) tính overflow — ảnh zoom to cứ đẩy toàn khối phình ra rồi bị
+   .rc-left{overflow:hidden} cắt cụt, KHÔNG hiện thanh cuộn dọc/ngang nào cả. */
+.pdf-pane { display: grid; grid-template-columns: 80px 1fr; grid-template-rows: minmax(0, 1fr); gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; height: calc(100vh - 96px); box-shadow: var(--shadow-sm); }
 .pdf-pane.muted, .pdf-pane.error { display: flex; align-items: center; justify-content: center; padding: 40px; text-align: center; }
 .pdf-rail { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
 .thumb { flex: 0 0 auto; position: relative; border: 2px solid transparent; border-radius: 7px; cursor: pointer; overflow: hidden; line-height: 0; background: var(--surface-3); transition: border-color .15s; aspect-ratio: 3 / 4; }
@@ -330,15 +335,23 @@ code { background: var(--surface-3); padding: 1px 6px; border-radius: 4px; font-
 .thumb.active { border-color: var(--accent); }
 .thumb.hl { box-shadow: inset 0 0 0 2px var(--ok); }
 .thumb-n { position: absolute; top: 3px; left: 3px; background: rgba(15,23,42,.72); color: #fff; font-size: 10px; padding: 0 5px; border-radius: 4px; line-height: 16px; font-family: var(--mono); }
-.pdf-main { display: flex; flex-direction: column; min-width: 0; }
+.pdf-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .pdf-nav { display: flex; align-items: center; gap: 8px; justify-content: center; padding-bottom: 8px; font-size: 13px; color: var(--text-2); }
 .pdf-nav b { color: var(--text); font-family: var(--mono); }
 .pdf-zoom-group { display: flex; align-items: center; gap: 2px; margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--border); }
 .pdf-zoom-pct { min-width: 44px; padding: 0 4px; border: none; background: none; color: var(--text-2); font-size: 12px; font-family: var(--mono); cursor: pointer; }
 .pdf-zoom-pct:hover { color: var(--text); }
-.pdf-canvas-wrap { overflow: auto; flex: 1; min-height: 0; background: var(--surface-3); border-radius: 8px; padding: 14px; text-align: center; }
-.pdf-canvas-wrap canvas, .pdf-canvas-wrap img.pdf-page-img { box-shadow: var(--shadow); max-width: 100%; height: auto; border-radius: 2px; display: inline-block; background: #fff; }
-.pdf-page-img.zoomable { cursor: zoom-in; transition: transform .1s ease-out; }
+/* text-align KHÔNG phải center: ảnh phóng to (width%) tràn khỏi khung phải tràn
+   lệch về 1 phía (phải/dưới) để overflow:auto cuộn tới được toàn bộ — content
+   canh giữa mà tràn 2 bên đều thì trình duyệt không đảm bảo cuộn được tới phần
+   tràn bên trái (bug thực tế: zoom được nhưng mất thanh cuộn ngang). */
+.pdf-canvas-wrap { overflow: auto; flex: 1; min-height: 0; background: var(--surface-3); border-radius: 8px; padding: 14px; }
+.pdf-canvas-wrap canvas { box-shadow: var(--shadow); max-width: 100%; height: auto; border-radius: 2px; display: inline-block; background: #fff; }
+/* KHÔNG max-width:100% — width được set trực tiếp bằng JS (zoom%) để phóng to
+   THẬT SỰ về layout, không dùng transform: scale() (transform chỉ phóng to phần
+   vẽ, không thay đổi kích thước layout nên overflow:auto tính sai vùng cuộn). */
+.pdf-canvas-wrap img.pdf-page-img { box-shadow: var(--shadow); height: auto; border-radius: 2px; display: inline-block; background: #fff; }
+.pdf-page-img { transition: transform .1s ease-out; }
 
 /* ---------- OCR markdown ---------- */
 /* Không cuộn lồng — để ws-right cuộn; card cao theo nội dung markdown */
@@ -909,7 +922,7 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
   max-width: 200px; text-overflow: ellipsis; }
 .search-box { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--border-2);
   border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text-3);
-  flex: 1 1 260px; min-width: 180px; max-width: 420px; }
+  flex: 1 1 260px; min-width: 180px; max-width: 300px; }
 .search-box input {
   /* Reset input[type=text]/input:not([type]) toàn cục (padding 9px 11px + margin-top
   6px) — nếu không input cao hơn hẳn nút cạnh bên và đè lệch placeholder. */
@@ -1138,6 +1151,7 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .admin-warn > .ico { flex: none; margin-top: 1px; color: var(--amber); }
 .admin-warn b { display: block; margin-bottom: 3px; color: #78350f; }
 .admin-warn .primary.sm, .admin-warn .ghost.sm { margin-top: 8px; margin-right: 8px; }
+.rc-dup-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 
 .logo-edit-row { display: flex; align-items: center; gap: 10px; }
 .logo-edit-row .text-input { flex: 1; }
@@ -1258,8 +1272,21 @@ label.file-row { width: 100%; }
 .export-job-status { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-2); }
 
 /* Đánh dấu nghi trùng nội dung (§⑧) */
+.dup-flag-wrap { position: relative; display: inline-block; }
 .dup-flag { display: inline-flex; align-items: center; gap: 4px; margin-left: 10px; padding: 1px 8px;
-  background: rgba(245,158,11,.14); color: var(--amber); border-radius: 999px; font-size: 11px; font-weight: 600; }
+  background: rgba(245,158,11,.14); color: var(--amber); border-radius: 999px; font-size: 11px; font-weight: 600;
+  border: 0; cursor: pointer; font-family: inherit; }
+.dup-pop { position: absolute; top: calc(100% + 6px); left: 10px; min-width: 260px; max-width: 360px;
+  padding: 6px; z-index: 70; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+.dup-pop-title { padding: 6px 8px 4px; font-size: 11px; font-weight: 600; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: .03em; }
+.dup-pop-item { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 7px 8px; border: 0;
+  border-radius: var(--radius-sm); background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.dup-pop-item:hover { background: var(--surface-3); }
+.dup-pop-item .dpi-name { font-size: 12.5px; color: var(--text); font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dup-pop-item .dpi-meta { font-size: 11px; color: var(--text-3); }
 
 /* Đang được người khác hậu kiểm (soft-lock) — thấy ngay ở bảng, khỏi bấm trùng */
 .lock-flag { display: inline-flex; align-items: center; gap: 4px; margin-left: 10px; padding: 1px 8px;

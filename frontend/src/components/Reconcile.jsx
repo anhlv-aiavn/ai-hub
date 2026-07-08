@@ -35,7 +35,13 @@ function pageRange(idx) {
 
 // Đối soát 1 GCN: trái = ảnh PDF, phải = các trường bóc ra (sửa được).
 // Hậu kiểm ghi review.overrides + display_name (raw extractions giữ nguyên).
-export default function Reconcile({ gcnId, onBack }) {
+function fmtDupDate(v) {
+  if (!v) return "";
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+export default function Reconcile({ gcnId, onBack, onOpen }) {
   const [doc, setDoc] = useState(null);
   const [work, setWork] = useState([]);          // bản làm việc của extractions
   const [overrides, setOverrides] = useState({}); // path → value đã sửa
@@ -266,6 +272,22 @@ export default function Reconcile({ gcnId, onBack }) {
           {lockedBy
             ? <>Hồ sơ đang được <b>{lockedBy.locked_by}</b> hậu kiểm — chỉ xem, không sửa được lúc này.</>
             : "Không xác định được ai đang hậu kiểm hồ sơ này (lỗi kết nối) — chỉ xem, tải lại trang để thử lại."}
+        </div>
+      )}
+
+      {doc.dup_suspect && (doc.dup_candidates || []).length > 0 && (
+        <div className="admin-warn rc-dup-banner">
+          <Icon name="alertTriangle" size={16} />
+          <div>
+            <b>Nghi trùng nội dung</b> với {doc.dup_candidates.length} hồ sơ khác (cùng Số phát hành):
+            <div className="rc-dup-list">
+              {doc.dup_candidates.map((c) => (
+                <button type="button" key={c.gcn_id} className="ghost xs" onClick={() => onOpen?.(c.gcn_id)}>
+                  {c.filename || c.gcn_id} · {fmtDupDate(c.created_at)} · {STATUS_LABEL[c.status] || c.status || "?"}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 

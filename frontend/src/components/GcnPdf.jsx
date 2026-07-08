@@ -36,6 +36,11 @@ export default function GcnPdf({ gcnId, cutIndex = null, page = 1, onPageChange 
   // Giữ Ctrl + cuộn chuột để zoom tại chỗ. Gắn bằng addEventListener (không qua
   // props onWheel của React) vì React đăng ký wheel listener ở chế độ passive,
   // khiến preventDefault() không chặn được zoom trang mặc định của trình duyệt.
+  // Dep [numPages]: lần render ĐẦU numPages=0 → component trả về sớm ("Đang tải
+  // PDF…"), div gắn wrapRef CHƯA tồn tại nên wrapRef.current vẫn null lúc effect
+  // chạy — nếu deps rỗng [] thì effect không bao giờ chạy lại để gắn listener
+  // sau khi div render, khiến Ctrl+cuộn chuột rơi xuống zoom mặc định của trình
+  // duyệt thay vì phóng to ảnh (bug thực tế: "zoom trang web chứ không zoom PDF").
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -46,7 +51,7 @@ export default function GcnPdf({ gcnId, cutIndex = null, page = 1, onPageChange 
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, []);
+  }, [numPages]);
 
   if (err) return <div className="pdf-pane error">Không tải được PDF: {err}</div>;
   if (!gcnId) return <div className="pdf-pane muted">Chưa chọn GCN.</div>;
@@ -80,10 +85,9 @@ export default function GcnPdf({ gcnId, cutIndex = null, page = 1, onPageChange 
           </span>
         </div>
         <div className="pdf-canvas-wrap" ref={wrapRef}>
-          <img className="pdf-page-img zoomable" key={cur} src={imgUrl(cur - 1, 1400)}
-            alt={`Trang ${cur}`} title="Bấm để mở ảnh trang ở tab mới · giữ Ctrl + cuộn chuột để phóng to"
-            style={{ transform: `scale(${zoom})`, transformOrigin: "top center" }}
-            onClick={() => window.open(imgUrl(cur - 1, 2200), "_blank", "noopener")} />
+          <img className="pdf-page-img" key={cur} src={imgUrl(cur - 1, 1400)}
+            alt={`Trang ${cur}`} title="Giữ Ctrl + cuộn chuột để phóng to"
+            style={{ width: `${zoom * 100}%` }} />
         </div>
       </div>
     </div>

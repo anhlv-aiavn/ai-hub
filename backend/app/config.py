@@ -51,6 +51,10 @@ ADMIN_PASS = os.getenv("AIHUB_ADMIN_PASS", "")
 # Chống brute-force: khóa tạm sau N lần sai trong một cửa sổ.
 LOGIN_MAX_FAILS = int(os.getenv("AIHUB_LOGIN_MAX_FAILS", "5"))
 LOGIN_LOCK_SECONDS = int(os.getenv("AIHUB_LOGIN_LOCK_SECONDS", "300"))
+# 1 tài khoản chỉ 1 phiên "đang hoạt động" tại 1 thời điểm. "Đang hoạt động" =
+# có heartbeat (FE gọi mỗi TTL/3) trong TTL giây gần nhất. Đăng nhập mới khi
+# phiên cũ còn trong TTL này bị từ chối (409) thay vì đá phiên cũ.
+SESSION_ACTIVE_TTL = int(os.getenv("AIHUB_SESSION_TTL_SECONDS", "90"))
 
 # ── Đối soát: DPI/scale render ảnh trang ────────────────────────────────────
 PAGE_RENDER_MAX_W = int(os.getenv("PAGE_RENDER_MAX_W", "2200"))

@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { startEvents, stopEvents } from "./events.js";
-import { auth, getBranding, getMe, logout } from "./api.js";
+import { auth, getBranding, getMe, heartbeat, logout, sendSessionEndBeacon } from "./api.js";
 import Toaster from "./components/Toaster.jsx";
 import Login from "./components/Login.jsx";
 import AccountMenu from "./components/AccountMenu.jsx";
 import Users from "./components/Users.jsx";
+import ChangePasswordModal from "./components/ChangePasswordModal.jsx";
 import AdminSettings from "./components/AdminSettings.jsx";
 import AuditLog from "./components/AuditLog.jsx";
 import CreateBatch from "./components/CreateBatch.jsx";
@@ -34,6 +35,7 @@ export default function App() {
   const [openGcn, setOpenGcn] = useState(null);
   const [showUsers, setShowUsers] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
   const [branding, setBranding] = useState(FALLBACK_BRANDING);
 
   function refreshBranding() {
@@ -64,6 +66,27 @@ export default function App() {
       .finally(() => setAuthReady(true));
     return () => stopEvents();
   }, []);
+
+  // Nhịp tim phiên: nuôi "đang hoạt động" cho admin thấy (Users.jsx) + phát
+  // hiện bị đăng xuất cưỡng chế/thay phiên (401) để tự thoát ra màn đăng nhập.
+  // sendSessionEndBeacon lúc rời tab đánh dấu "không hoạt động" ngay, không cần
+  // chờ hết TTL — xử lý case "thoát web nhưng chưa bấm đăng xuất".
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    async function beat() {
+      try { await heartbeat(); }
+      catch (e) { if (!cancelled && e.status === 401) onLogout(); }
+    }
+    beat();
+    const id = setInterval(beat, 30000);
+    window.addEventListener("pagehide", sendSessionEndBeacon);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      window.removeEventListener("pagehide", sendSessionEndBeacon);
+    };
+  }, [user]);
 
   function onLogin(u) { setUser(u); startEvents(); }
   function onLogout() {
@@ -98,6 +121,7 @@ export default function App() {
             user={user} isAdmin={isAdmin}
             onManageUsers={() => setShowUsers(true)}
             onOpenSettings={() => setShowSettings(true)}
+            onChangePassword={() => setShowChangePassword(true)}
             onLogout={onLogout}
           />
         </div>
@@ -108,8 +132,9 @@ export default function App() {
         {showSettings && isAdmin && (
           <AdminSettings onClose={() => { setShowSettings(false); refreshBranding(); }} />
         )}
+        {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
         {openGcn ? (
-          <Reconcile gcnId={openGcn} onBack={() => setOpenGcn(null)} />
+          <Reconcile gcnId={openGcn} onBack={() => setOpenGcn(null)} onOpen={setOpenGcn} />
         ) : (
           <>
             {tab === "create" && rank >= ROLE_RANK.operator && <CreateBatch user={user} onCreated={onCreated} />}

@@ -49,7 +49,37 @@ export async function getMe() {
   const d = await handle(await fetch(`/v1/auth/me`, { headers: headers() }));
   return d.user;
 }
-export function logout() { auth.token = ""; }
+// Đăng xuất chủ động: báo backend giải phóng session_id NGAY (không thì tài
+// khoản bị coi là "đang hoạt động" tới hết SESSION_ACTIVE_TTL, chặn nhầm lượt
+// đăng nhập kế tiếp) — bắn đi rồi xóa token cục bộ ngay, không chờ phản hồi.
+// Tự đổi mật khẩu của chính mình (mọi vai trò) — khác PATCH /v1/users/{username}
+// vốn chỉ admin gọi được để đổi cho người khác.
+export async function changeMyPassword(oldPassword, newPassword) {
+  return handle(await fetch(`/v1/auth/change-password`, {
+    method: "POST", headers: headers({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+  }));
+}
+export function logout() {
+  const token = auth.token;
+  auth.token = "";
+  if (token) {
+    fetch(`/v1/auth/logout`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+  }
+}
+
+// Nhịp tim phiên đăng nhập — FE gọi định kỳ khi tab đang mở (nuôi "đang hoạt
+// động"); admin thấy trạng thái này ở Users.jsx.
+export async function heartbeat() {
+  return handle(await fetch(`/v1/auth/heartbeat`, { method: "POST", headers: headers() }));
+}
+// Đánh dấu "không hoạt động" ngay khi rời tab. Gọi qua navigator.sendBeacon
+// (không set header được) nên truyền token qua query, không đi qua handle().
+export function sendSessionEndBeacon() {
+  if (!auth.token) return;
+  const url = `/v1/auth/session-end?token=${encodeURIComponent(auth.token)}`;
+  navigator.sendBeacon?.(url);
+}
 
 // Quản trị tài khoản (admin)
 export async function listUsers() {
@@ -68,6 +98,11 @@ export async function updateUser(username, body) {
 export async function deleteUser(username) {
   return handle(await fetch(`/v1/users/${encodeURIComponent(username)}`, {
     method: "DELETE", headers: headers(),
+  }));
+}
+export async function forceLogoutUser(username) {
+  return handle(await fetch(`/v1/users/${encodeURIComponent(username)}/force-logout`, {
+    method: "POST", headers: headers(),
   }));
 }
 

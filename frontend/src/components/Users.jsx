@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
 import Modal from "./Modal.jsx";
 import Pager from "./Pager.jsx";
-import { listUsers, createUser, updateUser, deleteUser, getBranches } from "../api.js";
+import { listUsers, createUser, updateUser, deleteUser, forceLogoutUser, getBranches } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 
 const ROLE_LABEL = { admin: "Admin", operator: "Operator", viewer: "Viewer" };
@@ -33,6 +33,13 @@ export default function Users({ me, onClose }) {
   useEffect(() => {
     refresh();
     getBranches().then((d) => setBranches(d.branches || [])).catch(() => {});
+  }, []);
+  // Trạng thái "đang hoạt động" đổi theo hành động của NGƯỜI KHÁC (họ đăng nhập/
+  // thoát) — modal đang mở không tự biết, phải tự làm mới định kỳ mới thấy ngay
+  // thay vì phải đóng/mở lại danh sách.
+  useEffect(() => {
+    const id = setInterval(refresh, 15000);
+    return () => clearInterval(id);
   }, []);
 
   async function add() {
@@ -65,6 +72,11 @@ export default function Users({ me, onClose }) {
   async function remove(username) {
     if (!window.confirm(`Xóa tài khoản "${username}"?`)) return;
     try { await deleteUser(username); toastOk("Đã xóa"); refresh(); }
+    catch (e) { toastErr(e.message || e); }
+  }
+  async function forceLogout(username) {
+    if (!window.confirm(`Buộc đăng xuất tài khoản "${username}"? Phiên hiện tại của họ sẽ ngừng hoạt động ngay.`)) return;
+    try { await forceLogoutUser(username); toastOk("Đã buộc đăng xuất"); refresh(); }
     catch (e) { toastErr(e.message || e); }
   }
 
@@ -112,10 +124,17 @@ export default function Users({ me, onClose }) {
       <div className="et-scroll">
         <table className="et-grid">
           <thead>
-            <tr><th>Tài khoản</th><th>Vai trò</th><th>Chi nhánh</th><th>Trạng thái</th><th>Thao tác</th></tr>
+            <tr><th>Tài khoản</th><th>Vai trò</th><th>Chi nhánh</th><th>Trạng thái</th><th>Phiên</th><th>Thao tác</th></tr>
           </thead>
           <tbody>
-            {pageRows.map((u) => (
+            {pageRows.map((u) => {
+              const isSelf = u.username === me?.username;
+              const locked = u.online; // đang có phiên hoạt động → khóa thao tác nhạy cảm, tránh xung đột
+              // Chính mình LUÔN "đang hoạt động" khi đang dùng bảng này — không áp
+              // luật "đang hoạt động" lên nút đổi mật khẩu của chính mình, không thì
+              // sẽ không bao giờ tự đổi được (khớp guard phía backend ở users.py).
+              const resetPwLocked = locked && !isSelf;
+              return (
               <tr key={u.username}>
                 <td className="bt-name">{u.username}{u.username === me?.username && " (bạn)"}</td>
                 <td>{ROLE_LABEL[u.role] || u.role}</td>
@@ -125,21 +144,33 @@ export default function Users({ me, onClose }) {
                     {u.active ? "Hoạt động" : "Đã khóa"}
                   </span>
                 </td>
+                <td>
+                  <span className={`badge ${u.online ? "st-done" : "st-queued"}`}>
+                    {u.online ? "Đang hoạt động" : "Ngoại tuyến"}
+                  </span>
+                </td>
                 <td className="user-actions">
-                  <button className="ghost xs" onClick={() => resetPw(u.username)}>Đổi mật khẩu</button>
+                  <button className="ghost xs" disabled={resetPwLocked} title={resetPwLocked ? "Đang hoạt động — buộc đăng xuất trước" : ""}
+                    onClick={() => resetPw(u.username)}>Đổi mật khẩu</button>
                   {u.username !== me?.username
                     ? (
-                      <button className="ghost xs" onClick={() => patch(u.username, { active: !u.active })}>
+                      <button className="ghost xs" disabled={locked && u.active} title={locked && u.active ? "Đang hoạt động — buộc đăng xuất trước" : ""}
+                        onClick={() => patch(u.username, { active: !u.active })}>
                         {u.active ? "Khóa" : "Mở"}
                       </button>
                     ) : <span className="ua-slot" />}
                   {u.username !== me?.username
-                    ? <button className="ghost xs danger" onClick={() => remove(u.username)}>Xóa</button>
+                    ? <button className="ghost xs danger" disabled={locked} title={locked ? "Đang hoạt động — buộc đăng xuất trước" : ""}
+                        onClick={() => remove(u.username)}>Xóa</button>
                     : <span className="ua-slot" />}
+                  {u.username !== me?.username && u.online && (
+                    <button className="ghost xs" onClick={() => forceLogout(u.username)}>Buộc đăng xuất</button>
+                  )}
                 </td>
               </tr>
-            ))}
-            {!rows.length && <tr><td colSpan={5} className="muted center">Chưa có tài khoản nào.</td></tr>}
+              );
+            })}
+            {!rows.length && <tr><td colSpan={6} className="muted center">Chưa có tài khoản nào.</td></tr>}
           </tbody>
         </table>
       </div>

@@ -121,6 +121,7 @@ async def list_gcn(
     rows: list[dict] = []
     for d in facet.get("data", []):
         rows.extend(_expand(d))
+    await _enrich_dup_candidates(rows)
     return {
         "gcn": rows, "total": total, "page": page, "page_size": page_size,
         "total_pages": max(1, -(-total // page_size)),
@@ -330,7 +331,9 @@ async def get_gcn(gcn_id: str, user: dict = Depends(current_user)):
         raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
     ensure_branch_access(user, doc.get("branch"))
     await log_action(user["username"], AuditAction.GCN_VIEW, gcn_id)
-    return _detail(doc)
+    out = _detail(doc)
+    await _enrich_dup_candidates([out])
+    return out
 
 
 @router.get("/{gcn_id}/page/{n}")
@@ -653,6 +656,26 @@ def _expand(doc: dict) -> list[dict]:
             "summary": {**g, "gcn_count": total, "gcn_pos": i + 1},
         })
     return out
+
+
+async def _enrich_dup_candidates(items: list[dict]) -> None:
+    """Thay danh sách id thô trong `dup_candidates` bằng thông tin hiển thị được
+    (tên tệp/lô/ngày/trạng thái) — để người hậu kiểm biết đang nghi trùng với hồ
+    sơ CỤ THỂ nào thay vì chỉ biết "có N hồ sơ khác trùng"."""
+    ids = {cid for it in items for cid in (it.get("dup_candidates") or [])}
+    if not ids:
+        return
+    cursor = gcns().find(
+        {"_id": {"$in": list(ids)}},
+        {"filename": 1, "batch_id": 1, "created_at": 1, "status": 1},
+    )
+    info = {d["_id"]: {
+        "gcn_id": d["_id"], "filename": d.get("filename"), "batch_id": d.get("batch_id"),
+        "created_at": d.get("created_at"), "status": d.get("status"),
+    } async for d in cursor}
+    for it in items:
+        cids = it.get("dup_candidates") or []
+        it["dup_candidates"] = [info[c] for c in cids if c in info]
 
 
 def _detail(doc: dict) -> dict:

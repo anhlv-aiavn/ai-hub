@@ -5,6 +5,7 @@ trang & SSE không gắn header được). require_key (API key cũ) giữ cho t
 from fastapi import Depends, Header, HTTPException, Query
 
 from app import auth, config
+from app.db import users
 
 
 def require_key(
@@ -31,6 +32,14 @@ async def current_user(
     payload = auth.decode_token(raw) if raw else None
     if not payload or not payload.get("sub"):
         raise HTTPException(status_code=401, detail="Cần đăng nhập")
+    # Token tự ký là stateless (không có nơi thu hồi) — so `sid` trong token với
+    # `session_id` hiện tại trong DB để có thể vô hiệu hóa: tài khoản bị khóa,
+    # bị admin buộc đăng xuất, hoặc phiên đã bị thay bởi một lượt đăng nhập khác.
+    u = await users().find_one({"username": payload["sub"]}, {"session_id": 1, "active": 1})
+    if not u or not u.get("active", True):
+        raise HTTPException(status_code=401, detail="Tài khoản không còn hiệu lực")
+    if u.get("session_id") != payload.get("sid"):
+        raise HTTPException(status_code=401, detail="Phiên đăng nhập đã kết thúc (đăng nhập nơi khác hoặc bị buộc đăng xuất)")
     return {
         "username": payload["sub"],
         "role": payload.get("role", "user"),

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
 import { browseMinio, browseFolderProgress, importFromMinio } from "../api.js";
 import { toastErr, toastOk } from "../toast.js";
+import { STATUS_LABEL } from "./ExtractTable.jsx";
 
 function fmtSize(n) {
   if (!n && n !== 0) return "";
@@ -215,7 +216,9 @@ export default function MinioBrowser({ sourceId, branch, batchId, onImported }) 
             <span className="fr-chip">PDF</span>
             <span className="fr-name" title={f.name}>{f.name}</span>
             {f.imported && (
-              <span className="mb-imported" title="Đã từng import vào hệ thống">
+              <span className="mb-imported" title={f.imported_info
+                ? `Đã nhập trước đó · ${fmtDate(f.imported_info.created_at) || "?"} · ${STATUS_LABEL[f.imported_info.status] || f.imported_info.status || "?"}`
+                : "Đã từng import vào hệ thống"}>
                 <Icon name="checkCircle" size={12} /> Đã nhập
               </span>
             )}
