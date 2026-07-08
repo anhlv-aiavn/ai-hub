@@ -35,11 +35,19 @@ const DUP_POP_WIDTH = 300; // khớp min-width ở CSS .dup-pop — dùng để 
 // stacking context của nó vẫn bị "giam" trong bảng → hàng dưới vẫn có thể vẽ
 // đè lên (bug thực tế: badge bấm ra popover nhưng bị dòng tên hồ sơ bên dưới
 // che mất). Portal ra body thoát hẳn khỏi stacking context/overflow của bảng.
-function DupFlag({ candidates, onOpen }) {
+function DupFlag({ current, candidates, onOpen }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null); // {top,left} toạ độ viewport, null = chưa đo
   const btnRef = useRef(null);
   const popRef = useRef(null);
+  // Danh sách hiện ĐẦY ĐỦ cả nhóm, KỂ CẢ hồ sơ đang xem (không chỉ "N hồ sơ
+  // khác") — bấm sang hồ sơ khác trong nhóm sẽ luôn thấy đúng 1 danh sách y hệt
+  // (chỉ đổi mục nào được đánh dấu "đang xem"), thay vì mỗi hồ sơ tự thấy 1
+  // danh sách khác nhau (thiếu chính nó) gây cảm giác "danh sách bị đổi".
+  const group = useMemo(
+    () => [current, ...candidates].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0)),
+    [current, candidates],
+  );
 
   function openPop() {
     const r = btnRef.current?.getBoundingClientRect();
@@ -84,14 +92,23 @@ function DupFlag({ candidates, onOpen }) {
       {open && pos && createPortal(
         <div className="dup-pop" ref={popRef} style={{ top: pos.top, left: pos.left }}
           onClick={(e) => e.stopPropagation()}>
-          <div className="dup-pop-title">Nghi trùng nội dung với:</div>
-          {candidates.map((c) => (
-            <button type="button" key={c.gcn_id} className="dup-pop-item"
-              onClick={() => { setOpen(false); onOpen?.(c.gcn_id); }}>
-              <span className="dpi-name">{c.filename || c.gcn_id}</span>
-              <span className="dpi-meta">{fmtDupDate(c.created_at)} · {STATUS_LABEL[c.status] || c.status || "?"}</span>
-            </button>
-          ))}
+          <div className="dup-pop-title">Nhóm nghi trùng ({group.length} hồ sơ):</div>
+          {group.map((c) => {
+            const isCurrent = c.gcn_id === current.gcn_id;
+            return (
+              <button type="button" key={c.gcn_id}
+                className={`dup-pop-item${isCurrent ? " is-current" : ""}`} disabled={isCurrent}
+                onClick={() => { setOpen(false); onOpen?.(c.gcn_id); }}>
+                <span className="dpi-name">
+                  {isCurrent && <Icon name="checkCircle" size={12} />}
+                  {c.display_name || c.filename || c.gcn_id}
+                </span>
+                <span className="dpi-meta">
+                  {isCurrent ? "Đang xem" : `${fmtDupDate(c.created_at)} · ${STATUS_LABEL[c.status] || c.status || "?"}`}
+                </span>
+              </button>
+            );
+          })}
         </div>,
         document.body,
       )}
@@ -227,7 +244,11 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
                       <Icon name="layers" size={13} /> {f.display_name || f.filename}
                       <span className="gh-count">{multi ? `${items.length} giấy chứng nhận` : "1 giấy chứng nhận"}</span>
                       {f.dup_suspect && (
-                        <DupFlag candidates={f.dup_candidates || []} onOpen={onOpen} />
+                        <DupFlag
+                          current={{ gcn_id: f.gcn_id, filename: f.filename, display_name: f.display_name,
+                            created_at: f.created_at, status: f.status }}
+                          candidates={f.dup_candidates || []} onOpen={onOpen}
+                        />
                       )}
                       {f.locked_by && (
                         <span className="lock-flag" title="Đang được hậu kiểm — mở ra sẽ ở chế độ chỉ xem">

@@ -229,12 +229,22 @@ export default function Reconcile({ gcnId, onBack, onOpen }) {
   const dirty = Object.keys(overrides).length > 0 || name !== ((doc.review && doc.review.display_name) || "");
   const readOnly = (!!lockedBy && !haveLock) || lockError;
   const reviewStatus = doc.review?.status || "unreviewed";
+  // Tên hồ sơ ĐANG XEM, hiện rõ bằng nhãn riêng — không dựa vào placeholder của
+  // ô đổi tên (placeholder rỗng khi chưa đặt tên, không cho biết tên hiệu lực
+  // thực tế đang là gì). Lấy theo tên đã LƯU (không phải bản đang gõ dở).
+  const currentName = (doc.review && doc.review.display_name) || doc.filename || gcnId;
+  // Tên hồ sơ giờ có thể đã kèm sẵn đuôi file gốc (server tự thêm, xem
+  // routes/gcn.py put_review) — bỏ đuôi đó trước khi ghép ".zip" khi tải về,
+  // tránh tên file kiểu "...pdf.zip" nhìn như lỗi nhân đôi đuôi.
+  const zipBase = name || currentName;
+  const zipBaseName = zipBase.toLowerCase().endsWith(".pdf") ? zipBase.slice(0, -4) : zipBase;
 
   return (
     <div className="panel reconcile">
       <div className="rc-toolbar">
         <button className="ghost sm" onClick={onBack}><Icon name="chevronLeft" size={14} /> Kết quả trích xuất</button>
         <span className={`badge st-${doc.status}`}>{STATUS_LABEL[doc.status] || doc.status}</span>
+        <span className="rc-current-name" title="Hồ sơ đang xem">{currentName}</span>
         <input className="rc-name" placeholder="Đặt tên hồ sơ…" value={name} disabled={readOnly}
           onChange={(e) => setName(e.target.value)}
           title={readOnly
@@ -261,7 +271,7 @@ export default function Reconcile({ gcnId, onBack, onOpen }) {
             </button>
           </>
         )}
-        <button className="primary sm" onClick={() => downloadGcn(gcnId, `${(name || gcnId)}.zip`)}>
+        <button className="primary sm" onClick={() => downloadGcn(gcnId, `${zipBaseName}.zip`)}>
           <Icon name="download" size={14} /> Tải hồ sơ
         </button>
       </div>
@@ -275,21 +285,39 @@ export default function Reconcile({ gcnId, onBack, onOpen }) {
         </div>
       )}
 
-      {doc.dup_suspect && (doc.dup_candidates || []).length > 0 && (
-        <div className="admin-warn rc-dup-banner">
-          <Icon name="alertTriangle" size={16} />
-          <div>
-            <b>Nghi trùng nội dung</b> với {doc.dup_candidates.length} hồ sơ khác (cùng Số phát hành):
-            <div className="rc-dup-list">
-              {doc.dup_candidates.map((c) => (
-                <button type="button" key={c.gcn_id} className="ghost xs" onClick={() => onOpen?.(c.gcn_id)}>
-                  {c.filename || c.gcn_id} · {fmtDupDate(c.created_at)} · {STATUS_LABEL[c.status] || c.status || "?"}
-                </button>
-              ))}
+      {doc.dup_suspect && (doc.dup_candidates || []).length > 0 && (() => {
+        // Hiện ĐẦY ĐỦ cả nhóm, KỂ CẢ hồ sơ đang xem — bấm sang hồ sơ khác trong
+        // nhóm vẫn thấy đúng 1 danh sách y hệt (chỉ khác mục nào đánh dấu "đang
+        // xem"), tránh cảm giác "danh sách bị đổi" khi hồ sơ tự nó bị loại khỏi
+        // danh sách nghi trùng của chính nó (dup_candidates vốn chỉ chứa "hồ sơ
+        // KHÁC", không có chính nó).
+        const group = [
+          { gcn_id: doc.gcn_id, filename: doc.filename, display_name: doc.review?.display_name,
+            created_at: doc.created_at, status: doc.status },
+          ...doc.dup_candidates,
+        ].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+        return (
+          <div className="admin-warn rc-dup-banner">
+            <Icon name="alertTriangle" size={16} />
+            <div>
+              <b>Nghi trùng nội dung</b> — {group.length} hồ sơ cùng Số phát hành:
+              <div className="rc-dup-list">
+                {group.map((c) => {
+                  const isCurrent = c.gcn_id === gcnId;
+                  return (
+                    <button type="button" key={c.gcn_id} className={`ghost xs${isCurrent ? " rc-dup-current" : ""}`}
+                      disabled={isCurrent} onClick={() => onOpen?.(c.gcn_id)}>
+                      {isCurrent && <Icon name="checkCircle" size={12} />}
+                      {c.display_name || c.filename || c.gcn_id}
+                      {" · "}{isCurrent ? "Đang xem" : `${fmtDupDate(c.created_at)} · ${STATUS_LABEL[c.status] || c.status || "?"}`}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       <div className={`rc-body ${pdfOpen ? "with-pdf" : "no-pdf"}`}>
         {pdfOpen && (

@@ -3,6 +3,7 @@
 import csv
 import io
 import json
+import os
 import re
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -485,7 +486,10 @@ async def release_lock(gcn_id: str, user: dict = Depends(require_viewer)):
 
 @router.put("/{gcn_id}")
 async def put_review(gcn_id: str, body: ReviewIn, user: dict = Depends(require_viewer)):
-    proj = {"review": 1, "branch": 1}
+    # filename: 1 — BẮT BUỘC để lấy đúng đuôi file gốc khi tự thêm đuôi cho tên
+    # mới bên dưới (thiếu dòng này thì doc.get("filename") luôn None dù tên tệp
+    # gốc thực tế có đuôi, khiến hệ thống tưởng nhầm là "file gốc không có đuôi").
+    proj = {"review": 1, "branch": 1, "filename": 1}
     recompute = body.overrides is not None or body.deleted is not None
     if recompute:  # cần raw để tính lại cột dẫn xuất
         proj.update({"extractions": 1, "cuts": 1})
@@ -500,8 +504,23 @@ async def put_review(gcn_id: str, body: ReviewIn, user: dict = Depends(require_v
         raise HTTPException(status_code=409, detail={
             "message": "Người khác vừa sửa hồ sơ này, hãy tải lại", "current_version": current_version,
         })
-    if body.display_name is not None:
-        review["display_name"] = body.display_name
+    # `is not None` không phân biệt được "không gửi display_name" với "gửi
+    # display_name=null" (xóa tên) — cả 2 đều None trong Python, nên xóa tên
+    # bị BỎ QUA im lặng (tên cũ không mất dù ô nhập trên UI đã trống). Dùng
+    # model_fields_set để biết field có THỰC SỰ nằm trong request hay không.
+    if "display_name" in body.model_fields_set:
+        dn = body.display_name
+        if dn:
+            # Người dùng đặt tên thường quên đuôi file (gõ "Hợp đồng ABC" thay vì
+            # "Hợp đồng ABC.pdf") — tự thêm đúng đuôi của file GỐC (doc.filename)
+            # nếu tên mới chưa có sẵn đuôi đó. Tên file gốc đôi khi TỰ NÓ cũng
+            # không có đuôi (vd tên tệp lúc tải lên/import chỉ là "34567" không
+            # ".pdf") — mặc định ".pdf" trong trường hợp đó vì hệ thống CHỈ xử lý
+            # PDF (kiểm tra magic-byte %PDF, không nhận định dạng khác).
+            orig_ext = os.path.splitext(doc.get("filename") or "")[1] or ".pdf"
+            if not dn.lower().endswith(orig_ext.lower()):
+                dn = f"{dn}{orig_ext}"
+        review["display_name"] = dn
     if body.overrides is not None:
         review["overrides"] = body.overrides
     if body.deleted is not None:
@@ -586,6 +605,10 @@ async def download(gcn_id: str, user: dict = Depends(current_user)):
     await log_action(user["username"], AuditAction.GCN_DOWNLOAD, gcn_id)
     name = (doc.get("review") or {}).get("display_name") or doc.get("group_key") \
         or doc.get("filename", gcn_id)
+    # display_name giờ có thể đã kèm sẵn đuôi file gốc (xem put_review) — bỏ đuôi
+    # đó trước khi tự thêm ".pdf" dưới đây, tránh nhân đôi ("ABC.pdf.pdf").
+    if name.lower().endswith(".pdf"):
+        name = name[: -len(".pdf")]
     name = _safe(name)
 
     buf = io.BytesIO()
@@ -667,10 +690,13 @@ async def _enrich_dup_candidates(items: list[dict]) -> None:
         return
     cursor = gcns().find(
         {"_id": {"$in": list(ids)}},
-        {"filename": 1, "batch_id": 1, "created_at": 1, "status": 1},
+        {"filename": 1, "batch_id": 1, "created_at": 1, "status": 1, "review.display_name": 1},
     )
     info = {d["_id"]: {
         "gcn_id": d["_id"], "filename": d.get("filename"), "batch_id": d.get("batch_id"),
+        # Hồ sơ đã đặt lại tên (review.display_name) → hiện tên đó, không hiện
+        # tên tệp gốc nữa — khớp quy ước hiển thị đang dùng ở bảng danh sách.
+        "display_name": (d.get("review") or {}).get("display_name"),
         "created_at": d.get("created_at"), "status": d.get("status"),
     } async for d in cursor}
     for it in items:

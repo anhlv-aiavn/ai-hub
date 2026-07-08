@@ -978,6 +978,11 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .rc-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   position: sticky; top: 56px; z-index: var(--z-sticky); background: var(--bg);
   padding: 6px 0; }
+/* Tên hồ sơ đang xem — nhãn hiển thị RIÊNG, không phải placeholder của ô đổi
+   tên (placeholder rỗng khi chưa đặt tên thì không nói lên tên hiệu lực thực
+   tế là gì) — luôn thấy rõ đang xem hồ sơ nào, kể cả trước khi gõ/lưu tên mới. */
+.rc-current-name { font-size: 13px; font-weight: 600; color: var(--text-2); max-width: 260px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rc-name { flex: 1 1 280px; padding: 7px 11px; font: inherit; border: 1px solid var(--border-2);
   border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); }
 .rc-name:disabled { opacity: .55; cursor: not-allowed; }
@@ -1152,6 +1157,10 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .admin-warn b { display: block; margin-bottom: 3px; color: #78350f; }
 .admin-warn .primary.sm, .admin-warn .ghost.sm { margin-top: 8px; margin-right: 8px; }
 .rc-dup-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+/* Hồ sơ ĐANG XEM trong nhóm nghi trùng — nổi bật, không bấm được (đã ở đây rồi) */
+.rc-dup-list button.rc-dup-current { background: var(--accent-50); border-color: var(--accent);
+  color: var(--accent); cursor: default; display: inline-flex; align-items: center; gap: 4px; }
+.rc-dup-list button.rc-dup-current:hover { background: var(--accent-50); }
 
 .logo-edit-row { display: flex; align-items: center; gap: 10px; }
 .logo-edit-row .text-input { flex: 1; }
@@ -1287,9 +1296,13 @@ label.file-row { width: 100%; }
 .dup-pop-item { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 7px 8px; border: 0;
   border-radius: var(--radius-sm); background: transparent; font: inherit; text-align: left; cursor: pointer; }
 .dup-pop-item:hover { background: var(--surface-3); }
-.dup-pop-item .dpi-name { font-size: 12.5px; color: var(--text); font-weight: 600;
+.dup-pop-item .dpi-name { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--text); font-weight: 600;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dup-pop-item .dpi-meta { font-size: 11px; color: var(--text-3); }
+/* Hồ sơ đang xem trong nhóm nghi trùng — nổi bật + không bấm được (đã ở đây rồi) */
+.dup-pop-item.is-current { background: var(--accent-50); cursor: default; }
+.dup-pop-item.is-current .dpi-name, .dup-pop-item.is-current .dpi-meta { color: var(--accent); }
+.dup-pop-item.is-current:hover { background: var(--accent-50); }
 
 /* Đang được người khác hậu kiểm (soft-lock) — thấy ngay ở bảng, khỏi bấm trùng */
 .lock-flag { display: inline-flex; align-items: center; gap: 4px; margin-left: 10px; padding: 1px 8px;
