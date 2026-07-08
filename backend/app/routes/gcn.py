@@ -48,12 +48,28 @@ _TABLE_PROJ = {
 }
 
 
+def _viewer_own_or(user: dict) -> dict | None:
+    """Viewer chỉ được xem hồ sơ CHƯA hậu kiểm (việc cần làm) hoặc hồ sơ CHÍNH
+    HỌ đã hậu kiểm (lịch sử của mình) — không thấy hồ sơ người khác đã Duyệt/
+    Không duyệt, tránh lộ kết quả hậu kiểm của đồng nghiệp. operator/admin
+    không bị giới hạn này (chỉ giới hạn theo chi nhánh qua `scoped_branch`)."""
+    if user.get("role") != "viewer":
+        return None
+    return {"$or": [
+        {"review.status": {"$nin": ["reviewed", "needs_review"]}},
+        {"review.reviewer": user.get("username")},
+    ]}
+
+
 @router.get("")
 async def list_gcn(
     batch_id: str | None = None,
     branch: str | None = None,
     status: str | None = None,
     review: str | None = None,
+    reviewer: str | None = Query(default=None, description=(
+        "Lọc theo tài khoản đã hậu kiểm (review.reviewer) — kết hợp với `review` "
+        "để xem các bản ghi tài khoản đó đã Duyệt/Không duyệt")),
     q: str | None = Query(default=None, description=(
         "Tìm theo Số phát hành, Số tờ, Số thửa, Số vào sổ, tên tệp/tên hồ sơ, "
         "tên file GCN (cắt) hoặc Chủ sử dụng")),
@@ -75,6 +91,15 @@ async def list_gcn(
         flt["status"] = status
     if review:
         flt["review.status"] = review
+    if reviewer:
+        flt["review.reviewer"] = reviewer
+    # $or dùng cho 2 mục đích độc lập (giới hạn hiển thị của viewer, và tìm theo
+    # `q`) — gộp bằng $and thay vì gán thẳng flt["$or"] 2 lần (dict Python chỉ giữ
+    # được 1 khóa "$or", lần gán sau sẽ ghi đè mất lần trước).
+    and_clauses: list[dict] = []
+    own_or = _viewer_own_or(user)
+    if own_or:
+        and_clauses.append(own_or)
     if q:
         # re.escape: q là chuỗi người dùng gõ tự do, không phải regex họ tự viết —
         # escape để ký tự đặc biệt (. * ( ) ...) được hiểu là literal, tránh khớp
@@ -82,7 +107,7 @@ async def list_gcn(
         qr = re.escape(q.strip())
         # Mongo tự động dò vào từng phần tử của mảng (kể cả mảng lồng trong mảng
         # con của `gcn_rows`), nên không cần $elemMatch cho các field dạng list.
-        flt["$or"] = [
+        and_clauses.append({"$or": [
             {"extracted_so_phat_hanhs": {"$regex": qr, "$options": "i"}},  # Số phát hành
             {"filename": {"$regex": qr, "$options": "i"}},  # tên tệp gốc
             {"review.display_name": {"$regex": qr, "$options": "i"}},  # tên hồ sơ đã đổi
@@ -92,7 +117,9 @@ async def list_gcn(
             {"gcn_rows.to_ban_do": {"$regex": qr, "$options": "i"}},  # Số tờ
             {"gcn_rows.so_thua": {"$regex": qr, "$options": "i"}},  # Số thửa
             {"gcn_rows.chu_su_dung": {"$regex": qr, "$options": "i"}},
-        ]
+        ]})
+    if and_clauses:
+        flt["$and"] = and_clauses
 
     page = max(1, page)
     page_size = max(1, min(page_size, 500))
@@ -129,7 +156,7 @@ async def list_gcn(
     }
 
 
-async def _collect_rows(batch_id, status, review, branch=None) -> list[dict]:
+async def _collect_rows(batch_id, status, review, branch=None, user: dict | None = None) -> list[dict]:
     flt: dict = {}
     if batch_id:
         flt["batch_id"] = batch_id
@@ -139,6 +166,9 @@ async def _collect_rows(batch_id, status, review, branch=None) -> list[dict]:
         flt["status"] = status
     if review:
         flt["review.status"] = review
+    own_or = _viewer_own_or(user) if user else None
+    if own_or:
+        flt["$and"] = [own_or]
     docs = await gcns().find(flt).to_list(length=5000)
     docs.sort(key=lambda r: (r.get("group_key") is None, r.get("group_key") or "",
                              str(r.get("created_at") or "")))
@@ -157,7 +187,7 @@ async def gcn_rows(batch_id: str | None = None, status: str | None = None,
 
     Phân trang ở TẦNG HÀNG (1 hàng = 1 thửa, xem `flatten_doc`) — chỉ áp cho
     preview trên UI; `export.csv`/xuất nền vẫn lấy toàn bộ qua `_collect_rows`."""
-    all_rows = await _collect_rows(batch_id, status, review, scoped_branch(user, branch))
+    all_rows = await _collect_rows(batch_id, status, review, scoped_branch(user, branch), user)
     page = max(1, page)
     page_size = max(1, min(page_size, 500))
     start = (page - 1) * page_size
@@ -173,7 +203,7 @@ async def gcn_rows(batch_id: str | None = None, status: str | None = None,
 async def export_csv(batch_id: str | None = None, status: str | None = None,
                      review: str | None = None, branch: str | None = None,
                      user: dict = Depends(current_user)):
-    rows = await _collect_rows(batch_id, status, review, scoped_branch(user, branch))
+    rows = await _collect_rows(batch_id, status, review, scoped_branch(user, branch), user)
     buf = io.StringIO()
     buf.write("﻿")  # BOM để Excel đọc UTF-8 đúng
     writer = csv.DictWriter(buf, fieldnames=FLAT_COLUMNS, extrasaction="ignore")
@@ -650,6 +680,7 @@ def _expand(doc: dict) -> list[dict]:
         "display_name": rev.get("display_name"),
         "status": doc.get("status"),
         "review_status": rev.get("status", "unreviewed"),
+        "reviewer": rev.get("reviewer"),
         "locked_by": locked_by,
         "error": doc.get("error"),
         "created_at": doc.get("created_at"),

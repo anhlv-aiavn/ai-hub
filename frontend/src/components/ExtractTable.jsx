@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Icon from "./Icon.jsx";
 import Pager from "./Pager.jsx";
-import { listGcn, listBatches, getBranches } from "../api.js";
+import { listGcn, listBatches, getBranches, getStats } from "../api.js";
 import { subscribeEvents } from "../events.js";
 
 const PAGE_SIZE = 50;
@@ -118,12 +118,19 @@ function DupFlag({ current, candidates, onOpen }) {
 
 export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initialStatus = "" }) {
   const isAdmin = user?.role === "admin";
+  // Viewer bị server giới hạn CHỈ thấy hồ sơ chưa hậu kiểm + hồ sơ CHÍNH họ đã
+  // hậu kiểm (xem `_viewer_own_or` ở backend) — lọc theo tài khoản khác vô nghĩa
+  // với họ (luôn ra rỗng) nên ẩn hẳn dropdown, chỉ hiện cho operator/admin (admin
+  // thấy mọi tài khoản, operator chỉ thấy tài khoản cùng chi nhánh của mình).
+  const canFilterReviewer = user?.role !== "viewer";
   const [batches, setBatches] = useState([]);
   const [branches, setBranches] = useState([]);
   const [branch, setBranch] = useState("");
   const [rows, setRows] = useState([]);
   const [status, setStatus] = useState(initialStatus);
   const [review, setReview] = useState("");
+  const [reviewer, setReviewer] = useState("");
+  const [reviewers, setReviewers] = useState([]);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
   const [hasPending, setHasPending] = useState(false);
@@ -137,7 +144,8 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
     try {
       const d = await listGcn({
         batchId, branch: branch || undefined, status: status || undefined,
-        review: review || undefined, q: q.trim() || undefined, page: p, pageSize: PAGE_SIZE,
+        review: review || undefined, reviewer: reviewer || undefined,
+        q: q.trim() || undefined, page: p, pageSize: PAGE_SIZE,
       });
       const list = d.gcn || [];
       setRows(list);
@@ -151,6 +159,14 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
   function refreshBatches() {
     listBatches().then((d) => setBatches(d.batches || [])).catch(() => {});
   }
+  // Danh sách tài khoản để lọc lấy từ /stats.by_reviewer (chỉ những ai đã từng
+  // Duyệt/Không duyệt ít nhất 1 lần) — không cần quyền admin như /v1/users.
+  function refreshReviewers() {
+    if (!canFilterReviewer) return;
+    getStats({ batchId, branch: branch || undefined }).then((d) => {
+      setReviewers((d.by_reviewer || []).map((r) => r.reviewer).filter(Boolean).sort());
+    }).catch(() => {});
+  }
   useEffect(() => {
     refreshBatches();
     if (isAdmin) getBranches().then((d) => setBranches(d.branches || [])).catch(() => {});
@@ -159,7 +175,9 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
   // Đổi bộ lọc → về trang 1 (không dùng state `page` cũ để tránh closure lệch nhịp).
   // Đổi batchId (kể cả khi vừa tạo đợt mới ở "Số hóa") → cũng nạp lại danh sách đợt
   // để số lượng hồ sơ hiển thị đúng ngay, không cần tải lại trang.
-  useEffect(() => { setPage(1); refresh(1); refreshBatches(); /* eslint-disable-next-line */ }, [batchId, branch, status, review]);
+  useEffect(() => { setPage(1); refresh(1); refreshBatches(); /* eslint-disable-next-line */ }, [batchId, branch, status, review, reviewer]);
+  // Danh sách tài khoản phụ thuộc đợt/chi nhánh đang chọn — nạp lại khi đổi.
+  useEffect(() => { refreshReviewers(); /* eslint-disable-next-line */ }, [batchId, branch, canFilterReviewer]);
 
   function goToPage(p) { setPage(p); refresh(p); }
   function runSearch() { setPage(1); refresh(1); }
@@ -213,6 +231,13 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
           <select value={review} onChange={(e) => setReview(e.target.value)}>
             {Object.entries(REVIEW_FILTER).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
+          {canFilterReviewer && (
+            <select value={reviewer} onChange={(e) => setReviewer(e.target.value)}
+              title="Lọc theo tài khoản đã Duyệt/Không duyệt — kết hợp với bộ lọc Hậu kiểm">
+              <option value="">Mọi tài khoản</option>
+              {reviewers.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          )}
           <div className="search-box" title="Tìm theo số phát hành, số tờ, số thửa, số vào sổ, tên hồ sơ, tên file GCN, chủ sử dụng">
             <Icon name="search" size={15} />
             <input

@@ -284,12 +284,13 @@ export async function getBatch(id) {
 }
 
 // ── GCN / bảng trích xuất ────────────────────────────────────────────────────
-export async function listGcn({ batchId, branch, status, review, q, page = 1, pageSize = 50 } = {}) {
+export async function listGcn({ batchId, branch, status, review, reviewer, q, page = 1, pageSize = 50 } = {}) {
   const p = new URLSearchParams();
   if (batchId) p.set("batch_id", batchId);
   if (branch) p.set("branch", branch);
   if (status) p.set("status", status);
   if (review) p.set("review", review);
+  if (reviewer) p.set("reviewer", reviewer);
   if (q) p.set("q", q);
   p.set("page", String(page));
   p.set("page_size", String(pageSize));
