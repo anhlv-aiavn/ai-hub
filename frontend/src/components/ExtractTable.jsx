@@ -55,16 +55,23 @@ function DupFlag({ candidates, onOpen }) {
       if (btnRef.current?.contains(e.target) || popRef.current?.contains(e.target)) return;
       setOpen(false);
     }
-    // Cuộn bảng hoặc resize cửa sổ → toạ độ đã đo không còn đúng nữa, đóng luôn
-    // cho đơn giản (thay vì phải theo dõi lại vị trí liên tục).
-    function onScrollOrResize() { setOpen(false); }
+    // Cuộn bảng/trang hoặc resize cửa sổ → toạ độ đã đo không còn đúng nữa,
+    // đóng luôn cho đơn giản (thay vì phải theo dõi lại vị trí liên tục). Cuộn
+    // BÊN TRONG popover (danh sách nhiều hồ sơ nghi trùng, .dup-pop có overflow-y
+    // riêng) thì bỏ qua — không thì vừa lướt xem danh sách là popover tự đóng
+    // ngay (bug thực tế: nhiều nội dung hiện thanh cuộn, cuộn phát là mất popover).
+    function onScroll(e) {
+      if (popRef.current?.contains(e.target)) return;
+      setOpen(false);
+    }
+    function onResize() { setOpen(false); }
     document.addEventListener("mousedown", onDoc, true);
-    window.addEventListener("scroll", onScrollOrResize, true);
-    window.addEventListener("resize", onScrollOrResize);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
     return () => {
       document.removeEventListener("mousedown", onDoc, true);
-      window.removeEventListener("scroll", onScrollOrResize, true);
-      window.removeEventListener("resize", onScrollOrResize);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
     };
   }, [open]);
 
