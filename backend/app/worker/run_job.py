@@ -216,6 +216,32 @@ async def _build_cuts(gcn_id: str, batch_id, images: list[str], records: list) -
     return cuts
 
 
+async def _refresh_dup_group(mongo: AsyncMongo, gcn_id: str, sph_list: list[str]) -> tuple[bool, list[str]]:
+    """Tính LẠI TOÀN BỘ (không cộng dồn) danh sách hồ sơ khác cùng chia sẻ ít
+    nhất 1 Số phát hành với `gcn_id`, rồi GHI ĐÈ (không $addToSet). Quan hệ này
+    đối xứng tự nhiên (X giao Y ≠ rỗng ⇔ Y giao X ≠ rỗng) và không giới hạn số
+    lượng kết quả.
+
+    Trước đây: mỗi doc chỉ tự tính 1 LẦN lúc xử lý xong, cap tối đa 5 kết quả
+    (chiều tiến), rồi các doc TÌM THẤY được cộng dồn thêm chính doc mới vào
+    danh sách của HỌ qua $addToSet (chiều ngược, không cap) — 2 chiều khác cơ
+    chế nhau nên 2 hồ sơ "trùng nhau" hoàn toàn có thể ra số lượng khác nhau,
+    tùy thời điểm/thứ tự xử lý (bug thực tế người dùng gặp: hồ sơ 1 thấy trùng
+    5, hồ sơ 2 lại thấy trùng 7). Tính lại toàn bộ + ghi đè cho MỌI hồ sơ liên
+    quan mỗi lần có thay đổi giúp tự "chữa lành" luôn dữ liệu lệch cũ, không
+    cần script backfill riêng."""
+    others = await mongo.db[config.COLL_GCN].find(
+        {"extracted_so_phat_hanhs": {"$in": sph_list}, "_id": {"$ne": gcn_id}},
+        {"_id": 1},
+    ).to_list(length=None)
+    ids = [d["_id"] for d in others]
+    await mongo.update_one(
+        config.COLL_GCN, {"_id": gcn_id},
+        {"$set": {"dup_suspect": bool(ids), "dup_candidates": ids}},
+    )
+    return bool(ids), ids
+
+
 # ── Orchestration cho 1 doc đã được worker claim ────────────────────────────
 
 async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
@@ -298,18 +324,6 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
             log.warning("build_cuts %s lỗi: %s", gcn_id, e)
 
     sph_list = collect_so_phat_hanhs(records)
-    dup_suspect, dup_candidates = False, []
-    if status == "done" and sph_list:
-        # Đánh dấu nghi trùng nội dung (PLAN_PHASE2.md §⑧): unique index chống
-        # trùng theo KEY, không theo NỘI DUNG — 2 lần scan cùng GCN dưới 2 tên
-        # khác nhau vẫn ra 2 doc. Không chặn cứng (2 bản scan có thể khác chất
-        # lượng), chỉ cảnh báo để hậu kiểm biết mà xử lý.
-        dupes = await mongo.db[config.COLL_GCN].find(
-            {"extracted_so_phat_hanhs": {"$in": sph_list}, "_id": {"$ne": gcn_id}},
-            {"_id": 1},
-        ).to_list(length=5)
-        dup_candidates = [d["_id"] for d in dupes]
-        dup_suspect = bool(dup_candidates)
 
     # Lỗi trích xuất (timeout VLM, không nhận diện được bìa...) — mặc định
     # "transient", cho phép "retry hàng loạt" thử lại (§Quy mô cực lớn 6).
@@ -322,15 +336,27 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
         "extracted_so_phat_hanhs": sph_list,
         "summary": summarize(records),
         "gcn_rows": per_gcn(records, cuts), "cuts": cuts,
-        "dup_suspect": dup_suspect, "dup_candidates": dup_candidates,
         "finished_at": datetime.now(timezone.utc),
     }
     await mongo.update_one(config.COLL_GCN, {"_id": gcn_id}, {"$set": update})
-    if dup_suspect:  # 2 chiều: doc trước cũng cần biết doc mới trùng với nó
-        await mongo.db[config.COLL_GCN].update_many(
-            {"_id": {"$in": dup_candidates}},
-            {"$set": {"dup_suspect": True}, "$addToSet": {"dup_candidates": gcn_id}},
-        )
+
+    dup_suspect, dup_candidates = False, []
+    if status == "done" and sph_list:
+        # Đánh dấu nghi trùng nội dung (PLAN_PHASE2.md §⑧): unique index chống
+        # trùng theo KEY, không theo NỘI DUNG — 2 lần scan cùng GCN dưới 2 tên
+        # khác nhau vẫn ra 2 doc. Không chặn cứng (2 bản scan có thể khác chất
+        # lượng), chỉ cảnh báo để hậu kiểm biết mà xử lý.
+        dup_suspect, dup_candidates = await _refresh_dup_group(mongo, gcn_id, sph_list)
+        # Đối xứng: MỌI hồ sơ vừa tìm thấy cũng phải tính LẠI TOÀN BỘ danh sách
+        # của chính họ (không chỉ cộng thêm 1 mình doc này) — tự chữa lành luôn
+        # phần dữ liệu lệch tích tụ trước đây của họ (xem docstring
+        # `_refresh_dup_group`).
+        for other_id in dup_candidates:
+            other = await mongo.db[config.COLL_GCN].find_one(
+                {"_id": other_id}, {"extracted_so_phat_hanhs": 1})
+            if other:
+                await _refresh_dup_group(mongo, other_id, other.get("extracted_so_phat_hanhs") or [])
+
     counts = await bump(mongo.db[config.COLL_BATCH], batch_id, processing=-1, **{status: 1})
     if status == "error" or not is_large:
         publish_sync({"type": "gcn", "gcn_id": gcn_id, "batch_id": batch_id,
