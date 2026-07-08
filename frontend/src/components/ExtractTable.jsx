@@ -7,10 +7,10 @@ import { subscribeEvents } from "../events.js";
 const PAGE_SIZE = 50;
 const PENDING = new Set(["queued", "processing"]);
 
-const STATUS_LABEL = {
+export const STATUS_LABEL = {
   queued: "Chờ", processing: "Đang xử lý", done: "Xong", error: "Lỗi", skip: "Bỏ qua",
 };
-const REVIEW_LABEL = {
+export const REVIEW_LABEL = {
   unreviewed: "Chưa kiểm", needs_review: "Không duyệt", reviewed: "Đã duyệt",
 };
 const REVIEW_FILTER = { "": "Mọi hậu kiểm", ...REVIEW_LABEL };
@@ -114,7 +114,7 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
               value={q}
               onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && runSearch()} />
           </div>
-          <button className="ghost sm" onClick={() => refresh()}><Icon name="refresh" size={14} /> Làm mới</button>
+          <button className="ghost sm" onClick={() => refresh()}><Icon name="refresh" size={14} /> Tìm kiếm</button>
         </div>
       </div>
 

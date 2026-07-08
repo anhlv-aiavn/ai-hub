@@ -219,9 +219,20 @@ button.login-btn:disabled { opacity: .45; }
 .acct-item.is-danger { color: var(--err); }
 .acct-item.is-danger:hover { background: #fdf3f2; }
 .users-panel { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
-.user-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.user-form .text-input { width: auto; flex: 1 1 150px; min-width: 130px; }
-.user-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.user-form { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; }
+.user-form .uf-field { display: flex; flex-direction: column; gap: 5px; flex: 1 1 150px; min-width: 130px; }
+.user-form .uf-field .field-label { margin-bottom: 0; }
+.user-form .text-input { width: 100%; box-sizing: border-box; }
+.user-form .uf-submit { flex: 0 0 auto; min-width: 0; }
+.req { color: var(--err); margin-left: 1px; }
+/* Cột thao tác dùng bề rộng cố định cho từng nút để "Khóa"/"Mở" luôn thẳng hàng
+   giữa các dòng dù độ dài chữ khác nhau; ô trống (dòng chính mình) vẫn giữ chỗ. */
+.user-actions { display: grid; grid-template-columns: 104px 60px 52px; gap: 6px; align-items: center; }
+.user-actions button { width: 100%; box-sizing: border-box; }
+.user-actions .ua-slot { display: block; }
+/* Ẩn icon "hiện mật khẩu" mặc định của trình duyệt (Edge/Chrome) — icon này lệch
+   theo từng trình duyệt và làm ô mật khẩu trông không thẳng hàng với các ô khác. */
+input[type="password"]::-ms-reveal, input[type="password"]::-ms-clear { display: none; }
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; border: 1px solid transparent; background: transparent;

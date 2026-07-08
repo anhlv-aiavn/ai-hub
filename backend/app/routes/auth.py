@@ -28,7 +28,11 @@ async def login(body: LoginIn):
         wait = u["locked_until"] - now
         raise HTTPException(status_code=429, detail=f"Tạm khóa, thử lại sau {wait}s")
 
-    ok = bool(u) and u.get("active", True) and auth.verify_password(body.password, u.get("password", ""))
+    # Tài khoản tồn tại nhưng bị admin khóa — báo rõ, không lẫn với sai mật khẩu.
+    if u and not u.get("active", True):
+        raise HTTPException(status_code=401, detail="Tài khoản này đang bị khóa, vui lòng liên hệ quản trị viên")
+
+    ok = bool(u) and auth.verify_password(body.password, u.get("password", ""))
     if not ok:
         if u:  # đếm số lần sai, khóa khi vượt ngưỡng
             fails = int(u.get("login_fails", 0)) + 1

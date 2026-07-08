@@ -8,6 +8,7 @@ import {
 } from "../api.js";
 import { subscribeEvents } from "../events.js";
 import { toastOk, toastErr } from "../toast.js";
+import { STATUS_LABEL, REVIEW_LABEL } from "./ExtractTable.jsx";
 
 const ROWS_PAGE_SIZE = 50;
 const REVIEW = { "": "Mọi hậu kiểm", reviewed: "Đã duyệt", needs_review: "Không duyệt", unreviewed: "Chưa kiểm" };
@@ -27,7 +28,8 @@ const REVIEW_SEGS = [
 ];
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
-const pct = (n, total) => (total ? Math.round((n / total) * 100) : 0);
+// Làm tròn đến 2 chữ số thập phân — làm tròn số nguyên rồi cộng các phần có thể lệch tổng (vd 99%/101%).
+const pct = (n, total) => (total ? ((n / total) * 100).toFixed(2) : "0.00");
 
 function SegBar({ title, segs, data, unit = "hồ sơ" }) {
   const items = segs.map((x) => ({ ...x, n: data[x.key] || 0 }));
@@ -288,6 +290,8 @@ export default function ExportView({ user }) {
         </button>
       );
     }
+    if (col === "Trạng thái") return STATUS_LABEL[r[col]] || r[col] || "—";
+    if (col === "Hậu kiểm") return REVIEW_LABEL[r[col]] || r[col] || "—";
     const v = r[col];
     return v == null ? "" : String(v);
   }
@@ -384,8 +388,8 @@ export default function ExportView({ user }) {
       </div>
 
       {preview && (
-        <div className="modal-overlay" onClick={() => setPreview(null)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay">
+          <div className="modal-card">
             <div className="modal-head">
               <b>{preview.cutIndex != null ? "File cắt" : "File gốc"} · {preview.title}</b>
               <button className="icon-btn" onClick={() => setPreview(null)} aria-label="Đóng"><Icon name="x" size={16} /></button>

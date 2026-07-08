@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
 import GcnPdf from "./GcnPdf.jsx";
 import EditableTree, { setAt } from "./EditableTree.jsx";
+import { STATUS_LABEL } from "./ExtractTable.jsx";
 import {
   getGcn, putReview, downloadGcn,
   claimReviewLock, heartbeatReviewLock, releaseReviewLock,
@@ -226,7 +227,7 @@ export default function Reconcile({ gcnId, onBack }) {
     <div className="panel reconcile">
       <div className="rc-toolbar">
         <button className="ghost sm" onClick={onBack}><Icon name="chevronLeft" size={14} /> Kết quả trích xuất</button>
-        <span className={`badge st-${doc.status}`}>{doc.status}</span>
+        <span className={`badge st-${doc.status}`}>{STATUS_LABEL[doc.status] || doc.status}</span>
         <input className="rc-name" placeholder="Đặt tên hồ sơ…" value={name} disabled={readOnly}
           onChange={(e) => setName(e.target.value)} title="Tên hiển thị / tên file khi tải" />
         <span className="tb-gap" />
