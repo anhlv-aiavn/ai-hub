@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Icon from "./Icon.jsx";
 import Pager from "./Pager.jsx";
 import { listGcn, listBatches, getBranches } from "../api.js";
@@ -21,25 +22,61 @@ function fmtDupDate(v) {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
+const DUP_POP_WIDTH = 300; // khớp min-width ở CSS .dup-pop — dùng để tự kẹp trong viewport
+
 // Cờ "Nghi trùng" bấm ra danh sách CỤ THỂ hồ sơ nghi trùng (tên/lô/ngày/trạng
 // thái) — bấm 1 hồ sơ để nhảy thẳng sang đối soát, thay vì chỉ biết "trùng với
 // N hồ sơ khác" như trước (không biết là hồ sơ nào để mà so).
+//
+// Popover portal thẳng ra <body>, định vị bằng toạ độ THẬT của nút bấm
+// (getBoundingClientRect), KHÔNG đặt position:absolute lồng trong <tr>/<td>.
+// Bảng nằm trong khung cuộn riêng (.et-scroll { overflow:auto }) và hàng
+// dưới không có position/z-index nào cả, nên tuy popover đặt z-index cao,
+// stacking context của nó vẫn bị "giam" trong bảng → hàng dưới vẫn có thể vẽ
+// đè lên (bug thực tế: badge bấm ra popover nhưng bị dòng tên hồ sơ bên dưới
+// che mất). Portal ra body thoát hẳn khỏi stacking context/overflow của bảng.
 function DupFlag({ candidates, onOpen }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const [pos, setPos] = useState(null); // {top,left} toạ độ viewport, null = chưa đo
+  const btnRef = useRef(null);
+  const popRef = useRef(null);
+
+  function openPop() {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const left = Math.min(r.left, window.innerWidth - DUP_POP_WIDTH - 10);
+    setPos({ top: r.bottom + 6, left: Math.max(8, left) });
+    setOpen(true);
+  }
+
   useEffect(() => {
     if (!open) return;
-    function onDoc(e) { if (!ref.current?.contains(e.target)) setOpen(false); }
+    function onDoc(e) {
+      if (btnRef.current?.contains(e.target) || popRef.current?.contains(e.target)) return;
+      setOpen(false);
+    }
+    // Cuộn bảng hoặc resize cửa sổ → toạ độ đã đo không còn đúng nữa, đóng luôn
+    // cho đơn giản (thay vì phải theo dõi lại vị trí liên tục).
+    function onScrollOrResize() { setOpen(false); }
     document.addEventListener("mousedown", onDoc, true);
-    return () => document.removeEventListener("mousedown", onDoc, true);
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      document.removeEventListener("mousedown", onDoc, true);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
   }, [open]);
+
   return (
-    <span className="dup-flag-wrap" ref={ref}>
-      <button type="button" className="dup-flag" onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}>
+    <span className="dup-flag-wrap">
+      <button type="button" ref={btnRef} className="dup-flag"
+        onClick={(e) => { e.stopPropagation(); open ? setOpen(false) : openPop(); }}>
         <Icon name="alertTriangle" size={12} /> Nghi trùng ({candidates.length})
       </button>
-      {open && (
-        <div className="dup-pop" onClick={(e) => e.stopPropagation()}>
+      {open && pos && createPortal(
+        <div className="dup-pop" ref={popRef} style={{ top: pos.top, left: pos.left }}
+          onClick={(e) => e.stopPropagation()}>
           <div className="dup-pop-title">Nghi trùng nội dung với:</div>
           {candidates.map((c) => (
             <button type="button" key={c.gcn_id} className="dup-pop-item"
@@ -48,7 +85,8 @@ function DupFlag({ candidates, onOpen }) {
               <span className="dpi-meta">{fmtDupDate(c.created_at)} · {STATUS_LABEL[c.status] || c.status || "?"}</span>
             </button>
           ))}
-        </div>
+        </div>,
+        document.body,
       )}
     </span>
   );

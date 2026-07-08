@@ -1276,9 +1276,12 @@ label.file-row { width: 100%; }
 .dup-flag { display: inline-flex; align-items: center; gap: 4px; margin-left: 10px; padding: 1px 8px;
   background: rgba(245,158,11,.14); color: var(--amber); border-radius: 999px; font-size: 11px; font-weight: 600;
   border: 0; cursor: pointer; font-family: inherit; }
-.dup-pop { position: absolute; top: calc(100% + 6px); left: 10px; min-width: 260px; max-width: 360px;
+/* position:fixed + portal ra <body> (xem DupFlag ở ExtractTable.jsx) — top/left
+   set bằng inline style theo toạ độ thật của nút bấm, KHÔNG neo theo .dup-flag-wrap
+   nữa để thoát khỏi stacking context của bảng (bug: hàng dưới che mất popover). */
+.dup-pop { position: fixed; min-width: 260px; max-width: 360px;
   padding: 6px; z-index: 70; background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+  border-radius: var(--radius); box-shadow: var(--shadow-lg); max-height: 60vh; overflow-y: auto; }
 .dup-pop-title { padding: 6px 8px 4px; font-size: 11px; font-weight: 600; color: var(--text-3);
   text-transform: uppercase; letter-spacing: .03em; }
 .dup-pop-item { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 7px 8px; border: 0;
