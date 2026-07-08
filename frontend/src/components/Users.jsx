@@ -1,10 +1,12 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
 import Modal from "./Modal.jsx";
+import Pager from "./Pager.jsx";
 import { listUsers, createUser, updateUser, deleteUser, getBranches } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 
 const ROLE_LABEL = { admin: "Admin", operator: "Operator", viewer: "Viewer" };
+const PAGE_SIZE = 10;
 
 // Quản trị tài khoản (admin): tạo user, gán chi nhánh + vai trò, khóa/mở/đổi mật khẩu/xóa.
 // 3 role: admin (config/secret/users, toàn hệ thống) · operator (import/hậu kiểm,
@@ -15,6 +17,15 @@ export default function Users({ me, onClose }) {
   const [form, setForm] = useState({ username: "", password: "", role: "viewer", branch: "" });
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false); // chặn double-submit ngay lập tức (state busy cập nhật không đồng bộ)
+  const [page, setPage] = useState(1);
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  // Trang hiện tại có thể vượt quá sau khi xóa tài khoản/thêm bộ lọc → kẹp lại trong khoảng hợp lệ.
+  const clampedPage = Math.min(page, totalPages);
+  const pageRows = useMemo(
+    () => rows.slice((clampedPage - 1) * PAGE_SIZE, clampedPage * PAGE_SIZE),
+    [rows, clampedPage],
+  );
 
   async function refresh() {
     try { const d = await listUsers(); setRows(d.users || []); } catch (e) { toastErr(e.message || e); }
@@ -104,7 +115,7 @@ export default function Users({ me, onClose }) {
             <tr><th>Tài khoản</th><th>Vai trò</th><th>Chi nhánh</th><th>Trạng thái</th><th>Thao tác</th></tr>
           </thead>
           <tbody>
-            {rows.map((u) => (
+            {pageRows.map((u) => (
               <tr key={u.username}>
                 <td className="bt-name">{u.username}{u.username === me?.username && " (bạn)"}</td>
                 <td>{ROLE_LABEL[u.role] || u.role}</td>
@@ -132,6 +143,7 @@ export default function Users({ me, onClose }) {
           </tbody>
         </table>
       </div>
+      <Pager page={clampedPage} totalPages={totalPages} total={rows.length} unit="tài khoản" onChange={setPage} />
       </div>
     </Modal>
   );

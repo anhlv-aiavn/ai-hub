@@ -47,13 +47,18 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
   }
   useEffect(() => { refreshRef.current = refresh; });
 
-  useEffect(() => {
+  function refreshBatches() {
     listBatches().then((d) => setBatches(d.batches || [])).catch(() => {});
+  }
+  useEffect(() => {
+    refreshBatches();
     if (isAdmin) getBranches().then((d) => setBranches(d.branches || [])).catch(() => {});
   }, [isAdmin]);
   useEffect(() => { setStatus(initialStatus); }, [initialStatus]);
   // Đổi bộ lọc → về trang 1 (không dùng state `page` cũ để tránh closure lệch nhịp).
-  useEffect(() => { setPage(1); refresh(1); /* eslint-disable-next-line */ }, [batchId, branch, status, review]);
+  // Đổi batchId (kể cả khi vừa tạo đợt mới ở "Số hóa") → cũng nạp lại danh sách đợt
+  // để số lượng hồ sơ hiển thị đúng ngay, không cần tải lại trang.
+  useEffect(() => { setPage(1); refresh(1); refreshBatches(); /* eslint-disable-next-line */ }, [batchId, branch, status, review]);
 
   function goToPage(p) { setPage(p); refresh(p); }
   function runSearch() { setPage(1); refresh(1); }
@@ -107,10 +112,10 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
           <select value={review} onChange={(e) => setReview(e.target.value)}>
             {Object.entries(REVIEW_FILTER).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
-          <div className="search-box">
+          <div className="search-box" title="Tìm theo số phát hành, số tờ, số thửa, số vào sổ, tên hồ sơ, tên file GCN, chủ sử dụng">
             <Icon name="search" size={15} />
             <input
-              placeholder="Tìm số phát hành, số tờ, số thửa, số vào sổ, tên hồ sơ, tên file GCN, chủ sử dụng"
+              placeholder="Tìm số phát hành, số tờ, số thửa, …"
               value={q}
               onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && runSearch()} />
           </div>

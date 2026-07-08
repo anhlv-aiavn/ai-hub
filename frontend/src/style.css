@@ -915,6 +915,9 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 }
 
 .et-scroll { overflow: auto; max-height: calc(100vh - 200px); border: 1px solid var(--border); border-radius: var(--radius); }
+/* Trong modal (vd. Quản trị tài khoản), modal-body đã tự cuộn — bỏ scroll riêng của
+   bảng để tránh 2 thanh cuộn lồng nhau; danh sách đã được phân trang nên không cần. */
+.users-panel .et-scroll { overflow: visible; max-height: none; }
 .et-grid { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--surface); }
 .et-grid thead th { position: sticky; top: 0; z-index: 1; background: var(--surface-3); color: var(--text-2);
   text-align: left; padding: 9px 12px; font-weight: 600; white-space: nowrap; border-bottom: 1px solid var(--border-2); }
@@ -961,6 +964,7 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
   padding: 6px 0; }
 .rc-name { flex: 1 1 280px; padding: 7px 11px; font: inherit; border: 1px solid var(--border-2);
   border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); }
+.rc-name:disabled { opacity: .55; cursor: not-allowed; }
 .rc-body { display: grid; gap: 14px; align-items: start; }
 .rc-body.with-pdf { grid-template-columns: minmax(360px, 42%) 1fr; }
 .rc-body.no-pdf { grid-template-columns: 1fr; }

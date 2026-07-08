@@ -107,10 +107,6 @@ function OrgTab() {
 
   return (
     <div className="admin-tab-body">
-      <label className="field-label" htmlFor="org-name">Tên tổ chức</label>
-      <input id="org-name" className="text-input" value={cfg.name || ""}
-        onChange={(e) => setField(["name"], e.target.value)} />
-
       <label className="field-label" htmlFor="org-logo">Logo (URL)</label>
       <div className="logo-edit-row">
         <input id="org-logo" className="text-input" value={cfg.branding?.logo_url || ""}

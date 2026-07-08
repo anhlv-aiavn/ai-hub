@@ -229,7 +229,10 @@ export default function Reconcile({ gcnId, onBack }) {
         <button className="ghost sm" onClick={onBack}><Icon name="chevronLeft" size={14} /> Kết quả trích xuất</button>
         <span className={`badge st-${doc.status}`}>{STATUS_LABEL[doc.status] || doc.status}</span>
         <input className="rc-name" placeholder="Đặt tên hồ sơ…" value={name} disabled={readOnly}
-          onChange={(e) => setName(e.target.value)} title="Tên hiển thị / tên file khi tải" />
+          onChange={(e) => setName(e.target.value)}
+          title={readOnly
+            ? (lockedBy ? `Đang được ${lockedBy.locked_by} hậu kiểm — không sửa được lúc này` : "Không xác định được trạng thái khóa — không sửa được lúc này")
+            : "Tên hiển thị / tên file khi tải"} />
         <span className="tb-gap" />
         <button className="ghost sm" onClick={() => setPdfOpen((v) => !v)}>
           <Icon name="image" size={14} /> {pdfOpen ? "Ẩn PDF" : "Hiện PDF"}
