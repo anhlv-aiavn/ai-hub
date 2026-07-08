@@ -12,6 +12,24 @@ export function headers(extra = {}) {
   return h;
 }
 
+// Dịch lỗi kỹ thuật (litellm/OpenAI, network...) lưu thô trong doc/job.error
+// thành thông báo tiếng Việt dễ hiểu cho người dùng cuối. Khớp theo từ khóa vì
+// message gốc không có mã lỗi chuẩn hoá — chỉ là chuỗi str(exception) từ backend.
+export function friendlyError(raw) {
+  if (!raw) return raw;
+  const low = String(raw).toLowerCase();
+  if (low.includes("timeout")) return "Hệ thống nhận diện phản hồi quá lâu, vui lòng thử lại.";
+  if (low.includes("connection error") || low.includes("connecterror") || low.includes("econnrefused"))
+    return "Không kết nối được tới hệ thống nhận diện (VLM). Vui lòng thử lại sau ít phút.";
+  if (low.includes("ratelimiterror") || low.includes("rate limit"))
+    return "Hệ thống nhận diện đang quá tải, vui lòng thử lại sau.";
+  if (low.includes("authenticationerror") || low.includes("api key") || low.includes("api_key"))
+    return "Lỗi xác thực với hệ thống nhận diện — liên hệ quản trị viên.";
+  if (low.includes("litellm") || low.includes("openaiexception") || low.includes("internalservererror") || low.includes("apierror"))
+    return "Hệ thống nhận diện gặp sự cố nội bộ, vui lòng thử lại sau.";
+  return raw;
+}
+
 // Branding công khai (không cần đăng nhập — Login cần trước khi có token).
 export async function getBranding() {
   return handle(await fetch(`/v1/settings/branding`));

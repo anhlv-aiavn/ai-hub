@@ -20,6 +20,7 @@ import os
 import time
 from datetime import datetime, timezone
 
+import litellm
 from PIL import Image
 
 from app import config, storage
@@ -53,6 +54,27 @@ def _vlm_sem() -> asyncio.Semaphore:
     if _VLM_SEM is None:
         _VLM_SEM = asyncio.Semaphore(config.MAX_VLM_CONCURRENT)
     return _VLM_SEM
+
+
+def _friendly_vlm_error(e: Exception) -> str:
+    """Dịch lỗi gọi VLM (litellm) thành thông báo tiếng Việt cho người dùng cuối
+    thay vì để lộ nguyên văn traceback kỹ thuật (vd "litellm.InternalServerError:
+    InternalServerError: OpenAIException - Connection error."). Traceback thật đã
+    được ghi bởi `log.exception` ở nơi gọi — hàm này chỉ đổi message LƯU VÀO DOC."""
+    low = str(e).lower()
+    # Kiểm tra message trước isinstance: server vLLM tự host thường trả lỗi kết nối
+    # dưới dạng litellm.InternalServerError (không phải APIConnectionError chuẩn).
+    if "connection error" in low or "connect" in low:
+        return "Không kết nối được tới hệ thống nhận diện (VLM). Vui lòng thử lại sau ít phút."
+    if isinstance(e, litellm.RateLimitError):
+        return "Hệ thống nhận diện đang quá tải, vui lòng thử lại sau."
+    if isinstance(e, litellm.AuthenticationError):
+        return "Lỗi xác thực với hệ thống nhận diện — liên hệ quản trị viên."
+    if isinstance(e, (litellm.ContentPolicyViolationError, litellm.ContextWindowExceededError)):
+        return "Không xử lý được nội dung tệp (bị hệ thống nhận diện từ chối hoặc vượt giới hạn)."
+    if isinstance(e, litellm.APIError):
+        return "Hệ thống nhận diện gặp sự cố nội bộ, vui lòng thử lại sau."
+    return str(e)
 
 
 # ── Pipeline ────────────────────────────────────────────────────────────────
@@ -137,7 +159,7 @@ async def _pipeline(pdf_buf: io.BytesIO) -> tuple[list[dict], list[str]]:
             base["error"] = f"timeout>{EXTRACT_TIMEOUT}s"
         except Exception as e:  # noqa: BLE001
             log.exception("extract lỗi pages %s: %s", group, e)
-            base["error"] = str(e)
+            base["error"] = _friendly_vlm_error(e)
         return base
 
     records = await asyncio.gather(*(_run(g) for g in groups))

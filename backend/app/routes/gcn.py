@@ -219,7 +219,11 @@ async def stats(batch_id: str | None = None, branch: str | None = None,
             raise HTTPException(status_code=400, detail="Ngày không hợp lệ (định dạng YYYY-MM-DD)") from e
         by_reviewer_stage.append({"$match": {"review.reviewed_at": rng}})
     elif reviewer_days and reviewer_days > 0:
-        since = datetime.now(timezone.utc) - timedelta(days=reviewer_days)
+        # Neo theo ranh giới ngày lịch giờ VN (00:00) thay vì cửa sổ trượt 24h theo
+        # UTC kể từ lúc gọi API, để reviewer_days=1 ("Hôm nay") tương đương chính
+        # xác với reviewer_from=reviewer_to=hôm nay ở nhánh trên.
+        today_start_vn = datetime.now(VN_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+        since = today_start_vn - timedelta(days=reviewer_days - 1)
         by_reviewer_stage.append({"$match": {"review.reviewed_at": {"$gte": since}}})
     by_reviewer_stage += [
         {"$group": {

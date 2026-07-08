@@ -4,7 +4,7 @@ import GcnPdf from "./GcnPdf.jsx";
 import Pager from "./Pager.jsx";
 import {
   listRows, listBatches, downloadCsv, getStats, getBranches,
-  createExportJob, getExportJob, downloadExportJob,
+  createExportJob, getExportJob, downloadExportJob, friendlyError,
 } from "../api.js";
 import { subscribeEvents } from "../events.js";
 import { toastOk, toastErr } from "../toast.js";
@@ -351,7 +351,7 @@ export default function ExportView({ user }) {
           <div className="export-job-status">
             {job.status === "queued" && <>Đang chờ worker…</>}
             {job.status === "processing" && <>Đang xuất… {job.row_count ? `(${job.row_count} dòng)` : ""}</>}
-            {job.status === "error" && <span className="error">Lỗi xuất: {job.error}</span>}
+            {job.status === "error" && <span className="error" title={job.error}>Lỗi xuất: {friendlyError(job.error)}</span>}
             {job.status === "done" && (
               <>
                 <Icon name="checkCircle" size={14} />

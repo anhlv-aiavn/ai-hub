@@ -6,6 +6,7 @@ import { STATUS_LABEL } from "./ExtractTable.jsx";
 import {
   getGcn, putReview, downloadGcn,
   claimReviewLock, heartbeatReviewLock, releaseReviewLock,
+  friendlyError,
 } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 
@@ -275,7 +276,7 @@ export default function Reconcile({ gcnId, onBack }) {
           </div>
         )}
         <div className={`rc-right ${readOnly ? "rc-readonly" : ""}`}>
-          {doc.error && <div className="rc-err">Lỗi: {doc.error}</div>}
+          {doc.error && <div className="rc-err" title={doc.error}>Lỗi: {friendlyError(doc.error)}</div>}
           {!entries.length && <div className="muted">Không có dữ liệu bóc tách.</div>}
           {entries.map(({ ri, ei, entry, rec }) => {
             const range = pageRange(rec?.page_indices);

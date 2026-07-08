@@ -333,9 +333,12 @@ code { background: var(--surface-3); padding: 1px 6px; border-radius: 4px; font-
 .pdf-main { display: flex; flex-direction: column; min-width: 0; }
 .pdf-nav { display: flex; align-items: center; gap: 8px; justify-content: center; padding-bottom: 8px; font-size: 13px; color: var(--text-2); }
 .pdf-nav b { color: var(--text); font-family: var(--mono); }
+.pdf-zoom-group { display: flex; align-items: center; gap: 2px; margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--border); }
+.pdf-zoom-pct { min-width: 44px; padding: 0 4px; border: none; background: none; color: var(--text-2); font-size: 12px; font-family: var(--mono); cursor: pointer; }
+.pdf-zoom-pct:hover { color: var(--text); }
 .pdf-canvas-wrap { overflow: auto; flex: 1; min-height: 0; background: var(--surface-3); border-radius: 8px; padding: 14px; text-align: center; }
 .pdf-canvas-wrap canvas, .pdf-canvas-wrap img.pdf-page-img { box-shadow: var(--shadow); max-width: 100%; height: auto; border-radius: 2px; display: inline-block; background: #fff; }
-.pdf-page-img.zoomable { cursor: zoom-in; }
+.pdf-page-img.zoomable { cursor: zoom-in; transition: transform .1s ease-out; }
 
 /* ---------- OCR markdown ---------- */
 /* Không cuộn lồng — để ws-right cuộn; card cao theo nội dung markdown */

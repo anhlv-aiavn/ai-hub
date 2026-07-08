@@ -1,12 +1,19 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
 import { pageImageUrl, getPageInfo, cutPageImageUrl, getCutPageInfo } from "../api.js";
+
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 4;
+const ZOOM_STEP = 0.25;
+const clampZoom = (z) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, +z.toFixed(2)));
 
 // Ảnh trang PDF render ở server (1 <img>/trang, lazy-load). Trang 1-indexed;
 // backend page index 0-indexed → n = p-1. cutIndex != null → xem FILE CẮT.
 export default function GcnPdf({ gcnId, cutIndex = null, page = 1, onPageChange }) {
   const [numPages, setNumPages] = useState(0);
   const [err, setErr] = useState("");
+  const [zoom, setZoom] = useState(1);
+  const wrapRef = useRef(null);
   const isCut = cutIndex !== null && cutIndex !== undefined;
   const imgUrl = (n, w) => (isCut ? cutPageImageUrl(gcnId, cutIndex, n, w) : pageImageUrl(gcnId, n, w));
 
@@ -21,12 +28,34 @@ export default function GcnPdf({ gcnId, cutIndex = null, page = 1, onPageChange 
     return () => { live = false; };
   }, [gcnId, cutIndex]);
 
+  const cur = Math.min(Math.max(1, page || 1), numPages || 1);
+
+  // Reset zoom khi đổi trang/tài liệu, để không giữ mức phóng to cũ nhầm sang ảnh khác.
+  useEffect(() => { setZoom(1); }, [cur, gcnId, cutIndex]);
+
+  // Giữ Ctrl + cuộn chuột để zoom tại chỗ. Gắn bằng addEventListener (không qua
+  // props onWheel của React) vì React đăng ký wheel listener ở chế độ passive,
+  // khiến preventDefault() không chặn được zoom trang mặc định của trình duyệt.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const onWheel = (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      setZoom((z) => clampZoom(z + (e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP)));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
   if (err) return <div className="pdf-pane error">Không tải được PDF: {err}</div>;
   if (!gcnId) return <div className="pdf-pane muted">Chưa chọn GCN.</div>;
   if (!numPages) return <div className="pdf-pane muted">Đang tải PDF…</div>;
 
-  const cur = Math.min(Math.max(1, page || 1), numPages);
   const go = (p) => onPageChange?.(Math.min(Math.max(1, p), numPages));
+  const zoomIn = () => setZoom((z) => clampZoom(z + ZOOM_STEP));
+  const zoomOut = () => setZoom((z) => clampZoom(z - ZOOM_STEP));
+  const zoomReset = () => setZoom(1);
 
   return (
     <div className="pdf-pane">
@@ -44,10 +73,16 @@ export default function GcnPdf({ gcnId, cutIndex = null, page = 1, onPageChange 
           <button className="icon-btn" onClick={() => go(cur - 1)} disabled={cur <= 1} aria-label="Trang trước"><Icon name="chevronLeft" size={18} /></button>
           <span>Trang <b>{cur}</b> / {numPages}</span>
           <button className="icon-btn" onClick={() => go(cur + 1)} disabled={cur >= numPages} aria-label="Trang sau"><Icon name="chevronRight" size={18} /></button>
+          <span className="pdf-zoom-group">
+            <button className="icon-btn" onClick={zoomOut} disabled={zoom <= ZOOM_MIN} aria-label="Thu nhỏ"><Icon name="zoomOut" size={16} /></button>
+            <button className="pdf-zoom-pct" onClick={zoomReset} title="Về 100%">{Math.round(zoom * 100)}%</button>
+            <button className="icon-btn" onClick={zoomIn} disabled={zoom >= ZOOM_MAX} aria-label="Phóng to"><Icon name="zoomIn" size={16} /></button>
+          </span>
         </div>
-        <div className="pdf-canvas-wrap">
+        <div className="pdf-canvas-wrap" ref={wrapRef}>
           <img className="pdf-page-img zoomable" key={cur} src={imgUrl(cur - 1, 1400)}
-            alt={`Trang ${cur}`} title="Bấm để mở ảnh trang ở tab mới"
+            alt={`Trang ${cur}`} title="Bấm để mở ảnh trang ở tab mới · giữ Ctrl + cuộn chuột để phóng to"
+            style={{ transform: `scale(${zoom})`, transformOrigin: "top center" }}
             onClick={() => window.open(imgUrl(cur - 1, 2200), "_blank", "noopener")} />
         </div>
       </div>
