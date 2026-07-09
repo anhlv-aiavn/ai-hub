@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
 import Modal from "./Modal.jsx";
 import Pager from "./Pager.jsx";
-import { listUsers, createUser, updateUser, deleteUser, forceLogoutUser, getBranches } from "../api.js";
+import { listUsers, createUser, updateUser, deleteUser, getBranches } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 
 const ROLE_LABEL = { admin: "Admin", operator: "Operator", viewer: "Viewer" };
@@ -72,11 +72,6 @@ export default function Users({ me, onClose }) {
   async function remove(username) {
     if (!window.confirm(`Xóa tài khoản "${username}"?`)) return;
     try { await deleteUser(username); toastOk("Đã xóa"); refresh(); }
-    catch (e) { toastErr(e.message || e); }
-  }
-  async function forceLogout(username) {
-    if (!window.confirm(`Buộc đăng xuất tài khoản "${username}"? Phiên hiện tại của họ sẽ ngừng hoạt động ngay.`)) return;
-    try { await forceLogoutUser(username); toastOk("Đã buộc đăng xuất"); refresh(); }
     catch (e) { toastErr(e.message || e); }
   }
 
@@ -163,9 +158,6 @@ export default function Users({ me, onClose }) {
                     ? <button className="ghost xs danger" disabled={locked} title={locked ? "Đang hoạt động — buộc đăng xuất trước" : ""}
                         onClick={() => remove(u.username)}>Xóa</button>
                     : <span className="ua-slot" />}
-                  {u.username !== me?.username && u.online && (
-                    <button className="ghost xs" onClick={() => forceLogout(u.username)}>Buộc đăng xuất</button>
-                  )}
                 </td>
               </tr>
               );
