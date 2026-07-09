@@ -3,6 +3,8 @@ và suy ra group_key (Số phát hành chính) để gom tờ bổ sung về GCN
 
 from typing import Any
 
+from app.vn_text import strip_diacritics
+
 
 def format_page_range(indices: list | None) -> str:
     """List index trang 0-based → chuỗi 1-based gọn, gộp đoạn liên tiếp.
@@ -116,6 +118,9 @@ def _entry_summary(entry: dict) -> dict:
         "so_vao_so": str(gcn.get("Số vào sổ") or ""),
         "ngay_cap": str(gcn.get("Ngày cấp") or ""),
         "chu_su_dung": chu,
+        # Bản bỏ dấu + chữ thường của "chu_su_dung" — cho phép tìm không phân
+        # biệt dấu/hoa-thường (xem app/routes/gcn.py, search theo `q`).
+        "chu_su_dung_norm": [strip_diacritics(c) for c in chu],
         "to_ban_do": to_ban_do,
         "so_thua": so_thua,
     }

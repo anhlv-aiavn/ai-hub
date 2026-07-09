@@ -24,12 +24,28 @@ from app.deps import (
 from app.storage import DestinationNotConfigured, SourceObjectUnavailable
 from app.flatten import COLUMNS as FLAT_COLUMNS, effective_extractions, flatten_doc
 from app.summary import collect_so_phat_hanhs, group_key_of, per_gcn, summarize
+from app.vn_text import strip_diacritics
 
 router = APIRouter(prefix="/v1/gcn", tags=["gcn"], dependencies=[Depends(current_user)])
 
 # Giờ VN (UTC+7, không DST) — dùng để quy đổi ngày lịch chọn trên UI (khoảng ngày
 # hậu kiểm) sang UTC trước khi so với các trường lưu bằng datetime.now(timezone.utc).
 VN_TZ = timezone(timedelta(hours=7))
+
+
+def _ci_pattern(s: str) -> str:
+    """Dựng regex khớp `s` không phân biệt hoa/thường theo đúng nghĩa Unicode
+    (kể cả chữ Việt có dấu), vì Mongo $options:"i" chỉ casefold ASCII."""
+    parts = []
+    for ch in s:
+        lo, up = ch.lower(), ch.upper()
+        # len==1 guard: vài ký tự upper()/lower() ra chuỗi nhiều ký tự (vd "ß"→"SS"),
+        # lúc đó không thể gộp vào 1 character-class — giữ nguyên literal cho an toàn.
+        if lo != up and len(lo) == 1 and len(up) == 1:
+            parts.append(f"[{re.escape(lo)}{re.escape(up)}]")
+        else:
+            parts.append(re.escape(ch))
+    return "".join(parts)
 
 
 async def _authz_gcn(gcn_id: str, user: dict, proj: dict | None = None) -> dict:
@@ -101,22 +117,31 @@ async def list_gcn(
     if own_or:
         and_clauses.append(own_or)
     if q:
-        # re.escape: q là chuỗi người dùng gõ tự do, không phải regex họ tự viết —
-        # escape để ký tự đặc biệt (. * ( ) ...) được hiểu là literal, tránh khớp
-        # sai/lỗi cú pháp regex.
-        qr = re.escape(q.strip())
+        # Mongo $options:"i" chỉ casefold đúng ASCII — chữ Việt có dấu viết hoa/
+        # thường (vd "Ễ"/"ễ") KHÔNG được coi là khớp nhau, nên gõ có dấu (đặc
+        # biệt khi dữ liệu trích xuất là chữ IN HOA) sẽ không tìm ra dù gõ không
+        # dấu vẫn ra (phần ASCII casefold vẫn đúng). Tự dựng pattern: mỗi ký tự
+        # thành character-class [chữ thường + chữ hoa] bằng Python (casefold
+        # Unicode đúng cho cả ký tự có dấu) thay vì dựa vào "i" của Mongo.
+        qr = _ci_pattern(q.strip())
+        # "Chủ sử dụng" còn tìm thêm theo bản KHÔNG DẤU (gcn_rows.chu_su_dung_norm,
+        # ghi sẵn lúc trích xuất — xem app/summary.py::_entry_summary) để gõ có
+        # dấu hay không dấu đều ra kết quả. re.escape thường (không cần
+        # _ci_pattern) vì chu_su_dung_norm đã lưu sẵn dạng chữ thường.
+        qr_norm = re.escape(strip_diacritics(q.strip()))
         # Mongo tự động dò vào từng phần tử của mảng (kể cả mảng lồng trong mảng
         # con của `gcn_rows`), nên không cần $elemMatch cho các field dạng list.
         and_clauses.append({"$or": [
-            {"extracted_so_phat_hanhs": {"$regex": qr, "$options": "i"}},  # Số phát hành
-            {"filename": {"$regex": qr, "$options": "i"}},  # tên tệp gốc
-            {"review.display_name": {"$regex": qr, "$options": "i"}},  # tên hồ sơ đã đổi
-            {"cuts.name": {"$regex": qr, "$options": "i"}},  # tên file GCN đã cắt
-            {"gcn_rows.so_phat_hanh": {"$regex": qr, "$options": "i"}},
-            {"gcn_rows.so_vao_so": {"$regex": qr, "$options": "i"}},
-            {"gcn_rows.to_ban_do": {"$regex": qr, "$options": "i"}},  # Số tờ
-            {"gcn_rows.so_thua": {"$regex": qr, "$options": "i"}},  # Số thửa
-            {"gcn_rows.chu_su_dung": {"$regex": qr, "$options": "i"}},
+            {"extracted_so_phat_hanhs": {"$regex": qr}},  # Số phát hành
+            {"filename": {"$regex": qr}},  # tên tệp gốc
+            {"review.display_name": {"$regex": qr}},  # tên hồ sơ đã đổi
+            {"cuts.name": {"$regex": qr}},  # tên file GCN đã cắt
+            {"gcn_rows.so_phat_hanh": {"$regex": qr}},
+            {"gcn_rows.so_vao_so": {"$regex": qr}},
+            {"gcn_rows.to_ban_do": {"$regex": qr}},  # Số tờ
+            {"gcn_rows.so_thua": {"$regex": qr}},  # Số thửa
+            {"gcn_rows.chu_su_dung": {"$regex": qr}},
+            {"gcn_rows.chu_su_dung_norm": {"$regex": qr_norm}},
         ]})
     if and_clauses:
         flt["$and"] = and_clauses
