@@ -5,7 +5,7 @@ import { toastOk, toastErr, toastWarn } from "../toast.js";
 import MinioBrowser from "./MinioBrowser.jsx";
 
 // Số hóa: chọn chi nhánh + thả NHIỀU PDF ("Từ máy tính") hoặc duyệt kho MinIO
-// nguồn có sẵn ("Từ kho MinIO") → 1 đợt → mỗi PDF chạy detect+extract.
+// nguồn có sẵn ("Từ kho S3") → 1 đợt → mỗi PDF chạy detect+extract.
 // Operator: chi nhánh CỐ ĐỊNH theo tài khoản. Admin: chọn từ danh sách.
 export default function CreateBatch({ user, onCreated }) {
   const isAdmin = user?.role === "admin";
@@ -114,7 +114,7 @@ export default function CreateBatch({ user, onCreated }) {
           <Icon name="upload" size={14} /> Từ máy tính
         </button>
         <button type="button" className={source === "minio" ? "active" : ""} onClick={() => setSource("minio")}>
-          <Icon name="folder" size={14} /> Từ kho MinIO
+          <Icon name="folder" size={14} /> Từ kho S3
         </button>
       </div>
 

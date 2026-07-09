@@ -1,4 +1,4 @@
-"""Duyệt + import PDF trực tiếp từ kho MinIO nguồn (không copy, chỉ tham chiếu
+"""Duyệt + import PDF trực tiếp từ kho S3 nguồn (không copy, chỉ tham chiếu
 path gốc). operator trở lên, khóa theo chi nhánh — xem PLAN_.md §Phân quyền."""
 
 import uuid

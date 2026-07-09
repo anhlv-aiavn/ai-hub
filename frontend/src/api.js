@@ -161,7 +161,7 @@ export async function testS3Connection(id) {
   }));
 }
 
-// ── Duyệt + import từ kho MinIO nguồn ────────────────────────────────────────
+// ── Duyệt + import từ kho S3 nguồn ────────────────────────────────────────
 export async function getBrowseSources() {
   return handle(await fetch(`/v1/browse/sources`, { headers: headers() }));
 }

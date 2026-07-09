@@ -206,6 +206,7 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
     }
     return [...map.values()];
   }, [rows]);
+  const sttOffset = (page - 1) * PAGE_SIZE;
 
   return (
     <div className="panel extract-table">
@@ -253,18 +254,20 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
         <table className="et-grid">
           <thead>
             <tr>
+              <th className="et-stt">STT</th>
               <th>Tên / Tệp</th><th>Trạng thái</th><th>Số phát hành</th><th>Số tờ</th>
               <th>Số thửa</th><th>Ngày cấp</th><th>Chủ sử dụng</th><th>Số vào sổ</th>
               <th>Hậu kiểm</th>
             </tr>
           </thead>
           <tbody>
-            {groups.map((items) => {
+            {groups.map((items, gi) => {
               const f = items[0];
               const multi = items.length > 1;
               return (
                 <React.Fragment key={f.gcn_id}>
                   <tr className="group-head">
+                    <td className="et-stt">{sttOffset + gi + 1}</td>
                     <td colSpan={9}>
                       <Icon name="layers" size={13} /> {f.display_name || f.filename}
                       <span className="gh-count">{multi ? `${items.length} giấy chứng nhận` : "1 giấy chứng nhận"}</span>
@@ -286,6 +289,7 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
                     const s = r.summary || {};
                     return (
                       <tr key={r.row_id || r.gcn_id} className="et-row" onClick={() => onOpen?.(r.gcn_id)}>
+                        <td className="et-stt" />
                         <td className={`et-name ${multi ? "child" : ""}`}>
                           {multi
                             ? `↳ ${r.cut_name || `Bản cắt ${s.gcn_pos || 1}`}`
@@ -306,7 +310,7 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
               );
             })}
             {!rows.length && (
-              <tr><td colSpan={9} className="muted center">
+              <tr><td colSpan={10} className="muted center">
                 {loading ? "Đang tải…" : "Chưa có hồ sơ. Vào mục Số hóa để bắt đầu."}
               </td></tr>
             )}

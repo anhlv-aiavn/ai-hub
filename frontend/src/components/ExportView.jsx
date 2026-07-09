@@ -171,6 +171,11 @@ function ReviewerTable({ rows, days, onDaysChange, rangeFrom, rangeTo, onRangeCh
 export default function ExportView({ user }) {
   const isAdmin = user?.role === "admin";
   const canExportJob = user?.role !== "viewer";
+  // Bảng "Theo người hậu kiểm": admin xem mọi chi nhánh, operator xem được
+  // (nhưng server luôn ép `branch` về đúng chi nhánh của họ — xem scoped_branch
+  // ở backend — nên danh sách trả về chỉ gồm tài khoản cùng chi nhánh). Viewer
+  // không có quyền hậu kiểm nên không cần thấy bảng này.
+  const canViewReviewerTable = isAdmin || user?.role === "operator";
   const [batches, setBatches] = useState([]);
   const [branches, setBranches] = useState([]);
   const [batchId, setBatchId] = useState("");
@@ -324,7 +329,7 @@ export default function ExportView({ user }) {
       </div>
 
       {isAdmin && <BranchTable rows={s.by_branch || []} />}
-      {isAdmin && (
+      {canViewReviewerTable && (
         <ReviewerTable rows={s.by_reviewer || []} days={reviewerDays} onDaysChange={setReviewerDays}
           rangeFrom={reviewerFrom} rangeTo={reviewerTo} onRangeChange={onReviewerRangeChange} />
       )}
@@ -337,13 +342,15 @@ export default function ExportView({ user }) {
               {Object.entries(REVIEW).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
             <span className="muted ev-count">{fmt(rowsTotal)} dòng</span>
-            <button className="primary sm" onClick={csv}><Icon name="download" size={14} /> Tải CSV</button>
-            {canExportJob && (
-              <button className="ghost sm" disabled={job && job.status !== "done" && job.status !== "error"}
-                onClick={startExportJob} title="Không giới hạn số dòng — chạy nền, không cap 5000 dòng như Tải CSV">
-                <Icon name="upload" size={14} /> Xuất nền
-              </button>
-            )}
+            <div className="ev-export-btns">
+              <button className="primary sm" onClick={csv}><Icon name="download" size={14} /> Tải CSV</button>
+              {canExportJob && (
+                <button className="ghost sm" disabled={job && job.status !== "done" && job.status !== "error"}
+                  onClick={startExportJob} title="Không giới hạn số dòng — chạy nền, không cap 5000 dòng như Tải CSV">
+                  <Icon name="upload" size={14} /> Xuất nền
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -367,16 +374,19 @@ export default function ExportView({ user }) {
         <div className="et-scroll">
           <table className="et-grid flat-grid">
             <thead>
-              <tr>{cols.map((c) => <th key={c}>{c}</th>)}</tr>
+              <tr><th className="et-stt">STT</th>{cols.map((c) => <th key={c}>{c}</th>)}</tr>
             </thead>
             <tbody>
               {rows.map((r, i) => (
-                <tr key={i}>{cols.map((c) => (
-                  <td key={c} title={FILE_COLS.has(c) ? "" : (r[c] == null ? "" : String(r[c]))}>{cell(c, r)}</td>
-                ))}</tr>
+                <tr key={i}>
+                  <td className="et-stt">{(rowsPage - 1) * ROWS_PAGE_SIZE + i + 1}</td>
+                  {cols.map((c) => (
+                    <td key={c} title={FILE_COLS.has(c) ? "" : (r[c] == null ? "" : String(r[c]))}>{cell(c, r)}</td>
+                  ))}
+                </tr>
               ))}
               {!rows.length && (
-                <tr><td colSpan={cols.length || 1} className="muted center">
+                <tr><td colSpan={(cols.length || 1) + 1} className="muted center">
                   {loading ? "Đang tải…" : "Chưa có dòng nào khớp bộ lọc."}
                 </td></tr>
               )}

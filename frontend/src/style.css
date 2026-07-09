@@ -921,6 +921,9 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .et-filters select { padding: 7px 10px; font: inherit; font-size: 13px; border: 1px solid var(--border-2);
   border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text);
   max-width: 200px; text-overflow: ellipsis; }
+/* Select gốc (chrome trình duyệt) cao hơn button.sm dù cùng padding — ép cùng
+   chiều cao để mép trên/dưới thẳng hàng trong 1 hàng toolbar. */
+.et-filters select, .et-filters button.primary.sm, .et-filters button.ghost.sm { height: 33px; }
 .search-box { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--border-2);
   border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text-3);
   flex: 1 1 260px; min-width: 180px; max-width: 300px; }
@@ -939,13 +942,14 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .et-grid thead th { position: sticky; top: 0; z-index: 1; background: var(--surface-3); color: var(--text-2);
   text-align: left; padding: 9px 12px; font-weight: 600; white-space: nowrap; border-bottom: 1px solid var(--border-2); }
 .et-grid td { padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
-.group-head td { background: var(--accent-50); color: var(--brand); font-weight: 600; font-size: 12.5px;
-  position: sticky; left: 0; }
+.group-head td { background: var(--accent-50); color: var(--brand); font-weight: 600; font-size: 12.5px; }
 .group-head .ico { vertical-align: -2px; margin-right: 5px; }
 .et-row { cursor: pointer; }
 .et-row:hover td { background: var(--surface-2); }
 .et-name { font-weight: 600; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .et-name.child { font-weight: 500; color: var(--text-2); padding-left: 18px; }
+.et-stt { width: 1%; text-align: center; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.group-head .et-stt { position: sticky; left: 0; }
 .gh-count { margin-left: 10px; font-weight: 500; font-size: 11.5px; color: var(--text-3);
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px; }
 .et-chu { max-width: 260px; }
@@ -1044,6 +1048,8 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .ev-count { font-size: 12.5px; }
 .flat-grid td { white-space: nowrap; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
 .flat-grid th { white-space: nowrap; }
+.ev-export-btns { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.ev-export-btns button { white-space: nowrap; flex-shrink: 0; }
 
 /* ── Tiến độ upload (Tạo việc) ── */
 .upload-progress { display: flex; flex-direction: column; gap: 6px; }
@@ -1141,7 +1147,13 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .export-head h3 { margin: 0; color: var(--brand); font-size: 15px; }
 .export-head h3 .muted { font-weight: 400; font-size: 12px; }
 .export-head .et-filters { gap: 8px; }
+/* select kế thừa margin-top:6px từ reset input toàn cục (ý cho form có label
+   phía trên) — trong toolbar này không có label nên đẩy select lệch xuống. */
+.export-head .et-filters select { margin-top: 0; }
 .export-head .ev-count { font-size: 12px; white-space: nowrap; }
+@media (min-width: 640px) {
+  .export-head .et-filters { flex-wrap: nowrap; }
+}
 
 /* ============ Cấu hình hệ thống (AdminSettings) ============ */
 .admin-settings { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; max-width: 920px; }
