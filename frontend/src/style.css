@@ -699,6 +699,7 @@ button.primary.lg { font-size: 14.5px; padding: 12px 24px; }
 }
 .toast.ok { background: #15803d; }
 .toast.err { background: var(--err); }
+.toast.warn { background: #b45309; }
 .toast .ico { flex: none; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 

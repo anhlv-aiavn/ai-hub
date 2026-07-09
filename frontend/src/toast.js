@@ -19,6 +19,7 @@ export function toast(message, type = "info") {
 }
 export const toastOk = (m) => toast(m, "ok");
 export const toastErr = (m) => toast(m, "err");
+export const toastWarn = (m) => toast(m, "warn");
 export const notify = toast;
 
 // Toaster (thoáng qua)

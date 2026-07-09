@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
 import { createBatch, getBranches, getBrowseSources, getSettingsStatus } from "../api.js";
-import { toastOk, toastErr } from "../toast.js";
+import { toastOk, toastErr, toastWarn } from "../toast.js";
 import MinioBrowser from "./MinioBrowser.jsx";
 
 // Số hóa: chọn chi nhánh + thả NHIỀU PDF ("Từ máy tính") hoặc duyệt kho MinIO
@@ -48,7 +48,14 @@ export default function CreateBatch({ user, onCreated }) {
     if (!pdfs.length) return;
     setFiles((prev) => {
       const seen = new Set(prev.map((f) => f.name + f.size));
-      return [...prev, ...pdfs.filter((f) => !seen.has(f.name + f.size))];
+      const fresh = pdfs.filter((f) => !seen.has(f.name + f.size));
+      const dupCount = pdfs.length - fresh.length;
+      if (dupCount > 0) {
+        toastWarn(dupCount === 1
+          ? `Tệp "${pdfs.find((f) => seen.has(f.name + f.size))?.name}" đã có trong danh sách`
+          : `${dupCount} tệp đã có trong danh sách, bỏ qua`);
+      }
+      return [...prev, ...fresh];
     });
   }
   function removeAt(i) { setFiles((prev) => prev.filter((_, j) => j !== i)); }

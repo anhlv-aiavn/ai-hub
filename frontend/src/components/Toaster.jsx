@@ -18,7 +18,7 @@ export default function Toaster() {
   return (
     <div className="toaster">
       <div className={`toast ${item.type}`}>
-        <Icon name={item.type === "err" ? "x" : "check"} size={15} />
+        <Icon name={item.type === "err" ? "x" : item.type === "warn" ? "alertTriangle" : "check"} size={15} />
         <span>{item.message}</span>
       </div>
     </div>
