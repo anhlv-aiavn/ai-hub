@@ -124,4 +124,4 @@ async def session_end(user: dict = Depends(current_user)):
 
 def _public(u: dict) -> dict:
     return {"username": u["username"], "role": u.get("role", "user"),
-            "branch": u.get("branch"), "active": u.get("active", True)}
+            "assigned_batch_ids": u.get("assigned_batch_ids") or [], "active": u.get("active", True)}

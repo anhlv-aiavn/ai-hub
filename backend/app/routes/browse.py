@@ -1,5 +1,5 @@
 """Duyệt + import PDF trực tiếp từ kho S3 nguồn (không copy, chỉ tham chiếu
-path gốc). operator trở lên, khóa theo chi nhánh — xem PLAN_.md §Phân quyền."""
+path gốc). operator trở lên, khóa theo lô được gán — xem PLAN_.md §Phân quyền."""
 
 import uuid
 from datetime import datetime, timezone
@@ -11,9 +11,8 @@ from pymongo.errors import DuplicateKeyError
 from app import config
 from app.audit import AuditAction, log_action
 from app.batch_counters import bump, init_counts
-from app.branches import is_valid_branch
-from app.db import batches, browse_progress_cache, gcns, import_jobs, s3_connections
-from app.deps import is_admin, require_operator
+from app.db import batches, browse_progress_cache, gcns, import_jobs, s3_connections, users
+from app.deps import ensure_batch_access, is_admin, require_operator
 from app.s3_util import async_head_object, async_list_folder, build_client
 
 router = APIRouter(prefix="/v1/browse", tags=["browse"], dependencies=[Depends(require_operator)])
@@ -121,15 +120,14 @@ class ImportIn(BaseModel):
     prefix: str | None = None
     recursive: bool = False
     keys: list[str] | None = None
-    branch: str
     batch_id: str | None = None
     name: str | None = None
 
 
-def _gcn_doc(batch_id: str, branch: str, source_id: str, key: str, meta: dict, now) -> dict:
+def _gcn_doc(batch_id: str, source_id: str, key: str, meta: dict, now) -> dict:
     return {
         "_id": str(uuid.uuid4()), "batch_id": batch_id,
-        "filename": key.rsplit("/", 1)[-1], "s3_key": key, "branch": branch,
+        "filename": key.rsplit("/", 1)[-1], "s3_key": key,
         "status": "queued", "page_count": 0, "extractions": [],
         "extracted_so_phat_hanhs": [], "group_key": None, "summary": {},
         "review": {"display_name": None, "overrides": {}, "status": "unreviewed",
@@ -141,7 +139,7 @@ def _gcn_doc(batch_id: str, branch: str, source_id: str, key: str, meta: dict, n
 
 
 async def _sync_import_files(
-    batch_id: str, branch: str, source_id: str, items: list[tuple[str, dict]],
+    batch_id: str, source_id: str, items: list[tuple[str, dict]],
 ) -> tuple[int, int, int]:
     """Chèn/đối chiếu ĐỒNG BỘ 1 danh sách (key, meta). Dùng chung cho `keys` (chọn
     lẻ, meta lấy qua head_object) và file lẻ ở cấp gốc khi sharding (§5 — meta đã
@@ -167,7 +165,7 @@ async def _sync_import_files(
             else:
                 skipped += 1
             continue
-        doc = _gcn_doc(batch_id, branch, source_id, key, meta, now)
+        doc = _gcn_doc(batch_id, source_id, key, meta, now)
         try:
             await gcns().insert_one(doc)
             created += 1
@@ -197,22 +195,26 @@ async def _list_level_all(client, bucket: str, prefix: str) -> tuple[list[str], 
     return folders, files
 
 
-async def _ensure_batch(batch_id: str | None, branch: str, name: str | None, status: str, user: dict):
+async def _ensure_batch(batch_id: str | None, name: str | None, status: str, user: dict) -> str:
     now = datetime.now(timezone.utc)
     if batch_id:
-        existing = await batches().find_one({"_id": batch_id}, {"branch": 1})
+        existing = await batches().find_one({"_id": batch_id}, {"_id": 1})
         if not existing:
             raise HTTPException(status_code=404, detail="Không tìm thấy lô để nối")
-        if not is_admin(user) and existing.get("branch") != user.get("branch"):
-            raise HTTPException(status_code=403, detail="Không thuộc chi nhánh của bạn")
-        return batch_id, existing.get("branch")
+        ensure_batch_access(user, batch_id)
+        return batch_id
     batch_id = str(uuid.uuid4())
     await batches().insert_one({
-        "_id": batch_id, "name": name or branch or now.strftime("Lô %d/%m %H:%M"),
-        "branch": branch, "created_at": now, "file_count": 0, "status": status,
+        "_id": batch_id, "name": name or now.strftime("Lô %d/%m %H:%M"),
+        "created_at": now, "file_count": 0, "status": status,
     })
     await init_counts(batches(), batch_id)
-    return batch_id, branch
+    if not is_admin(user):
+        await users().update_one(
+            {"username": user["username"]},
+            {"$addToSet": {"assigned_batch_ids": batch_id}},
+        )
+    return batch_id
 
 
 @router.post("/{source_id}/import")
@@ -221,15 +223,8 @@ async def import_from_minio(source_id: str, body: ImportIn, user: dict = Depends
     if not conn:
         raise HTTPException(status_code=404, detail="Không tìm thấy nguồn")
 
-    # Operator: LUÔN ép chi nhánh của họ (không tin giá trị client gửi). Admin: theo chọn.
-    branch = body.branch
-    if not is_admin(user):
-        branch = user.get("branch")
-    if not await is_valid_branch(branch):
-        raise HTTPException(status_code=400, detail="Chi nhánh không hợp lệ")
-
     if body.keys:
-        batch_id, branch = await _ensure_batch(body.batch_id, branch, body.name, "processing", user)
+        batch_id = await _ensure_batch(body.batch_id, body.name, "processing", user)
         client = build_client(conn)
         items = []
         for key in body.keys:
@@ -238,7 +233,7 @@ async def import_from_minio(source_id: str, body: ImportIn, user: dict = Depends
             except Exception:  # noqa: BLE001
                 meta = {}
             items.append((key, meta))
-        created, skipped, requeued = await _sync_import_files(batch_id, branch, source_id, items)
+        created, skipped, requeued = await _sync_import_files(batch_id, source_id, items)
         await log_action(user["username"], AuditAction.GCN_IMPORT_MINIO, batch_id, {
             "source_connection_id": source_id, "keys": body.keys,
             "created": created, "skipped": skipped, "requeued": requeued,
@@ -248,7 +243,7 @@ async def import_from_minio(source_id: str, body: ImportIn, user: dict = Depends
     if not body.prefix and not body.recursive:
         raise HTTPException(status_code=400, detail="Cần 'keys' hoặc 'prefix'+recursive")
 
-    batch_id, branch = await _ensure_batch(body.batch_id, branch, body.name, "importing", user)
+    batch_id = await _ensure_batch(body.batch_id, body.name, "importing", user)
     if body.batch_id:  # nối vào lô đang chạy: đánh dấu importing lại
         await batches().update_one({"_id": batch_id}, {"$set": {"status": "importing"}})
 
@@ -267,7 +262,7 @@ async def import_from_minio(source_id: str, body: ImportIn, user: dict = Depends
         job_id = str(uuid.uuid4())
         await import_jobs().insert_one({
             "_id": job_id, "batch_id": batch_id, "source_connection_id": source_id,
-            "prefix": sub_prefix, "branch": branch, "status": "queued",
+            "prefix": sub_prefix, "status": "queued",
             "started_at": None, "list_token": None, "inserted": 0, "skipped": 0,
             "error": None, "created_at": now,
         })
@@ -275,7 +270,7 @@ async def import_from_minio(source_id: str, body: ImportIn, user: dict = Depends
 
     if sub_folders and loose_files:
         await _sync_import_files(
-            batch_id, branch, source_id,
+            batch_id, source_id,
             [(f["key"], f) for f in loose_files],
         )
 

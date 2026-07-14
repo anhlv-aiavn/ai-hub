@@ -19,7 +19,7 @@ from app.batch_counters import bump
 from app.bus import publish
 from app.db import batches, gcns
 from app.deps import (
-    current_user, ensure_branch_access, is_admin, require_operator, require_viewer, scoped_branch,
+    current_user, ensure_batch_access, is_admin, require_operator, require_viewer, scoped_batch_ids,
 )
 from app.storage import DestinationNotConfigured, SourceObjectUnavailable
 from app.flatten import COLUMNS as FLAT_COLUMNS, effective_extractions, flatten_doc
@@ -49,14 +49,14 @@ def _ci_pattern(s: str) -> str:
 
 
 async def _authz_gcn(gcn_id: str, user: dict, proj: dict | None = None) -> dict:
-    """Lấy doc + chặn user thường truy cập GCN ngoài chi nhánh (403/404)."""
+    """Lấy doc + chặn user thường truy cập GCN thuộc lô họ không được gán (403/404)."""
     p = dict(proj or {})
-    if p and "branch" not in p:
-        p["branch"] = 1
+    if p and "batch_id" not in p:
+        p["batch_id"] = 1
     doc = await gcns().find_one({"_id": gcn_id}, p or None)
     if not doc:
         raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
-    ensure_branch_access(user, doc.get("branch"))
+    ensure_batch_access(user, doc.get("batch_id"))
     return doc
 
 _TABLE_PROJ = {
@@ -68,7 +68,7 @@ def _viewer_own_or(user: dict) -> dict | None:
     """Viewer chỉ được xem hồ sơ CHƯA hậu kiểm (việc cần làm) hoặc hồ sơ CHÍNH
     HỌ đã hậu kiểm (lịch sử của mình) — không thấy hồ sơ người khác đã Duyệt/
     Không duyệt, tránh lộ kết quả hậu kiểm của đồng nghiệp. operator/admin
-    không bị giới hạn này (chỉ giới hạn theo chi nhánh qua `scoped_branch`)."""
+    không bị giới hạn này (chỉ giới hạn theo lô được gán qua `scoped_batch_ids`)."""
     if user.get("role") != "viewer":
         return None
     return {"$or": [
@@ -80,7 +80,6 @@ def _viewer_own_or(user: dict) -> dict | None:
 @router.get("")
 async def list_gcn(
     batch_id: str | None = None,
-    branch: str | None = None,
     status: str | None = None,
     review: str | None = None,
     reviewer: str | None = Query(default=None, description=(
@@ -97,12 +96,14 @@ async def list_gcn(
 
     Phân trang ở TẦNG FILE (doc), không phải tầng dòng đã expand — 1 trang luôn
     đúng `page_size` file dù file có 1 hay nhiều bản cắt (GCN) bên trong."""
-    branch = scoped_branch(user, branch)
     flt: dict = {}
     if batch_id:
+        ensure_batch_access(user, batch_id)
         flt["batch_id"] = batch_id
-    if branch:
-        flt["branch"] = branch
+    else:
+        ids = scoped_batch_ids(user)
+        if ids is not None:
+            flt["batch_id"] = {"$in": ids}
     if status:
         flt["status"] = status
     if review:
@@ -181,17 +182,20 @@ async def list_gcn(
     }
 
 
-async def _collect_rows(batch_id, status, review, branch=None, user: dict | None = None) -> list[dict]:
+async def _collect_rows(batch_id, status, review, user: dict) -> list[dict]:
     flt: dict = {}
     if batch_id:
+        ensure_batch_access(user, batch_id)
         flt["batch_id"] = batch_id
-    if branch:
-        flt["branch"] = branch
+    else:
+        ids = scoped_batch_ids(user)
+        if ids is not None:
+            flt["batch_id"] = {"$in": ids}
     if status:
         flt["status"] = status
     if review:
         flt["review.status"] = review
-    own_or = _viewer_own_or(user) if user else None
+    own_or = _viewer_own_or(user)
     if own_or:
         flt["$and"] = [own_or]
     docs = await gcns().find(flt).to_list(length=5000)
@@ -205,14 +209,14 @@ async def _collect_rows(batch_id, status, review, branch=None, user: dict | None
 
 @router.get("/rows")
 async def gcn_rows(batch_id: str | None = None, status: str | None = None,
-                   review: str | None = None, branch: str | None = None,
+                   review: str | None = None,
                    page: int = 1, page_size: int = 50,
                    user: dict = Depends(current_user)):
     """Khung nhìn dạng HÀNG phẳng (đã áp hậu kiểm) — phục vụ xem/xuất/FME.
 
     Phân trang ở TẦNG HÀNG (1 hàng = 1 thửa, xem `flatten_doc`) — chỉ áp cho
     preview trên UI; `export.csv`/xuất nền vẫn lấy toàn bộ qua `_collect_rows`."""
-    all_rows = await _collect_rows(batch_id, status, review, scoped_branch(user, branch), user)
+    all_rows = await _collect_rows(batch_id, status, review, user)
     page = max(1, page)
     page_size = max(1, min(page_size, 500))
     start = (page - 1) * page_size
@@ -226,9 +230,9 @@ async def gcn_rows(batch_id: str | None = None, status: str | None = None,
 
 @router.get("/export.csv")
 async def export_csv(batch_id: str | None = None, status: str | None = None,
-                     review: str | None = None, branch: str | None = None,
+                     review: str | None = None,
                      user: dict = Depends(current_user)):
-    rows = await _collect_rows(batch_id, status, review, scoped_branch(user, branch), user)
+    rows = await _collect_rows(batch_id, status, review, user)
     buf = io.StringIO()
     buf.write("﻿")  # BOM để Excel đọc UTF-8 đúng
     writer = csv.DictWriter(buf, fieldnames=FLAT_COLUMNS, extrasaction="ignore")
@@ -242,7 +246,7 @@ async def export_csv(batch_id: str | None = None, status: str | None = None,
 
 
 @router.get("/stats")
-async def stats(batch_id: str | None = None, branch: str | None = None,
+async def stats(batch_id: str | None = None,
                 reviewer_days: int | None = Query(default=None, description=(
                     "Chỉ tính by_reviewer trong N ngày gần nhất (theo review.reviewed_at); "
                     "bỏ trống/0 = toàn thời gian")),
@@ -252,13 +256,15 @@ async def stats(batch_id: str | None = None, branch: str | None = None,
                     "Khoảng ngày tùy chọn (YYYY-MM-DD, cuối ngày) — ưu tiên hơn reviewer_days")),
                 user: dict = Depends(current_user)):
     """Tổng hợp cho bảng Thống kê: tổng tệp/GCN/trang, breakdown trạng thái & hậu
-    kiểm, theo chi nhánh, và các chỉ số cảnh báo. Một lần aggregate ($facet)."""
-    branch = scoped_branch(user, branch)
+    kiểm, và các chỉ số cảnh báo. Một lần aggregate ($facet)."""
     match: dict = {}
     if batch_id:
+        ensure_batch_access(user, batch_id)
         match["batch_id"] = batch_id
-    if branch:
-        match["branch"] = branch
+    else:
+        ids = scoped_batch_ids(user)
+        if ids is not None:
+            match["batch_id"] = {"$in": ids}
 
     by_reviewer_stage: list[dict] = [{"$match": {"review.reviewer": {"$ne": None}}}]
     if reviewer_from or reviewer_to:
@@ -297,16 +303,6 @@ async def stats(batch_id: str | None = None, branch: str | None = None,
             "by_status": [{"$group": {"_id": "$status", "n": {"$sum": 1}}}],
             "by_review": [{"$group": {
                 "_id": {"$ifNull": ["$review.status", "unreviewed"]}, "n": {"$sum": 1}}}],
-            "by_branch": [
-                {"$group": {
-                    "_id": {"$ifNull": ["$branch", None]},
-                    "files": {"$sum": 1},
-                    "gcns": {"$sum": {"$size": {"$ifNull": ["$gcn_rows", []]}}},
-                    "done": {"$sum": {"$cond": [{"$eq": ["$status", "done"]}, 1, 0]}},
-                    "reviewed": {"$sum": {"$cond": [{"$eq": ["$review.status", "reviewed"]}, 1, 0]}},
-                }},
-                {"$sort": {"files": -1}},
-            ],
             "totals": [{"$group": {
                 "_id": None,
                 "files": {"$sum": 1},
@@ -333,11 +329,6 @@ async def stats(batch_id: str | None = None, branch: str | None = None,
         return (rows[0]["n"] if rows else 0)
 
     totals = (f.get("totals") or [{}])[0]
-    by_branch = [
-        {"branch": r.get("_id"), "files": r.get("files", 0), "gcns": r.get("gcns", 0),
-         "done": r.get("done", 0), "reviewed": r.get("reviewed", 0)}
-        for r in (f.get("by_branch") or [])
-    ]
     by_reviewer = [
         {"reviewer": r.get("_id"), "reviewed": r.get("reviewed", 0), "rejected": r.get("rejected", 0)}
         for r in (f.get("by_reviewer") or [])
@@ -348,7 +339,6 @@ async def stats(batch_id: str | None = None, branch: str | None = None,
         "pages": totals.get("pages", 0),
         "by_status": _kv(f.get("by_status")),
         "by_review": _kv(f.get("by_review")),
-        "by_branch": by_branch,
         "by_reviewer": by_reviewer,
         "missing_sph": _one(f.get("missing_sph")),
         "unreviewed_done": _one(f.get("unreviewed_done")),
@@ -365,10 +355,10 @@ async def retry_errors(body: RetryErrorsIn, user: dict = Depends(require_operato
     """Retry hàng loạt (§Quy mô cực lớn 6) — đặt lại `queued` cho doc `status=error`
     của 1 lô (giới hạn 1 lô/lần để cộng dồn `batch.counts` đơn giản, đúng). Doc
     `status="dead"` (poison, §Backend worker) KHÔNG nằm trong phạm vi — cần soi thủ công."""
-    batch = await batches().find_one({"_id": body.batch_id}, {"branch": 1})
+    batch = await batches().find_one({"_id": body.batch_id}, {"_id": 1})
     if not batch:
         raise HTTPException(status_code=404, detail="Không tìm thấy lô")
-    ensure_branch_access(user, batch.get("branch"))
+    ensure_batch_access(user, body.batch_id)
 
     flt: dict = {"batch_id": body.batch_id, "status": "error"}
     if body.error_kind:
@@ -385,7 +375,7 @@ async def get_gcn(gcn_id: str, user: dict = Depends(current_user)):
     doc = await gcns().find_one({"_id": gcn_id})
     if not doc:
         raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
-    ensure_branch_access(user, doc.get("branch"))
+    ensure_batch_access(user, doc.get("batch_id"))
     await log_action(user["username"], AuditAction.GCN_VIEW, gcn_id)
     out = _detail(doc)
     await _enrich_dup_candidates([out])
@@ -505,8 +495,8 @@ async def claim_lock(gcn_id: str, user: dict = Depends(require_viewer)):
         })
     # Đẩy realtime cho MỌI phiên đang mở bảng danh sách (kể cả tab khác của chính
     # mình) — không thì badge "đang hậu kiểm" chỉ hiện sau khi ai đó bấm Làm mới.
-    # Bắt buộc kèm "branch": /v1/events lọc bỏ event thiếu branch cho user thường.
-    await publish({"type": "review_lock", "gcn_id": gcn_id, "branch": doc0.get("branch")})
+    # Bắt buộc kèm "batch_id": /v1/events lọc bỏ event ngoài lô được gán cho user thường.
+    await publish({"type": "review_lock", "gcn_id": gcn_id, "batch_id": doc0.get("batch_id")})
     return _lock_public(updated.get("review") or {})
 
 
@@ -530,12 +520,12 @@ async def release_lock(gcn_id: str, user: dict = Depends(require_viewer)):
     updated = await gcns().find_one_and_update(
         {"_id": gcn_id, "review.lock.by": user["username"]},
         {"$set": {"review.lock": None}},
-        projection={"branch": 1},
+        projection={"batch_id": 1},
     )
     # Chỉ đẩy event khi THỰC SỰ vừa mở khóa (match được nghĩa là lock đang là của
     # mình — tránh refresh thừa khi khóa đã hết hạn/bị người khác chiếm từ trước).
     if updated:
-        await publish({"type": "review_lock", "gcn_id": gcn_id, "branch": updated.get("branch")})
+        await publish({"type": "review_lock", "gcn_id": gcn_id, "batch_id": updated.get("batch_id")})
     return {"ok": True}
 
 
@@ -544,14 +534,14 @@ async def put_review(gcn_id: str, body: ReviewIn, user: dict = Depends(require_v
     # filename: 1 — BẮT BUỘC để lấy đúng đuôi file gốc khi tự thêm đuôi cho tên
     # mới bên dưới (thiếu dòng này thì doc.get("filename") luôn None dù tên tệp
     # gốc thực tế có đuôi, khiến hệ thống tưởng nhầm là "file gốc không có đuôi").
-    proj = {"review": 1, "branch": 1, "filename": 1}
+    proj = {"review": 1, "batch_id": 1, "filename": 1}
     recompute = body.overrides is not None or body.deleted is not None
     if recompute:  # cần raw để tính lại cột dẫn xuất
         proj.update({"extractions": 1, "cuts": 1})
     doc = await gcns().find_one({"_id": gcn_id}, proj)
     if not doc:
         raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
-    ensure_branch_access(user, doc.get("branch"))
+    ensure_batch_access(user, doc.get("batch_id"))
     review = doc.get("review") or {}
     before_review = dict(review)  # snapshot trước khi áp thay đổi — dùng để ghi audit sau
     current_version = review.get("version", 0)
@@ -659,7 +649,7 @@ async def download(gcn_id: str, user: dict = Depends(current_user)):
     doc = await gcns().find_one({"_id": gcn_id})
     if not doc:
         raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
-    ensure_branch_access(user, doc.get("branch"))
+    ensure_batch_access(user, doc.get("batch_id"))
     try:
         pdf = (await storage.get_pdf(doc["s3_key"], doc.get("source_connection_id"))).getvalue()
     except DestinationNotConfigured as e:

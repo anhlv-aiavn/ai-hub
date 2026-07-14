@@ -35,7 +35,10 @@ async def current_user(
     # Token tự ký là stateless (không có nơi thu hồi) — so `sid` trong token với
     # `session_id` hiện tại trong DB để có thể vô hiệu hóa: tài khoản bị khóa,
     # bị admin buộc đăng xuất, hoặc phiên đã bị thay bởi một lượt đăng nhập khác.
-    u = await users().find_one({"username": payload["sub"]}, {"session_id": 1, "active": 1})
+    u = await users().find_one(
+        {"username": payload["sub"]},
+        {"session_id": 1, "active": 1, "assigned_batch_ids": 1},
+    )
     if not u or not u.get("active", True):
         raise HTTPException(status_code=401, detail="Tài khoản không còn hiệu lực")
     # Cờ AIHUB_SINGLE_SESSION_ENABLED tắt (mặc định) → bỏ qua so sánh sid, cho
@@ -47,6 +50,9 @@ async def current_user(
         "username": payload["sub"],
         "role": payload.get("role", "user"),
         "branch": payload.get("branch"),
+        # Đọc tươi từ DB mỗi request (không nhúng vào JWT) để admin đổi gán lô
+        # cho user có hiệu lực ngay, không cần chờ họ đăng nhập lại.
+        "assigned_batch_ids": u.get("assigned_batch_ids") or [],
     }
 
 
@@ -88,15 +94,35 @@ def require_viewer(user: dict = Depends(current_user)) -> dict:
 
 def scoped_branch(user: dict, requested: str | None) -> str | None:
     """Branch dùng để lọc dữ liệu. Admin: theo `requested` (None = tất cả).
-    User thường: LUÔN ép về chi nhánh của họ (bỏ qua giá trị client gửi)."""
+    User thường: LUÔN ép về chi nhánh của họ (bỏ qua giá trị client gửi).
+
+    Không còn dùng trong luồng nghiệp vụ hiện tại (đã chuyển sang phân quyền
+    theo lô, xem `scoped_batch_ids`) — giữ lại vì field `branch` cũ vẫn còn
+    trong dữ liệu, không migrate/xóa."""
     if is_admin(user):
         return requested or None
     return user.get("branch")
 
 
 def ensure_branch_access(user: dict, branch: str | None) -> None:
-    """Chặn user thường truy cập dữ liệu KHÁC chi nhánh của họ (403)."""
+    """Chặn user thường truy cập dữ liệu KHÁC chi nhánh của họ (403). Không còn
+    dùng trong luồng nghiệp vụ hiện tại — xem `ensure_batch_access`."""
     if is_admin(user):
         return
     if branch != user.get("branch"):
         raise HTTPException(status_code=403, detail="Không thuộc chi nhánh của bạn")
+
+
+def scoped_batch_ids(user: dict) -> list[str] | None:
+    """Danh sách lô user được phép thấy. None = admin (không giới hạn)."""
+    if is_admin(user):
+        return None
+    return user.get("assigned_batch_ids") or []
+
+
+def ensure_batch_access(user: dict, batch_id: str | None) -> None:
+    """Chặn user thường truy cập lô KHÔNG nằm trong danh sách được gán (403)."""
+    if is_admin(user):
+        return
+    if not batch_id or batch_id not in (user.get("assigned_batch_ids") or []):
+        raise HTTPException(status_code=403, detail="Không có quyền truy cập lô này")

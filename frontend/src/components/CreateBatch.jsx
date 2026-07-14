@@ -1,18 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
-import { createBatch, getBranches, getBrowseSources, getSettingsStatus } from "../api.js";
+import { createBatch, getBrowseSources, getSettingsStatus } from "../api.js";
 import { toastOk, toastErr, toastWarn } from "../toast.js";
 import MinioBrowser from "./MinioBrowser.jsx";
 
-// Số hóa: chọn chi nhánh + thả NHIỀU PDF ("Từ máy tính") hoặc duyệt kho MinIO
-// nguồn có sẵn ("Từ kho S3") → 1 đợt → mỗi PDF chạy detect+extract.
-// Operator: chi nhánh CỐ ĐỊNH theo tài khoản. Admin: chọn từ danh sách.
+// Số hóa: thả NHIỀU PDF ("Từ máy tính") hoặc duyệt kho MinIO nguồn có sẵn
+// ("Từ kho S3") → 1 đợt → mỗi PDF chạy detect+extract. Người tạo lô tự động
+// được gán quyền truy cập lô vừa tạo (xem POST /v1/batches ở backend).
 export default function CreateBatch({ user, onCreated }) {
-  const isAdmin = user?.role === "admin";
   const [source, setSource] = useState("upload"); // "upload" | "minio"
   const [files, setFiles] = useState([]);
-  const [branch, setBranch] = useState(isAdmin ? "" : (user?.branch || ""));
-  const [branches, setBranches] = useState([]);
   const [drag, setDrag] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pct, setPct] = useState(0);
@@ -22,10 +19,6 @@ export default function CreateBatch({ user, onCreated }) {
   const [minioSources, setMinioSources] = useState([]);
   const [minioSourceId, setMinioSourceId] = useState("");
   const [destConfigured, setDestConfigured] = useState(true); // lạc quan khi đang tải, tránh nháy banner
-
-  useEffect(() => {
-    if (isAdmin) getBranches().then((d) => setBranches(d.branches || [])).catch(() => {});
-  }, [isAdmin]);
 
   useEffect(() => {
     getSettingsStatus().then((s) => setDestConfigured(!!s.destination_configured)).catch(() => {});
@@ -62,11 +55,10 @@ export default function CreateBatch({ user, onCreated }) {
 
   async function submit() {
     if (!files.length) return;
-    if (!branch) { toastErr("Hãy chọn chi nhánh"); return; }
     setBusy(true); setPct(0); setStep("");
     try {
       const b = await createBatch({
-        files, branch,
+        files,
         onProgress: (p, meta) => {
           setPct(p);
           if (meta?.count) setStep(`Tệp ${meta.index}/${meta.count}${meta.name ? ` · ${meta.name}` : ""}`);
@@ -93,20 +85,9 @@ export default function CreateBatch({ user, onCreated }) {
           <div>
             <b>Chưa cấu hình S3 đích</b>
             <p>Không thể số hóa hồ sơ mới cho tới khi admin cấu hình S3 đích
-              {isAdmin ? ' ở "Cấu hình hệ thống → S3 đích".' : "."}</p>
+              {user?.role === "admin" ? ' ở "Cấu hình hệ thống → S3 đích".' : "."}</p>
           </div>
         </div>
-      )}
-
-      <label className="field-label" htmlFor="cb-branch">Chi nhánh / Đơn vị</label>
-      {isAdmin ? (
-        <select id="cb-branch" className="text-input" value={branch}
-          onChange={(e) => setBranch(e.target.value)}>
-          <option value="">— Chọn chi nhánh —</option>
-          {branches.map((b) => <option key={b} value={b}>{b}</option>)}
-        </select>
-      ) : (
-        <input id="cb-branch" className="text-input" value={branch} disabled readOnly />
       )}
 
       <div className="seg-toggle cb-source-toggle">
@@ -127,10 +108,9 @@ export default function CreateBatch({ user, onCreated }) {
             </select>
           )}
           {!minioSources.length && <p className="muted small">Chưa có nguồn MinIO nào — thêm ở "Cấu hình hệ thống" (admin).</p>}
-          {minioSourceId && branch && (
-            <MinioBrowser sourceId={minioSourceId} branch={branch} onImported={onMinioImported} />
+          {minioSourceId && (
+            <MinioBrowser sourceId={minioSourceId} onImported={onMinioImported} />
           )}
-          {minioSourceId && !branch && <p className="muted small">Hãy chọn chi nhánh trước.</p>}
         </div>
       )}
 
@@ -169,10 +149,8 @@ export default function CreateBatch({ user, onCreated }) {
             </div>
           )}
           <div className="cb-foot">
-            <span className="muted">
-              {files.length} tệp · {totalMB} MB{branch ? ` · ${branch}` : " · chưa chọn chi nhánh"}
-            </span>
-            <button className="primary" disabled={busy || !branch || !destConfigured} onClick={submit}>
+            <span className="muted">{files.length} tệp · {totalMB} MB</span>
+            <button className="primary" disabled={busy || !destConfigured} onClick={submit}>
               <Icon name="sparkles" size={15} /> {busy ? "Đang tải lên…" : "Bắt đầu số hóa"}
             </button>
           </div>

@@ -5,13 +5,14 @@ import {
   getSiteConfig, updateSiteConfig, uploadLogo, getSettingsStatus,
   getS3Connections, createS3Connection, updateS3Connection, deleteS3Connection,
   testS3Connection, testS3ConnectionDraft,
-  listBatches, retryErrors,
+  listBatches, retryErrors, listUsers, getBatchUsers, assignBatchUser, unassignBatchUser,
 } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 import { copyToClipboard } from "../clipboard.js";
 
 const TABS = [
-  ["org", "Tổ chức & chi nhánh"],
+  ["org", "Tổ chức"],
+  ["batches", "Lô & phân quyền"],
   ["source", "S3 nguồn"],
   ["dest", "S3 đích"],
   ["errors", "Dead-letter/lỗi"],
@@ -30,6 +31,7 @@ export default function AdminSettings({ onClose }) {
           ))}
         </nav>
         {tab === "org" && <OrgTab />}
+        {tab === "batches" && <BatchAccessTab />}
         {tab === "source" && <S3Tab role="source" />}
         {tab === "dest" && <S3Tab role="destination" />}
         {tab === "errors" && <ErrorsTab />}
@@ -38,12 +40,10 @@ export default function AdminSettings({ onClose }) {
   );
 }
 
-// ── Tab: Tổ chức & chi nhánh ─────────────────────────────────────────────────
+// ── Tab: Tổ chức (branding) ──────────────────────────────────────────────────
 function OrgTab() {
   const [cfg, setCfg] = useState(null);
-  const [newBranch, setNewBranch] = useState("");
   const [busy, setBusy] = useState(false);
-  const [pendingConfirm, setPendingConfirm] = useState(null); // {message, removed_branches, users, batches, gcns}
   const [destConfigured, setDestConfigured] = useState(true); // lạc quan khi đang tải, tránh nháy disable rồi lại bật
   const [logoBusy, setLogoBusy] = useState(false);
   const logoInputRef = React.useRef(null);
@@ -77,30 +77,14 @@ function OrgTab() {
     });
   }
 
-  function addBranch() {
-    const v = newBranch.trim();
-    if (!v || (cfg.branches || []).includes(v)) return;
-    setCfg({ ...cfg, branches: [...(cfg.branches || []), v] });
-    setNewBranch("");
-  }
-  function removeBranch(b) {
-    setCfg({ ...cfg, branches: (cfg.branches || []).filter((x) => x !== b) });
-  }
-
-  async function save(confirm = false) {
+  async function save() {
     setBusy(true);
     try {
-      await updateSiteConfig({ name: cfg.name, branches: cfg.branches, branding: cfg.branding }, confirm);
+      await updateSiteConfig({ name: cfg.name, branding: cfg.branding });
       toastOk("Đã lưu cấu hình tổ chức");
-      setPendingConfirm(null);
       refresh();
     } catch (e) {
-      const detail = e.detail || e.message;
-      if (detail && typeof detail === "object" && detail.removed_branches) {
-        setPendingConfirm(detail);
-      } else {
-        toastErr(e.message || e);
-      }
+      toastErr(e.message || e);
     } finally { setBusy(false); }
   }
 
@@ -133,37 +117,92 @@ function OrgTab() {
       <input id="org-copy" className="text-input" value={cfg.branding?.copyright_text || ""}
         onChange={(e) => setField(["branding", "copyright_text"], e.target.value)} />
 
-      <label className="field-label">Chi nhánh ({(cfg.branches || []).length})</label>
-      <div className="taginput">
-        {(cfg.branches || []).map((b) => (
-          <span className="tag" key={b}>{b}
-            <button type="button" onClick={() => removeBranch(b)} aria-label={`Bỏ ${b}`}>
-              <Icon name="x" size={11} />
-            </button>
-          </span>
-        ))}
-        <input value={newBranch} placeholder="Thêm chi nhánh…" onChange={(e) => setNewBranch(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addBranch(); } }} />
-      </div>
-
-      {pendingConfirm && (
-        <div className="admin-warn">
-          <Icon name="alertTriangle" size={16} />
-          <div>
-            <b>Chi nhánh sắp bớt vẫn còn được tham chiếu</b>
-            <p>{(pendingConfirm.removed_branches || []).join(", ")} — {pendingConfirm.users} tài khoản,{" "}
-              {pendingConfirm.batches} lô, {pendingConfirm.gcns} GCN đang dùng.</p>
-            <button className="primary sm" disabled={busy} onClick={() => save(true)}>Vẫn lưu</button>
-            <button className="ghost sm" onClick={() => setPendingConfirm(null)}>Hủy</button>
-          </div>
-        </div>
-      )}
-
       <div className="admin-tab-foot">
-        <button className="primary" disabled={busy} onClick={() => save(false)}>
+        <button className="primary" disabled={busy} onClick={save}>
           {busy ? "Đang lưu…" : "Lưu thay đổi"}
         </button>
       </div>
+    </div>
+  );
+}
+
+// ── Tab: Lô & phân quyền — gán/bỏ gán user cho 1 lô cụ thể. Đối xứng với
+// Users.jsx (gán lô cho 1 user): cả hai đều ghi vào `user.assigned_batch_ids`,
+// nên thao tác từ bên này phản ánh ngay ở bên kia. ──────────────────────────
+function BatchAccessTab() {
+  const [batches, setBatches] = useState([]);
+  const [batchId, setBatchId] = useState("");
+  const [assigned, setAssigned] = useState([]); // [{username, role}]
+  const [allUsers, setAllUsers] = useState([]);
+  const [addUsername, setAddUsername] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    listBatches(500).then((d) => setBatches(d.batches || [])).catch(() => {});
+    listUsers().then((d) => setAllUsers(d.users || [])).catch(() => {});
+  }, []);
+
+  async function refreshAssigned() {
+    if (!batchId) { setAssigned([]); return; }
+    try { setAssigned((await getBatchUsers(batchId)).users || []); }
+    catch (e) { toastErr(e.message || e); }
+  }
+  useEffect(() => { refreshAssigned(); /* eslint-disable-next-line */ }, [batchId]);
+
+  const assignable = allUsers.filter((u) => u.role !== "admin"
+    && !assigned.some((a) => a.username === u.username));
+
+  async function assign() {
+    if (!addUsername) return;
+    setBusy(true);
+    try {
+      await assignBatchUser(batchId, addUsername);
+      setAddUsername("");
+      toastOk("Đã gán");
+      refreshAssigned();
+    } catch (e) { toastErr(e.message || e); } finally { setBusy(false); }
+  }
+  async function unassign(username) {
+    setBusy(true);
+    try { await unassignBatchUser(batchId, username); toastOk("Đã bỏ gán"); refreshAssigned(); }
+    catch (e) { toastErr(e.message || e); } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="admin-tab-body">
+      <label className="field-label" htmlFor="ba-batch">Chọn lô</label>
+      <select id="ba-batch" className="text-input" value={batchId} onChange={(e) => setBatchId(e.target.value)}>
+        <option value="">— Chọn lô —</option>
+        {batches.map((b) => (
+          <option key={b.batch_id} value={b.batch_id}>{b.name} · {b.file_count} hồ sơ</option>
+        ))}
+      </select>
+
+      {batchId && (
+        <>
+          <label className="field-label">Tài khoản được truy cập ({assigned.length})</label>
+          <div className="taginput">
+            {assigned.map((a) => (
+              <span className="tag" key={a.username}>{a.username}
+                <button type="button" disabled={busy} onClick={() => unassign(a.username)} aria-label={`Bỏ ${a.username}`}>
+                  <Icon name="x" size={11} />
+                </button>
+              </span>
+            ))}
+            {!assigned.length && <span className="muted small">Chưa có ai được gán lô này.</span>}
+          </div>
+
+          <div className="admin-tab-toolbar">
+            <select className="text-input" value={addUsername} onChange={(e) => setAddUsername(e.target.value)}>
+              <option value="">— Chọn tài khoản để gán —</option>
+              {assignable.map((u) => <option key={u.username} value={u.username}>{u.username} ({u.role})</option>)}
+            </select>
+            <button className="primary sm" disabled={busy || !addUsername} onClick={assign}>
+              <Icon name="plus" size={13} /> Gán
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

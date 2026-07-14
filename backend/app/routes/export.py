@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from app.audit import AuditAction, log_action
 from app.db import export_jobs
-from app.deps import is_admin, require_operator, scoped_branch
+from app.deps import ensure_batch_access, require_operator
 from app.storage import DestinationNotConfigured, SourceObjectUnavailable, get_pdf
 
 # Toàn bộ export (tạo/xem trạng thái/tải) đều operator trở lên — xuất hàng loạt
@@ -21,7 +21,6 @@ router = APIRouter(prefix="/v1/gcn/export-jobs", tags=["export"], dependencies=[
 
 class ExportIn(BaseModel):
     batch_id: str | None = None
-    branch: str | None = None
     status: str | None = None
     review: str | None = None
 
@@ -38,18 +37,19 @@ async def _authz_job(job_id: str, user: dict) -> dict:
     job = await export_jobs().find_one({"_id": job_id})
     if not job:
         raise HTTPException(status_code=404, detail="Không tìm thấy export job")
-    if not is_admin(user) and (job.get("filter") or {}).get("branch") != user.get("branch"):
-        raise HTTPException(status_code=403, detail="Không thuộc chi nhánh của bạn")
+    ensure_batch_access(user, (job.get("filter") or {}).get("batch_id"))
     return job
 
 
 @router.post("")
 async def create_export_job(body: ExportIn, user: dict = Depends(require_operator)):
-    branch = scoped_branch(user, body.branch)
+    # operator/viewer chỉ được xuất theo 1 lô cụ thể trong phạm vi được gán —
+    # không có khái niệm "xuất toàn bộ" như trước đây (khi đó khoanh theo chi nhánh).
+    ensure_batch_access(user, body.batch_id)
     job_id = str(uuid.uuid4())
     await export_jobs().insert_one({
         "_id": job_id,
-        "filter": {"batch_id": body.batch_id, "branch": branch, "status": body.status, "review": body.review},
+        "filter": {"batch_id": body.batch_id, "status": body.status, "review": body.review},
         "format": "csv", "status": "queued", "requested_by": user["username"],
         "row_count": None, "error": None, "created_at": datetime.now(timezone.utc),
     })

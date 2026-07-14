@@ -59,6 +59,7 @@ async def ensure_indexes() -> None:
     await batches().create_index("created_at")
     await batches().create_index("branch")
     await users().create_index("username", unique=True)
+    await users().create_index("assigned_batch_ids")
     await audit_log().create_index([("at", -1)])
     await audit_log().create_index("actor")
     await audit_log().create_index("action")

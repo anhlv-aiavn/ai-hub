@@ -38,7 +38,7 @@ function pumpProgressQueue() {
 
 // Duyệt 1 cấp kho MinIO nguồn + chọn file lẻ (đồng bộ) hoặc nhập cả thư mục
 // (nền, qua worker-queue) — dense list theo PLAN_.md §Chuẩn UI dense.
-export default function MinioBrowser({ sourceId, branch, batchId, onImported }) {
+export default function MinioBrowser({ sourceId, batchId, onImported }) {
   const [prefix, setPrefix] = useState("");
   const [folders, setFolders] = useState([]);
   const [files, setFiles] = useState([]);
@@ -120,7 +120,7 @@ export default function MinioBrowser({ sourceId, branch, batchId, onImported }) 
     setBusy(true);
     try {
       const res = await importFromMinio(sourceId, {
-        keys: Array.from(selected), branch, batch_id: batchId || undefined,
+        keys: Array.from(selected), batch_id: batchId || undefined,
       });
       toastOk(`Đã nhập ${res.created} tệp${res.skipped ? ` · bỏ qua ${res.skipped} (đã có)` : ""}`);
       setSelected(new Set());
@@ -135,7 +135,7 @@ export default function MinioBrowser({ sourceId, branch, batchId, onImported }) 
     setBusy(true);
     try {
       const res = await importFromMinio(sourceId, {
-        prefix, recursive: true, branch, batch_id: batchId || undefined,
+        prefix, recursive: true, batch_id: batchId || undefined,
       });
       toastOk("Đang nhập thư mục ở nền — theo dõi tiến độ trong Kết quả trích xuất");
       onImported?.(res.batch_id, { mode: "async", status: res.status });

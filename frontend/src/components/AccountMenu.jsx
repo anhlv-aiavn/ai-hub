@@ -9,7 +9,8 @@ export default function AccountMenu({ user, isAdmin, onManageUsers, onOpenSettin
   const rootRef = useRef(null);
   const initial = (user.username || "?").trim().charAt(0).toUpperCase() || "?";
   const roleLabel = ROLE_LABEL[user.role] || user.role;
-  const sub = isAdmin ? "Admin · toàn hệ thống" : `${roleLabel} · ${user.branch || "—"}`;
+  const batchCount = (user.assigned_batch_ids || []).length;
+  const sub = isAdmin ? "Admin · toàn hệ thống" : `${roleLabel} · ${batchCount} lô`;
 
   useEffect(() => {
     if (!open) return;

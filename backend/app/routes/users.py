@@ -1,4 +1,4 @@
-"""Quản trị tài khoản — chỉ admin. Tạo/sửa/khóa/đổi mật khẩu user, gán chi nhánh."""
+"""Quản trị tài khoản — chỉ admin. Tạo/sửa/khóa/đổi mật khẩu user, gán lô."""
 
 import time
 from datetime import datetime, timezone
@@ -7,8 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app import auth, config
-from app.branches import is_valid_branch
-from app.db import users
+from app.db import batches, users
 from app.deps import ROLES, require_admin
 
 router = APIRouter(prefix="/v1/users", tags=["users"], dependencies=[Depends(require_admin)])
@@ -17,14 +16,14 @@ router = APIRouter(prefix="/v1/users", tags=["users"], dependencies=[Depends(req
 class UserIn(BaseModel):
     username: str
     password: str
-    role: str = "viewer"           # admin | operator | viewer
-    branch: str | None = None      # bắt buộc nếu role=operator|viewer
+    role: str = "viewer"                          # admin | operator | viewer
+    assigned_batch_ids: list[str] | None = None    # lô được gán (bỏ trống = gán sau)
 
 
 class UserPatch(BaseModel):
     password: str | None = None
     role: str | None = None
-    branch: str | None = None
+    assigned_batch_ids: list[str] | None = None
     active: bool | None = None
 
 
@@ -36,15 +35,21 @@ def _is_online(u: dict, now: int | None = None) -> bool:
 
 def _public(u: dict) -> dict:
     return {"username": u["username"], "role": u.get("role", "viewer"),
-            "branch": u.get("branch"), "active": u.get("active", True),
+            "assigned_batch_ids": u.get("assigned_batch_ids") or [], "active": u.get("active", True),
             "created_at": u.get("created_at"), "online": _is_online(u)}
 
 
-async def _validate(role: str, branch: str | None) -> None:
+async def _validate(role: str, assigned_batch_ids: list[str] | None) -> list[str]:
     if role not in ROLES:
         raise HTTPException(status_code=400, detail="Vai trò không hợp lệ")
-    if role in ("operator", "viewer") and not await is_valid_branch(branch):
-        raise HTTPException(status_code=400, detail="Operator/viewer phải gán chi nhánh hợp lệ")
+    if role == "admin":
+        return []
+    ids = assigned_batch_ids or []
+    if ids:
+        n = await batches().count_documents({"_id": {"$in": ids}})
+        if n != len(set(ids)):
+            raise HTTPException(status_code=400, detail="Có lô không tồn tại trong danh sách gán")
+    return ids
 
 
 @router.get("")
@@ -58,14 +63,14 @@ async def create_user(body: UserIn):
     username = body.username.strip().lower()
     if not username or len(body.password) < 4:
         raise HTTPException(status_code=400, detail="Tên đăng nhập/mật khẩu không hợp lệ")
-    await _validate(body.role, body.branch)
+    ids = await _validate(body.role, body.assigned_batch_ids)
     if await users().find_one({"username": username}, {"_id": 1}):
         raise HTTPException(status_code=409, detail="Tài khoản đã tồn tại")
     doc = {
         "username": username,
         "password": auth.hash_password(body.password),
         "role": body.role,
-        "branch": body.branch if body.role != "admin" else None,
+        "assigned_batch_ids": ids,
         "active": True,
         "created_at": datetime.now(timezone.utc),
     }
@@ -80,9 +85,9 @@ async def update_user(username: str, body: UserPatch, admin: dict = Depends(requ
     if not u:
         raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
     role = body.role if body.role is not None else u.get("role", "viewer")
-    branch = body.branch if body.branch is not None else u.get("branch")
-    if body.role is not None or body.branch is not None:
-        await _validate(role, branch)
+    ids = body.assigned_batch_ids if body.assigned_batch_ids is not None else u.get("assigned_batch_ids") or []
+    if body.role is not None or body.assigned_batch_ids is not None:
+        ids = await _validate(role, ids)
     # Đang có phiên hoạt động → chặn đổi mật khẩu/khóa NGƯỜI KHÁC, tránh xung đột
     # với người đang thao tác; admin phải "Buộc đăng xuất" trước
     # (POST .../force-logout). KHÔNG áp dụng cho chính admin đang gọi API này —
@@ -98,9 +103,9 @@ async def update_user(username: str, body: UserPatch, admin: dict = Depends(requ
         upd["password"] = auth.hash_password(body.password)
     if body.role is not None:
         upd["role"] = role
-        upd["branch"] = branch if role != "admin" else None
-    elif body.branch is not None:
-        upd["branch"] = branch
+        upd["assigned_batch_ids"] = ids
+    elif body.assigned_batch_ids is not None:
+        upd["assigned_batch_ids"] = ids
     if body.active is not None:
         # Không cho tự khóa chính mình (tránh mất quyền)
         if username == admin["username"] and not body.active:

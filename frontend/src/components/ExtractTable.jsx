@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Icon from "./Icon.jsx";
 import Pager from "./Pager.jsx";
-import { listGcn, listBatches, getBranches, getStats } from "../api.js";
+import { listGcn, listBatches, getStats } from "../api.js";
 import { subscribeEvents } from "../events.js";
 
 const PAGE_SIZE = 50;
@@ -117,15 +117,11 @@ function DupFlag({ current, candidates, onOpen }) {
 }
 
 export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initialStatus = "" }) {
-  const isAdmin = user?.role === "admin";
   // Viewer bị server giới hạn CHỈ thấy hồ sơ chưa hậu kiểm + hồ sơ CHÍNH họ đã
   // hậu kiểm (xem `_viewer_own_or` ở backend) — lọc theo tài khoản khác vô nghĩa
-  // với họ (luôn ra rỗng) nên ẩn hẳn dropdown, chỉ hiện cho operator/admin (admin
-  // thấy mọi tài khoản, operator chỉ thấy tài khoản cùng chi nhánh của mình).
+  // với họ (luôn ra rỗng) nên ẩn hẳn dropdown, chỉ hiện cho operator/admin.
   const canFilterReviewer = user?.role !== "viewer";
   const [batches, setBatches] = useState([]);
-  const [branches, setBranches] = useState([]);
-  const [branch, setBranch] = useState("");
   const [rows, setRows] = useState([]);
   const [status, setStatus] = useState(initialStatus);
   const [review, setReview] = useState("");
@@ -143,7 +139,7 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
     setLoading(true);
     try {
       const d = await listGcn({
-        batchId, branch: branch || undefined, status: status || undefined,
+        batchId, status: status || undefined,
         review: review || undefined, reviewer: reviewer || undefined,
         q: q.trim() || undefined, page: p, pageSize: PAGE_SIZE,
       });
@@ -163,21 +159,20 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
   // Duyệt/Không duyệt ít nhất 1 lần) — không cần quyền admin như /v1/users.
   function refreshReviewers() {
     if (!canFilterReviewer) return;
-    getStats({ batchId, branch: branch || undefined }).then((d) => {
+    getStats({ batchId }).then((d) => {
       setReviewers((d.by_reviewer || []).map((r) => r.reviewer).filter(Boolean).sort());
     }).catch(() => {});
   }
   useEffect(() => {
     refreshBatches();
-    if (isAdmin) getBranches().then((d) => setBranches(d.branches || [])).catch(() => {});
-  }, [isAdmin]);
+  }, []);
   useEffect(() => { setStatus(initialStatus); }, [initialStatus]);
   // Đổi bộ lọc → về trang 1 (không dùng state `page` cũ để tránh closure lệch nhịp).
   // Đổi batchId (kể cả khi vừa tạo đợt mới ở "Số hóa") → cũng nạp lại danh sách đợt
   // để số lượng hồ sơ hiển thị đúng ngay, không cần tải lại trang.
-  useEffect(() => { setPage(1); refresh(1); refreshBatches(); /* eslint-disable-next-line */ }, [batchId, branch, status, review, reviewer]);
-  // Danh sách tài khoản phụ thuộc đợt/chi nhánh đang chọn — nạp lại khi đổi.
-  useEffect(() => { refreshReviewers(); /* eslint-disable-next-line */ }, [batchId, branch, canFilterReviewer]);
+  useEffect(() => { setPage(1); refresh(1); refreshBatches(); /* eslint-disable-next-line */ }, [batchId, status, review, reviewer]);
+  // Danh sách tài khoản phụ thuộc đợt đang chọn — nạp lại khi đổi.
+  useEffect(() => { refreshReviewers(); /* eslint-disable-next-line */ }, [batchId, canFilterReviewer]);
 
   function goToPage(p) { setPage(p); refresh(p); }
   function runSearch() { setPage(1); refresh(1); }
@@ -213,12 +208,6 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
       <div className="et-toolbar">
         <h2>Hồ sơ đã xử lý</h2>
         <div className="et-filters">
-          {isAdmin && (
-            <select value={branch} onChange={(e) => setBranch(e.target.value)}>
-              <option value="">Tất cả chi nhánh</option>
-              {branches.map((b) => <option key={b} value={b}>{b}</option>)}
-            </select>
-          )}
           <select value={batchId || ""} onChange={(e) => onPickBatch?.(e.target.value || null)}>
             <option value="">Tất cả đợt</option>
             {batches.map((b) => (
@@ -271,9 +260,6 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
                     <td colSpan={9}>
                       <Icon name="layers" size={13} /> {f.display_name || f.filename}
                       <span className="gh-count">{multi ? `${items.length} giấy chứng nhận` : "1 giấy chứng nhận"}</span>
-                      {isAdmin && f.branch && (
-                        <span className="badge branch-badge" title="Chi nhánh">{f.branch}</span>
-                      )}
                       {f.dup_suspect && (
                         <DupFlag
                           current={{ gcn_id: f.gcn_id, filename: f.filename, display_name: f.display_name,

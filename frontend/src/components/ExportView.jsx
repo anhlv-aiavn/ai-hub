@@ -3,7 +3,7 @@ import Icon from "./Icon.jsx";
 import GcnPdf from "./GcnPdf.jsx";
 import Pager from "./Pager.jsx";
 import {
-  listRows, listBatches, downloadCsv, getStats, getBranches,
+  listRows, listBatches, downloadCsv, getStats,
   createExportJob, getExportJob, downloadExportJob, friendlyError,
 } from "../api.js";
 import { subscribeEvents } from "../events.js";
@@ -55,54 +55,6 @@ function SegBar({ title, segs, data, unit = "hồ sơ" }) {
             <b>{fmt(x.n)}</b> <span className="seg-pct">{pct(x.n, denom)}%</span>
           </span>
         ))}
-      </div>
-    </div>
-  );
-}
-
-function BranchTable({ rows }) {
-  if (!rows.length) return null;
-  // Xếp hạng theo SỐ ĐÃ DUYỆT giảm dần (tie: nhiều GCN hơn trước).
-  const ranked = [...rows].sort((a, b) => (b.reviewed - a.reviewed) || (b.gcns - a.gcns));
-
-  return (
-    <div className="branch-stats">
-      <div className="seg-title">Theo chi nhánh · xếp hạng theo số đã duyệt</div>
-      <div className="et-scroll bt-scroll">
-        <table className="et-grid">
-          <thead>
-            <tr>
-              <th>#</th><th>Chi nhánh</th><th>Hồ sơ</th><th>GCN</th>
-              <th>Tiến độ xử lý AI</th><th>Đã duyệt</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ranked.map((r, i) => {
-              const donePct = pct(r.done, r.files);
-              const revPct = pct(r.reviewed, r.files);
-              return (
-                <tr key={r.branch || `__${i}`}>
-                  <td className="bt-rank">{i + 1}</td>
-                  <td className="bt-name">{r.branch || "(chưa gán)"}</td>
-                  <td>{fmt(r.files)}</td>
-                  <td>{fmt(r.gcns)}</td>
-                  <td>
-                    <div className="bt-prog">
-                      <div className="bt-bar"><div className="bt-fill" style={{ width: `${donePct}%` }} /></div>
-                      <span className="bt-pct"><b>{fmt(r.done)}</b> <span className="muted">/{fmt(r.files)} · {donePct}%</span></span>
-                    </div>
-                  </td>
-                  <td>
-                    <div className="bt-prog">
-                      <div className="bt-bar"><div className="bt-fill rev" style={{ width: `${revPct}%` }} /></div>
-                      <span className="bt-pct"><b>{fmt(r.reviewed)}</b> <span className="muted">· {revPct}%</span></span>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
       </div>
     </div>
   );
@@ -171,15 +123,13 @@ function ReviewerTable({ rows, days, onDaysChange, rangeFrom, rangeTo, onRangeCh
 export default function ExportView({ user }) {
   const isAdmin = user?.role === "admin";
   const canExportJob = user?.role !== "viewer";
-  // Bảng "Theo người hậu kiểm": admin xem mọi chi nhánh, operator xem được
-  // (nhưng server luôn ép `branch` về đúng chi nhánh của họ — xem scoped_branch
-  // ở backend — nên danh sách trả về chỉ gồm tài khoản cùng chi nhánh). Viewer
+  // Bảng "Theo người hậu kiểm": admin xem toàn hệ thống, operator xem được
+  // (nhưng server luôn giới hạn theo các lô họ được gán — xem scoped_batch_ids
+  // ở backend — nên danh sách trả về chỉ gồm tài khoản cùng phạm vi lô). Viewer
   // không có quyền hậu kiểm nên không cần thấy bảng này.
   const canViewReviewerTable = isAdmin || user?.role === "operator";
   const [batches, setBatches] = useState([]);
-  const [branches, setBranches] = useState([]);
   const [batchId, setBatchId] = useState("");
-  const [branch, setBranch] = useState("");
   const [review, setReview] = useState("");
   const [reviewerDays, setReviewerDays] = useState(0); // 0 = toàn thời gian, "custom" = dùng reviewerFrom/To
   const [reviewerFrom, setReviewerFrom] = useState("");
@@ -203,7 +153,7 @@ export default function ExportView({ user }) {
   async function refreshStats() {
     try {
       setStats(await getStats({
-        batchId: batchId || undefined, branch: branch || undefined,
+        batchId: batchId || undefined,
         reviewerDays: reviewerDays !== "custom" ? (reviewerDays || undefined) : undefined,
         reviewerFrom: reviewerDays === "custom" ? (reviewerFrom || undefined) : undefined,
         reviewerTo: reviewerDays === "custom" ? (reviewerTo || undefined) : undefined,
@@ -215,7 +165,7 @@ export default function ExportView({ user }) {
     setLoading(true);
     try {
       const [d] = await Promise.all([
-        listRows({ batchId: batchId || undefined, branch: branch || undefined, review: review || undefined,
+        listRows({ batchId: batchId || undefined, review: review || undefined,
                    page: p, pageSize: ROWS_PAGE_SIZE }),
         refreshStats(),
       ]);
@@ -229,7 +179,7 @@ export default function ExportView({ user }) {
 
   // Đổi khoảng thời gian bảng "Theo người hậu kiểm" → chỉ gọi lại stats (nhẹ),
   // không đụng tới trang/bộ lọc của bảng dòng phẳng bên dưới. Bỏ qua lần đầu vì
-  // effect [batchId, branch, review] bên dưới đã gọi refresh() (kèm stats) lúc mount.
+  // effect [batchId, review] bên dưới đã gọi refresh() (kèm stats) lúc mount.
   useEffect(() => {
     if (!reviewerDaysMounted.current) { reviewerDaysMounted.current = true; return; }
     refreshStats();
@@ -240,10 +190,9 @@ export default function ExportView({ user }) {
 
   useEffect(() => {
     listBatches().then((d) => setBatches(d.batches || [])).catch(() => {});
-    if (isAdmin) getBranches().then((d) => setBranches(d.branches || [])).catch(() => {});
-  }, [isAdmin]);
+  }, []);
   // Đổi bộ lọc → về trang 1 (không dùng state `rowsPage` cũ để tránh closure lệch nhịp).
-  useEffect(() => { setRowsPage(1); refresh(1); /* eslint-disable-next-line */ }, [batchId, branch, review]);
+  useEffect(() => { setRowsPage(1); refresh(1); /* eslint-disable-next-line */ }, [batchId, review]);
   useEffect(() => {
     let t = null;
     const un = subscribeEvents(() => { clearTimeout(t); t = setTimeout(() => refreshRef.current(), 800); });
@@ -254,18 +203,21 @@ export default function ExportView({ user }) {
 
   async function csv() {
     try {
-      await downloadCsv({ batchId: batchId || undefined, branch: branch || undefined, review: review || undefined });
+      await downloadCsv({ batchId: batchId || undefined, review: review || undefined });
       toastOk("Đã tải CSV");
     } catch (e) { toastErr(e.message || e); }
   }
 
   // Xuất nền: không cap dòng, không chặn request — worker đọc Mongo qua cursor.
+  // operator/viewer bắt buộc chọn 1 lô cụ thể (server yêu cầu batch_id nằm
+  // trong phạm vi được gán — không còn "xuất toàn bộ" như thời chi nhánh).
+  const canStartExportJob = canExportJob && (isAdmin || !!batchId);
   useEffect(() => () => clearInterval(pollRef.current), []);
   async function startExportJob() {
     clearInterval(pollRef.current);
     try {
       const { job_id } = await createExportJob({
-        batchId: batchId || undefined, branch: branch || undefined, review: review || undefined,
+        batchId: batchId || undefined, review: review || undefined,
       });
       setJob({ job_id, status: "queued" });
       pollRef.current = setInterval(async () => {
@@ -309,12 +261,6 @@ export default function ExportView({ user }) {
       <div className="et-toolbar">
         <h2>Tổng quan</h2>
         <div className="et-filters">
-          {isAdmin && (
-            <select value={branch} onChange={(e) => setBranch(e.target.value)}>
-              <option value="">Tất cả chi nhánh</option>
-              {branches.map((b) => <option key={b} value={b}>{b}</option>)}
-            </select>
-          )}
           <select value={batchId} onChange={(e) => setBatchId(e.target.value)}>
             <option value="">Tất cả đợt</option>
             {batches.map((b) => <option key={b.batch_id} value={b.batch_id}>{b.name} · {b.file_count} hồ sơ</option>)}
@@ -328,7 +274,6 @@ export default function ExportView({ user }) {
         <SegBar title="Hậu kiểm" segs={REVIEW_SEGS} data={s.by_review || {}} />
       </div>
 
-      {isAdmin && <BranchTable rows={s.by_branch || []} />}
       {canViewReviewerTable && (
         <ReviewerTable rows={s.by_reviewer || []} days={reviewerDays} onDaysChange={setReviewerDays}
           rangeFrom={reviewerFrom} rangeTo={reviewerTo} onRangeChange={onReviewerRangeChange} />
@@ -345,8 +290,12 @@ export default function ExportView({ user }) {
             <div className="ev-export-btns">
               <button className="primary sm" onClick={csv}><Icon name="download" size={14} /> Tải CSV</button>
               {canExportJob && (
-                <button className="ghost sm" disabled={job && job.status !== "done" && job.status !== "error"}
-                  onClick={startExportJob} title="Không giới hạn số dòng — chạy nền, không cap 5000 dòng như Tải CSV">
+                <button className="ghost sm"
+                  disabled={!canStartExportJob || (job && job.status !== "done" && job.status !== "error")}
+                  onClick={startExportJob}
+                  title={canStartExportJob
+                    ? "Không giới hạn số dòng — chạy nền, không cap 5000 dòng như Tải CSV"
+                    : "Hãy chọn 1 đợt cụ thể để xuất nền"}>
                   <Icon name="upload" size={14} /> Xuất nền
                 </button>
               )}

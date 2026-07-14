@@ -2,22 +2,27 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
 import Modal from "./Modal.jsx";
 import Pager from "./Pager.jsx";
-import { listUsers, createUser, updateUser, deleteUser, getBranches } from "../api.js";
+import { listUsers, createUser, updateUser, deleteUser, listBatches } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 
 const ROLE_LABEL = { admin: "Admin", operator: "Operator", viewer: "Viewer" };
 const PAGE_SIZE = 10;
 
-// Quản trị tài khoản (admin): tạo user, gán chi nhánh + vai trò, khóa/mở/đổi mật khẩu/xóa.
+// Quản trị tài khoản (admin): tạo user, gán lô + vai trò, khóa/mở/đổi mật khẩu/xóa.
 // 3 role: admin (config/secret/users, toàn hệ thống) · operator (import/hậu kiểm,
-// khóa chi nhánh) · viewer (tra cứu/xem, khóa chi nhánh) — xem PLAN_.md §Phân quyền.
+// khóa theo lô được gán) · viewer (tra cứu/xem, khóa theo lô được gán) — xem
+// PLAN_.md §Phân quyền. Gán lô cũng quản lý được từ phía lô (AdminSettings.jsx,
+// tab "Lô & phân quyền") — cả hai đều ghi vào `user.assigned_batch_ids`.
 export default function Users({ me, onClose }) {
   const [rows, setRows] = useState([]);
-  const [branches, setBranches] = useState([]);
-  const [form, setForm] = useState({ username: "", password: "", role: "viewer", branch: "" });
+  const [batches, setBatches] = useState([]);
+  const [form, setForm] = useState({ username: "", password: "", role: "viewer", assignedBatchIds: [] });
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false); // chặn double-submit ngay lập tức (state busy cập nhật không đồng bộ)
   const [page, setPage] = useState(1);
+  const [editingBatches, setEditingBatches] = useState(null); // username đang mở picker lô
+
+  function batchName(id) { return batches.find((b) => b.batch_id === id)?.name || id; }
 
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   // Trang hiện tại có thể vượt quá sau khi xóa tài khoản/thêm bộ lọc → kẹp lại trong khoảng hợp lệ.
@@ -32,7 +37,7 @@ export default function Users({ me, onClose }) {
   }
   useEffect(() => {
     refresh();
-    getBranches().then((d) => setBranches(d.branches || [])).catch(() => {});
+    listBatches(500).then((d) => setBatches(d.batches || [])).catch(() => {});
   }, []);
   // Trạng thái "đang hoạt động" đổi theo hành động của NGƯỜI KHÁC (họ đăng nhập/
   // thoát) — modal đang mở không tự biết, phải tự làm mới định kỳ mới thấy ngay
@@ -45,16 +50,15 @@ export default function Users({ me, onClose }) {
   async function add() {
     if (busyRef.current) return; // đã có 1 lượt tạo đang chạy — bỏ qua các cú bấm dồn dập
     if (!form.username || form.password.length < 4) { toastErr("Tên đăng nhập / mật khẩu (≥4) chưa hợp lệ"); return; }
-    if (form.role !== "admin" && !form.branch) { toastErr("Operator/viewer phải chọn chi nhánh"); return; }
     busyRef.current = true;
     setBusy(true);
     try {
       await createUser({
         username: form.username.trim(), password: form.password, role: form.role,
-        branch: form.role !== "admin" ? form.branch : null,
+        assigned_batch_ids: form.role !== "admin" ? form.assignedBatchIds : [],
       });
       toastOk("Đã tạo tài khoản");
-      setForm({ username: "", password: "", role: "viewer", branch: "" });
+      setForm({ username: "", password: "", role: "viewer", assignedBatchIds: [] });
       refresh();
     } catch (e) { toastErr(e.message || e); } finally { busyRef.current = false; setBusy(false); }
   }
@@ -62,6 +66,17 @@ export default function Users({ me, onClose }) {
   async function patch(username, body, okMsg) {
     try { await updateUser(username, body); toastOk(okMsg || "Đã cập nhật"); refresh(); }
     catch (e) { toastErr(e.message || e); }
+  }
+  function toggleFormBatch(id) {
+    setForm((f) => {
+      const has = f.assignedBatchIds.includes(id);
+      return { ...f, assignedBatchIds: has ? f.assignedBatchIds.filter((x) => x !== id) : [...f.assignedBatchIds, id] };
+    });
+  }
+  function toggleRowBatch(u, id) {
+    const cur = u.assigned_batch_ids || [];
+    const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+    patch(u.username, { assigned_batch_ids: next });
   }
   async function resetPw(username) {
     const pw = window.prompt(`Đặt mật khẩu mới cho "${username}" (≥4 ký tự):`);
@@ -99,14 +114,21 @@ export default function Users({ me, onClose }) {
           </select>
         </div>
         <div className="uf-field">
-          <label className="field-label" htmlFor="uf-branch">
-            Chi nhánh {form.role !== "admin" && <span className="req">*</span>}
-          </label>
-          <select id="uf-branch" className="text-input" value={form.branch} disabled={form.role === "admin"}
-            onChange={(e) => setForm({ ...form, branch: e.target.value })}>
-            <option value="">{form.role === "admin" ? "(toàn hệ thống)" : "— Chọn chi nhánh —"}</option>
-            {branches.map((b) => <option key={b} value={b}>{b}</option>)}
-          </select>
+          <label className="field-label">Lô được gán</label>
+          {form.role === "admin" ? (
+            <span className="muted small">(toàn hệ thống)</span>
+          ) : (
+            <div className="batch-picker">
+              {!batches.length && <span className="muted small">Chưa có lô nào — gán sau.</span>}
+              {batches.map((b) => (
+                <label key={b.batch_id} className="batch-picker-row">
+                  <input type="checkbox" checked={form.assignedBatchIds.includes(b.batch_id)}
+                    onChange={() => toggleFormBatch(b.batch_id)} />
+                  {b.name}
+                </label>
+              ))}
+            </div>
+          )}
         </div>
         <div className="uf-field uf-submit">
           <label className="field-label" aria-hidden="true">&nbsp;</label>
@@ -119,7 +141,7 @@ export default function Users({ me, onClose }) {
       <div className="et-scroll">
         <table className="et-grid">
           <thead>
-            <tr><th>Tài khoản</th><th>Vai trò</th><th>Chi nhánh</th><th>Trạng thái</th><th>Phiên</th><th>Thao tác</th></tr>
+            <tr><th>Tài khoản</th><th>Vai trò</th><th>Lô được gán</th><th>Trạng thái</th><th>Phiên</th><th>Thao tác</th></tr>
           </thead>
           <tbody>
             {pageRows.map((u) => {
@@ -133,7 +155,31 @@ export default function Users({ me, onClose }) {
               <tr key={u.username}>
                 <td className="bt-name">{u.username}{u.username === me?.username && " (bạn)"}</td>
                 <td>{ROLE_LABEL[u.role] || u.role}</td>
-                <td>{u.branch || "—"}</td>
+                <td>
+                  {u.role === "admin" ? (
+                    <span className="muted">toàn hệ thống</span>
+                  ) : (
+                    <div className="batch-cell">
+                      <button type="button" className="ghost xs"
+                        title={(u.assigned_batch_ids || []).map(batchName).join(", ") || "Chưa gán lô nào"}
+                        onClick={() => setEditingBatches(editingBatches === u.username ? null : u.username)}>
+                        {(u.assigned_batch_ids || []).length} lô
+                      </button>
+                      {editingBatches === u.username && (
+                        <div className="batch-picker batch-picker-popover">
+                          {!batches.length && <span className="muted small">Chưa có lô nào.</span>}
+                          {batches.map((b) => (
+                            <label key={b.batch_id} className="batch-picker-row">
+                              <input type="checkbox" checked={(u.assigned_batch_ids || []).includes(b.batch_id)}
+                                onChange={() => toggleRowBatch(u, b.batch_id)} />
+                              {b.name}
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </td>
                 <td>
                   <span className={`badge ${u.active ? "rv-reviewed" : "st-error"}`}>
                     {u.active ? "Hoạt động" : "Đã khóa"}

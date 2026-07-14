@@ -225,6 +225,12 @@ button.login-btn:disabled { opacity: .45; }
 .user-form .text-input { width: 100%; box-sizing: border-box; }
 .user-form .uf-submit { flex: 0 0 auto; min-width: 0; }
 .req { color: var(--err); margin-left: 1px; }
+.batch-picker { display: flex; flex-direction: column; gap: 4px; max-height: 140px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 8px; background: var(--surface); }
+.batch-picker-row { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.batch-cell { position: relative; }
+.batch-picker-popover { position: absolute; z-index: 20; top: 100%; left: 0; margin-top: 4px;
+  width: 220px; box-shadow: var(--shadow-lg); }
 /* Cột thao tác dùng bề rộng cố định cho từng nút để "Khóa"/"Mở" luôn thẳng hàng
    giữa các dòng dù độ dài chữ khác nhau; ô trống (dòng chính mình) vẫn giữ chỗ. */
 .user-actions { display: grid; grid-template-columns: 104px 60px 52px; gap: 6px; align-items: center; }
@@ -955,10 +961,6 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 /* Cuộn ngang (màn hẹp): giữ tên file + badge chi nhánh luôn thấy được, cùng
    pattern sticky đã có cho STT — offset = min-width cố định của .et-stt ở trên. */
 .group-head td:nth-child(2) { position: sticky; left: 44px; z-index: 1; }
-/* .group-head td đã tô nền --accent-50 riêng (dòng dưới) — badge phải tương phản
-   với nền đó, không dùng lại --accent-50 (sẽ biến mất vào nền), theo cùng kiểu
-   nền trắng+viền của .gh-count cạnh nó trong cùng dòng. */
-.branch-badge { background: var(--surface); color: var(--brand); border: 1px solid var(--border); margin-left: 8px; }
 .gh-count { margin-left: 10px; font-weight: 500; font-size: 11.5px; color: var(--text-3);
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px; }
 .et-chu { max-width: 260px; }
