@@ -2,11 +2,15 @@
 duyệt thư mục 1 cấp (vendor chỉ có liệt kê đệ quy), test connection với thông
 báo lỗi phân loại rõ. KHÔNG sửa vendor `minio_helper.py`."""
 
+import asyncio
+
 import aioboto3
 from botocore.config import Config
 from botocore.exceptions import ClientError, ConnectTimeoutError, EndpointConnectionError
 
 from src.extentions.minio_helper import MinioClient
+
+HEAD_OBJECT_CONCURRENCY = 8
 
 
 def build_client(conn: dict) -> MinioClient:
@@ -47,17 +51,33 @@ async def async_list_folder(client: MinioClient, bucket: str, prefix: str = "",
         return folders, files, next_token
 
 
-async def async_head_object(client: MinioClient, bucket: str, key: str) -> dict:
-    """etag/last_modified 1 key — dùng để lưu source_etag/source_mtime lúc import
-    (phát hiện nguồn đổi nội dung sau này)."""
+async def head_objects(client: MinioClient, bucket: str, keys: list[str],
+                       concurrency: int = HEAD_OBJECT_CONCURRENCY) -> dict[str, dict]:
+    """etag/last_modified cho NHIEU key, dung 1 S3 client dung chung (thay vi 1
+    Session/client rieng cho tung key nhu truoc — moi client la 1 ket noi
+    TCP/TLS moi, voi batch vai chuc/tram key se lam import_from_minio (nhanh
+    `keys`) cham dan roi timeout). HEAD chay dong thoi, gioi han `concurrency`
+    de khong lam qua tai nguon. Key loi (khong ton tai, mat quyen...) -> {}
+    (giu nguyen hanh vi cu, khong lam sap ca batch). Tra ve {key: {"etag",
+    "last_modified"}}."""
+    sem = asyncio.Semaphore(concurrency)
+
+    async def _one(s3, key: str) -> tuple[str, dict]:
+        async with sem:
+            try:
+                resp = await s3.head_object(Bucket=bucket, Key=key)
+                return key, {"etag": (resp.get("ETag") or "").strip('"'), "last_modified": resp.get("LastModified")}
+            except Exception:  # noqa: BLE001
+                return key, {}
+
     session = aioboto3.Session()
     async with session.client(
         "s3", endpoint_url=client.endpoint_url, aws_access_key_id=client.aws_access_key_id,
         aws_secret_access_key=client.aws_secret_access_key, verify=client.verify,
         region_name="us-east-1",
     ) as s3:
-        resp = await s3.head_object(Bucket=bucket, Key=key)
-        return {"etag": (resp.get("ETag") or "").strip('"'), "last_modified": resp.get("LastModified")}
+        results = await asyncio.gather(*(_one(s3, key) for key in keys))
+    return dict(results)
 
 
 def _classify_error(e: Exception) -> str:

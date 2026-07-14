@@ -13,7 +13,7 @@ from app.audit import AuditAction, log_action
 from app.batch_counters import bump, init_counts
 from app.db import batches, browse_progress_cache, gcns, import_jobs, s3_connections, users
 from app.deps import ensure_batch_access, is_admin, require_operator, scoped_batch_ids
-from app.s3_util import async_head_object, async_list_folder, build_client
+from app.s3_util import async_list_folder, build_client, head_objects
 
 router = APIRouter(prefix="/v1/browse", tags=["browse"], dependencies=[Depends(require_operator)])
 
@@ -238,13 +238,8 @@ async def import_from_minio(source_id: str, body: ImportIn, user: dict = Depends
     if body.keys:
         batch_id = await _ensure_batch(body.batch_id, body.name, "processing", user)
         client = build_client(conn)
-        items = []
-        for key in body.keys:
-            try:
-                meta = await async_head_object(client, conn["bucket"], key)
-            except Exception:  # noqa: BLE001
-                meta = {}
-            items.append((key, meta))
+        meta_by_key = await head_objects(client, conn["bucket"], body.keys)
+        items = [(key, meta_by_key.get(key, {})) for key in body.keys]
         created, skipped, requeued = await _sync_import_files(batch_id, source_id, items)
         await log_action(user["username"], AuditAction.GCN_IMPORT_MINIO, batch_id, {
             "source_connection_id": source_id, "keys": body.keys,
