@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import Icon from "./Icon.jsx";
 import Pager from "./Pager.jsx";
 import ConfirmDialog from "./ConfirmDialog.jsx";
-import SearchableSelect from "./SearchableSelect.jsx";
 import { listGcn, listBatches, getStats, deleteGcn } from "../api.js";
 import { subscribeEvents } from "../events.js";
 import { toastOk, toastErr } from "../toast.js";
@@ -136,14 +135,12 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
   const [reviewer, setReviewer] = useState("");
   const [reviewers, setReviewers] = useState([]);
   const [q, setQ] = useState("");
-  const [batchQuery, setBatchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [hasPending, setHasPending] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const refreshRef = useRef(() => {});
-  const batchQueryMounted = useRef(false);
 
   async function refresh(p = page) {
     setLoading(true);
@@ -162,10 +159,8 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
   }
   useEffect(() => { refreshRef.current = refresh; });
 
-  function refreshBatches(query = batchQuery) {
-    // limit=500 (thay vi mac dinh 50) de "hien het" phan lon truong hop; con
-    // qua nhieu thi go vao o tim kiem, loc theo ten qua GET /v1/batches?name=...
-    listBatches(500, query.trim()).then((d) => setBatches(d.batches || [])).catch(() => {});
+  function refreshBatches() {
+    listBatches().then((d) => setBatches(d.batches || [])).catch(() => {});
   }
   // Danh sách tài khoản để lọc lấy từ /stats.by_reviewer (chỉ những ai đã từng
   // Duyệt/Không duyệt ít nhất 1 lần) — không cần quyền admin như /v1/users.
@@ -178,14 +173,6 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
   useEffect(() => {
     refreshBatches();
   }, []);
-  // Go vao o tim dot -- debounce 300ms tranh goi API tren tung phim go. Bo
-  // qua lan chay dau (mount da tu goi refreshBatches() o effect tren roi).
-  useEffect(() => {
-    if (!batchQueryMounted.current) { batchQueryMounted.current = true; return; }
-    const t = setTimeout(() => refreshBatches(batchQuery), 300);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line
-  }, [batchQuery]);
   useEffect(() => { setStatus(initialStatus); }, [initialStatus]);
   // Đổi bộ lọc → về trang 1 (không dùng state `page` cũ để tránh closure lệch nhịp).
   // Đổi batchId (kể cả khi vừa tạo đợt mới ở "Số hóa") → cũng nạp lại danh sách đợt
@@ -239,18 +226,12 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
       <div className="et-toolbar">
         <h2>Hồ sơ đã xử lý</h2>
         <div className="et-filters">
-          <SearchableSelect
-            value={batchId || ""}
-            onChange={(v) => onPickBatch?.(v || null)}
-            query={batchQuery}
-            onQueryChange={setBatchQuery}
-            placeholder="Tất cả đợt"
-            searchPlaceholder="Tìm đợt…"
-            options={[
-              { value: "", label: "Tất cả đợt" },
-              ...batches.map((b) => ({ value: b.batch_id, label: `${b.name} · ${b.file_count} hồ sơ` })),
-            ]}
-          />
+          <select value={batchId || ""} onChange={(e) => onPickBatch?.(e.target.value || null)}>
+            <option value="">Tất cả đợt</option>
+            {batches.map((b) => (
+              <option key={b.batch_id} value={b.batch_id}>{b.name} · {b.file_count} hồ sơ</option>
+            ))}
+          </select>
           <select value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">Mọi trạng thái</option>
             {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
