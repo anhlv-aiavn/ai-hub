@@ -38,6 +38,22 @@ MAX_VLM_CONCURRENT = int(os.getenv("MAX_VLM_CONCURRENT", "8"))
 # Số file in-flight tối đa (bound RAM ảnh render).
 MAX_IN_FLIGHT = int(os.getenv("MAX_IN_FLIGHT", str(MAX_VLM_CONCURRENT * 3)))
 
+# ── Dry-run (tích hợp riêng ngoài hệ thống chính) ───────────────────────────
+# File tạm lên BUCKET RIÊNG (khác AIHUB_BUCKET của hệ thống thật) — xoá ngay
+# sau khi xử lý xong; lifecycle rule bên dưới là lưới an toàn nếu tiến trình
+# chết giữa chừng trước khi kịp xoá tay. Kết quả (JSON) + trạng thái nằm ở
+# collection riêng `dryrun_job`/`dryrun_item`, KHÔNG đụng `gcn`/`batch` — tự
+# xoá sau TTL này (giây).
+DRYRUN_BUCKET = os.getenv("AIHUB_DRYRUN_BUCKET", "ai-hub-dryrun-tmp")
+DRYRUN_S3_LIFECYCLE_DAYS = int(os.getenv("AIHUB_DRYRUN_S3_LIFECYCLE_DAYS", "1"))
+COLL_DRYRUN_JOB = "dryrun_job"
+COLL_DRYRUN_ITEM = "dryrun_item"
+DRYRUN_TTL_SECONDS = int(os.getenv("AIHUB_DRYRUN_TTL_SECONDS", str(2 * 3600)))
+# Số file dry-run xử lý ĐỒNG THỜI tối đa (toàn API process, mọi job cộng lại)
+# — tách riêng khỏi MAX_VLM_CONCURRENT của worker chính để không giành tải VLM
+# với hệ thống thật đang chạy.
+DRYRUN_MAX_VLM_CONCURRENT = int(os.getenv("AIHUB_DRYRUN_MAX_VLM_CONCURRENT", "8"))
+
 # ── Auth tùy chọn (cũ): nếu set → bắt buộc X-API-Key. Giữ cho tương thích. ────
 API_KEY = os.getenv("AIHUB_API_KEY", "").strip()
 
