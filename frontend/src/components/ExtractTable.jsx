@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import Icon from "./Icon.jsx";
 import Pager from "./Pager.jsx";
 import ConfirmDialog from "./ConfirmDialog.jsx";
+import SearchableSelect from "./SearchableSelect.jsx";
 import { listGcn, listBatches, getStats, deleteGcn } from "../api.js";
 import { subscribeEvents } from "../events.js";
 import { toastOk, toastErr } from "../toast.js";
@@ -238,19 +239,18 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
       <div className="et-toolbar">
         <h2>Hồ sơ đã xử lý</h2>
         <div className="et-filters">
-          <div className="search-box batch-search" title="Tìm đợt theo tên">
-            <Icon name="search" size={15} />
-            <input
-              placeholder="Tìm đợt…"
-              value={batchQuery}
-              onChange={(e) => setBatchQuery(e.target.value)} />
-          </div>
-          <select value={batchId || ""} onChange={(e) => onPickBatch?.(e.target.value || null)}>
-            <option value="">Tất cả đợt{batchQuery.trim() ? ` (khớp "${batchQuery.trim()}")` : ""}</option>
-            {batches.map((b) => (
-              <option key={b.batch_id} value={b.batch_id}>{b.name} · {b.file_count} hồ sơ</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={batchId || ""}
+            onChange={(v) => onPickBatch?.(v || null)}
+            query={batchQuery}
+            onQueryChange={setBatchQuery}
+            placeholder="Tất cả đợt"
+            searchPlaceholder="Tìm đợt…"
+            options={[
+              { value: "", label: "Tất cả đợt" },
+              ...batches.map((b) => ({ value: b.batch_id, label: `${b.name} · ${b.file_count} hồ sơ` })),
+            ]}
+          />
           <select value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">Mọi trạng thái</option>
             {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
