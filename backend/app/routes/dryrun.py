@@ -3,10 +3,14 @@ thẳng kết quả, KHÔNG lưu vào bucket/collection chính dùng bởi hệ 
 Không có khái niệm `branch`.
 
 File này CỐ TÌNH độc lập với app/routes/batches.py, app/routes/gcn.py và
-app/worker/* — không sửa, không import gì từ các module đó — để không ảnh
-hưởng luồng xử lý chính đang chạy cho hệ thống thật. Chỉ tái dùng (đọc, không
-sửa) pipeline detect+extract thuần túy ở src/extentions/multimodal/pipeline.py
-(không đụng Mongo/S3) và MinioClient singleton (không đụng vendor helper).
+app/worker/* — không sửa dòng nào trong các module đó, để không ảnh hưởng
+luồng xử lý chính đang chạy cho hệ thống thật. Có IMPORT (chỉ đọc) hàm
+`_pipeline` từ app/worker/run_job.py — đây chính là hàm detect+extract THẬT
+đang chạy sản xuất (per-page classify, trần AIHUB_MAX_PAGES=250), KHÔNG dùng
+`pipeline.py` (bản cũ, trần cứng 10 trang — đã gây lỗi "too_many_pages" sai
+cho file hợp lệ). `_pipeline` không đụng Mongo/S3 (chỉ nhận bytes, trả kết
+quả) nên tái dùng an toàn. MinioClient singleton cũng chỉ đọc, không đụng
+vendor helper.
 
 File tạm: lên BUCKET RIÊNG (config.DRYRUN_BUCKET, khác bucket hệ thống thật),
 xoá NGAY sau khi xử lý xong (kể cả khi lỗi) — lifecycle rule của bucket là
@@ -31,8 +35,8 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from app import config
 from app.db import get_db
 from app.deps import current_user, is_admin, require_operator
+from app.worker.run_job import _pipeline
 from src.extentions.minio_helper import minio_client
-from src.extentions.multimodal.pipeline import detect_and_extract
 
 log = logging.getLogger(__name__)
 
@@ -171,7 +175,7 @@ async def _process_job(job_id: str, dryrun_ids: list[str]) -> None:
         try:
             async with _SEM:
                 buf = await minio_client.async_get_object(config.DRYRUN_BUCKET, s3_key)
-                records = await detect_and_extract(buf)
+                records, _images = await _pipeline(buf)
             page_count = records[0]["page_count"] if records else 0
             await dryrun_items().update_one(
                 {"_id": dryrun_id},
