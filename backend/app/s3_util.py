@@ -2,7 +2,6 @@
 duyệt thư mục 1 cấp (vendor chỉ có liệt kê đệ quy), test connection với thông
 báo lỗi phân loại rõ. KHÔNG sửa vendor `minio_helper.py`."""
 
-import asyncio
 from contextlib import asynccontextmanager
 
 import aioboto3
@@ -10,8 +9,6 @@ from botocore.config import Config
 from botocore.exceptions import ClientError, ConnectTimeoutError, EndpointConnectionError
 
 from src.extentions.minio_helper import MinioClient
-
-HEAD_OBJECT_CONCURRENCY = 8
 
 
 def build_client(conn: dict) -> MinioClient:
@@ -28,12 +25,12 @@ def build_client(conn: dict) -> MinioClient:
 
 @asynccontextmanager
 async def open_s3_client(client: MinioClient):
-    """Mo 1 S3 client DUNG CHUNG cho ca 1 chuoi goi lien tiep (nhieu trang list,
-    nhieu key head...) -- tranh tao Session/client rieng cho TUNG LAN GOI (moi
-    lan la 1 ket noi TCP/TLS moi). Voi vong lap vai chuc/tram lan (thu muc lon,
-    nhieu key), chi phi tao lai session cong don se lam request cham dan roi
-    timeout -- xem head_objects(), va _list_recursive_capped/_list_level_all
-    trong routes/browse.py (truoc day goi async_list_folder() moi vong lap)."""
+    """Mo 1 S3 client DUNG CHUNG cho ca 1 chuoi goi lien tiep (nhieu trang list)
+    -- tranh tao Session/client rieng cho TUNG LAN GOI (moi lan la 1 ket noi
+    TCP/TLS moi). Voi vong lap vai chuc/tram lan (thu muc lon), chi phi tao
+    lai session cong don se lam request cham dan roi timeout -- xem
+    _list_recursive_capped/_list_level_all trong routes/browse.py (truoc day
+    goi async_list_folder() moi vong lap)."""
     session = aioboto3.Session()
     async with session.client(
         "s3", endpoint_url=client.endpoint_url, aws_access_key_id=client.aws_access_key_id,
@@ -72,28 +69,6 @@ async def async_list_folder(client: MinioClient, bucket: str, prefix: str = "",
     thay vi mo session moi moi trang."""
     async with open_s3_client(client) as s3:
         return await list_folder_page(s3, bucket, prefix, token, max_keys)
-
-
-async def head_objects(client: MinioClient, bucket: str, keys: list[str],
-                       concurrency: int = HEAD_OBJECT_CONCURRENCY) -> dict[str, dict]:
-    """etag/last_modified cho NHIEU key, dung 1 S3 client dung chung (xem
-    open_s3_client). HEAD chay dong thoi, gioi han `concurrency` de khong lam
-    qua tai nguon. Key loi (khong ton tai, mat quyen...) -> {} (giu nguyen
-    hanh vi cu, khong lam sap ca batch). Tra ve {key: {"etag",
-    "last_modified"}}."""
-    sem = asyncio.Semaphore(concurrency)
-
-    async def _one(s3, key: str) -> tuple[str, dict]:
-        async with sem:
-            try:
-                resp = await s3.head_object(Bucket=bucket, Key=key)
-                return key, {"etag": (resp.get("ETag") or "").strip('"'), "last_modified": resp.get("LastModified")}
-            except Exception:  # noqa: BLE001
-                return key, {}
-
-    async with open_s3_client(client) as s3:
-        results = await asyncio.gather(*(_one(s3, key) for key in keys))
-    return dict(results)
 
 
 def _classify_error(e: Exception) -> str:
