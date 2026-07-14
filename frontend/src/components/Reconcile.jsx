@@ -9,6 +9,7 @@ import {
   friendlyError,
 } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
+import { copyToClipboard } from "../clipboard.js";
 
 const HEARTBEAT_MS = 90_000; // TTL khóa 300s ở server — bump giữa chừng cho an toàn
 const AUTOSAVE_MS = 4_000; // debounce sau khi ngừng sửa — tránh mất việc nếu quên bấm Lưu
@@ -245,6 +246,10 @@ export default function Reconcile({ gcnId, onBack, onOpen }) {
         <button className="ghost sm" onClick={onBack}><Icon name="chevronLeft" size={14} /> Kết quả trích xuất</button>
         <span className={`badge st-${doc.status}`}>{STATUS_LABEL[doc.status] || doc.status}</span>
         <span className="rc-current-name" title="Hồ sơ đang xem">{currentName}</span>
+        <button type="button" className="ghost xs" title={`ID: ${gcnId}`}
+          onClick={() => copyToClipboard(gcnId).then(() => toastOk("Đã copy ID hồ sơ")).catch(() => toastErr("Trình duyệt không hỗ trợ copy"))}>
+          <Icon name="copy" size={13} /> ID
+        </button>
         <input className="rc-name" placeholder="Đặt tên hồ sơ…" value={name} disabled={readOnly}
           onChange={(e) => setName(e.target.value)}
           title={readOnly

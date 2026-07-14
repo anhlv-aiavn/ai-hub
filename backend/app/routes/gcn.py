@@ -582,13 +582,22 @@ async def put_review(gcn_id: str, body: ReviewIn, user: dict = Depends(require_v
         review["deleted"] = sorted({int(i) for i in body.deleted})
     if body.status is not None:
         review["status"] = body.status
-        # Người BẤM Duyệt/Không duyệt mới là reviewer — lấy từ user đã xác thực
-        # (server-trusted), không tin `body.reviewer` cho hành động này (tránh giả mạo).
-        review["reviewer"] = user["username"]
-        # Mốc thời gian RIÊNG cho lần Duyệt/Không duyệt gần nhất — khác `at` (mọi
-        # lần lưu, kể cả autosave/sửa tay không đổi status) để thống kê theo thời
-        # gian ở dưới phản ánh đúng lúc ra quyết định, không bị autosave làm lệch.
-        review["reviewed_at"] = datetime.now(timezone.utc)
+        if body.status == "unreviewed":
+            # Hủy duyệt = không còn ai "sở hữu" quyết định hậu kiểm này nữa — null
+            # hóa thay vì ghi đè bằng người vừa hủy, để lọc theo tài khoản
+            # (GET /v1/gcn?reviewer=...) và thống kê by_reviewer (GET /v1/gcn/stats)
+            # tự động đúng mà không cần sửa thêm nơi nào. Lịch sử đầy đủ (ai đã hủy
+            # duyệt, lúc nào) vẫn tra được qua audit_log (action=gcn.edit).
+            review["reviewer"] = None
+            review["reviewed_at"] = None
+        else:
+            # Người BẤM Duyệt/Không duyệt mới là reviewer — lấy từ user đã xác thực
+            # (server-trusted), không tin `body.reviewer` cho hành động này (tránh giả mạo).
+            review["reviewer"] = user["username"]
+            # Mốc thời gian RIÊNG cho lần Duyệt/Không duyệt gần nhất — khác `at` (mọi
+            # lần lưu, kể cả autosave/sửa tay không đổi status) để thống kê theo thời
+            # gian ở dưới phản ánh đúng lúc ra quyết định, không bị autosave làm lệch.
+            review["reviewed_at"] = datetime.now(timezone.utc)
     elif body.reviewer is not None:
         review["reviewer"] = body.reviewer
     review["at"] = datetime.now(timezone.utc)
@@ -701,6 +710,7 @@ def _expand(doc: dict) -> list[dict]:
     base = {
         "gcn_id": doc["_id"],
         "batch_id": doc.get("batch_id"),
+        "branch": doc.get("branch"),
         "filename": doc.get("filename"),
         "display_name": rev.get("display_name"),
         "status": doc.get("status"),

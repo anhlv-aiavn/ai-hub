@@ -122,7 +122,7 @@ export default function CreateBatch({ user, onCreated }) {
         <div className="cb-minio">
           {minioSources.length > 1 && (
             <select className="text-input" value={minioSourceId} onChange={(e) => setMinioSourceId(e.target.value)}>
-              <option value="">— Chọn nguồn MinIO —</option>
+              <option value="">— Chọn nguồn S3 —</option>
               {minioSources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           )}

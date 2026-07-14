@@ -27,6 +27,15 @@ def _public(r: dict) -> dict:
     }
 
 
+@router.get("/actors")
+async def list_actors():
+    """Danh sách actor đã từng xuất hiện trong audit log — đổ vào dropdown lọc
+    (ExtractTable/AdminSettings dùng cùng pattern: chỉ liệt kê ai THẬT SỰ có bản
+    ghi, không phải toàn bộ users, để tránh chọn vào tài khoản luôn ra rỗng)."""
+    actors = await audit_log().distinct("actor")
+    return {"actors": sorted(a for a in actors if a)}
+
+
 @router.get("")
 async def list_audit_log(
     action: str | None = None,

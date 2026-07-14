@@ -271,6 +271,9 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
                     <td colSpan={9}>
                       <Icon name="layers" size={13} /> {f.display_name || f.filename}
                       <span className="gh-count">{multi ? `${items.length} giấy chứng nhận` : "1 giấy chứng nhận"}</span>
+                      {isAdmin && f.branch && (
+                        <span className="badge branch-badge" title="Chi nhánh">{f.branch}</span>
+                      )}
                       {f.dup_suspect && (
                         <DupFlag
                           current={{ gcn_id: f.gcn_id, filename: f.filename, display_name: f.display_name,

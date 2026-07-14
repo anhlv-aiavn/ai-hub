@@ -8,6 +8,7 @@ import {
   listBatches, retryErrors,
 } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
+import { copyToClipboard } from "../clipboard.js";
 
 const TABS = [
   ["org", "Tổ chức & chi nhánh"],
@@ -295,6 +296,10 @@ function S3Tab({ role }) {
               {c.last_check_status ? c.last_check_message : "Chưa test"}
             </span>
             <span className="s3-actions">
+              <button className="ghost xs" title={`ID: ${c.id}`}
+                onClick={() => copyToClipboard(c.id).then(() => toastOk("Đã copy ID connection")).catch(() => toastErr("Trình duyệt không hỗ trợ copy"))}>
+                <Icon name="copy" size={13} />
+              </button>
               <button className="ghost xs" onClick={() => test(c.id)}>Test</button>
               <button className="ghost xs" onClick={() => openEdit(c)}>Sửa</button>
               <button className="ghost xs danger" onClick={() => remove(c)}>Xóa</button>

@@ -187,6 +187,9 @@ export async function browseFolderProgress(sourceId, prefix = "") {
 }
 
 // ── Audit log (admin) ───────────────────────────────────────────────────────
+export async function getAuditLogActors() {
+  return handle(await fetch(`/v1/audit-log/actors`, { headers: headers() }));
+}
 export async function getAuditLog({ action, actor, target, from, to, limit = 50, beforeId } = {}) {
   const p = new URLSearchParams();
   if (action) p.set("action", action);

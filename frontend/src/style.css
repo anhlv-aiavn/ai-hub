@@ -894,10 +894,12 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .text-input {
-  width: 100%; box-sizing: border-box; padding: 9px 12px; font: inherit;
-  border: 1px solid var(--border-2); border-radius: var(--radius-sm);
+  width: 100%; height: 38px; box-sizing: border-box; padding: 9px 12px; font: inherit;
+  font-weight: 400; border: 1px solid var(--border-2); border-radius: var(--radius-sm);
   background: var(--surface-2); color: var(--text);
 }
+/* input[type=date] có control lịch nội tại cao hơn text/select mặc định ở nhiều
+   trình duyệt dù cùng padding — height cố định ở trên ép về cùng 1 chiều cao. */
 .text-input:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px var(--accent-50); }
 .tb-gap { flex: 1; }
 .center { text-align: center; }
@@ -948,8 +950,15 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .et-row:hover td { background: var(--surface-2); }
 .et-name { font-weight: 600; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .et-name.child { font-weight: 500; color: var(--text-2); padding-left: 18px; }
-.et-stt { width: 1%; text-align: center; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.group-head .et-stt { position: sticky; left: 0; }
+.et-stt { width: 1%; min-width: 44px; text-align: center; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.group-head .et-stt { position: sticky; left: 0; z-index: 2; }
+/* Cuộn ngang (màn hẹp): giữ tên file + badge chi nhánh luôn thấy được, cùng
+   pattern sticky đã có cho STT — offset = min-width cố định của .et-stt ở trên. */
+.group-head td:nth-child(2) { position: sticky; left: 44px; z-index: 1; }
+/* .group-head td đã tô nền --accent-50 riêng (dòng dưới) — badge phải tương phản
+   với nền đó, không dùng lại --accent-50 (sẽ biến mất vào nền), theo cùng kiểu
+   nền trắng+viền của .gh-count cạnh nó trong cùng dòng. */
+.branch-badge { background: var(--surface); color: var(--brand); border: 1px solid var(--border); margin-left: 8px; }
 .gh-count { margin-left: 10px; font-weight: 500; font-size: 11.5px; color: var(--text-3);
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px; }
 .et-chu { max-width: 260px; }
@@ -1279,12 +1288,32 @@ label.file-row { width: 100%; }
 .s3-actions { display: flex; gap: 4px; justify-self: end; }
 
 /* ============ Audit log ============ */
+.audit-filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; align-items: center; }
+.audit-filters > * { margin: 0; }
+.audit-filters > .text-input { width: auto; }
+.audit-filters .target-input { flex: 1 1 200px; width: 100%; }
+/* 1 khối "từ ngày – đến ngày" thay vì 2 ô rời có label riêng — 2 input[type=date]
+   native ghép cạnh nhau, không viền/nền riêng để đọc như 1 field duy nhất. */
+.date-range-field { display: flex; align-items: center; height: 38px; box-sizing: border-box;
+  border: 1px solid var(--border-2); border-radius: var(--radius-sm); background: var(--surface-2); }
+.date-range-field .text-input { width: auto; height: 100%; border: none; background: transparent; padding: 0 8px; }
+.date-range-field .dr-sep { color: var(--text-3); }
+
 .audit-tbl .audit-row { display: grid; grid-template-columns: 110px 140px 1fr 1fr 18px; align-items: center; cursor: pointer; }
 .audit-tbl .audit-row:hover { background: var(--accent-50); }
+/* Header cột — cùng grid-template-columns với .audit-row để thẳng hàng, style
+   theo đúng pattern header đã dùng ở bảng S3 connections (.s3-head). */
+.audit-tbl .audit-head { background: var(--surface-3); color: var(--text-3); font-size: 11px;
+  text-transform: uppercase; letter-spacing: .04em; font-weight: 600; cursor: default; }
+.audit-tbl .audit-head:hover { background: var(--surface-3); }
 .audit-detail {
   margin: 0; padding: 10px 14px; font-size: 11.5px; background: var(--surface-2);
   border-bottom: 1px solid var(--border); max-height: 280px; overflow: auto;
 }
+
+.audit-pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding-top: 4px; }
+.audit-pager .pager-btn { width: auto; height: 32px; padding: 0 12px; display: inline-flex;
+  align-items: center; gap: 5px; }
 
 /* Hậu kiểm đồng thời — banner read-only khi người khác đang giữ khóa */
 .rc-lock-banner { margin: 0 0 14px; }
