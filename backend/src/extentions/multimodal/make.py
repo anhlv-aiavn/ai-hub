@@ -13,7 +13,7 @@ from PIL import Image
 from src.extentions.multimodal.models.dat import OrientationDetector
 
 CPU_COUNT = multiprocessing.cpu_count()
-PDF_RENDER_EXECUTOR = ProcessPoolExecutor(max_workers=min(20, CPU_COUNT // 2 + 1))
+PDF_RENDER_EXECUTOR = ProcessPoolExecutor(max_workers=min(40, CPU_COUNT // 2 + 1))
 DETECTOR = None
 
 
