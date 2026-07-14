@@ -20,6 +20,7 @@ class AuditAction(str, Enum):
     BATCH_DELETE = "batch.delete"
     GCN_EDIT = "gcn.edit"
     GCN_ROWS_DELETE = "gcn.rows_delete"
+    GCN_DELETE = "gcn.delete"
     GCN_VIEW = "gcn.view"
     GCN_DOWNLOAD = "gcn.download"
     EXPORT_CREATE = "export.create"

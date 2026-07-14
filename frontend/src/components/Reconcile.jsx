@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
 import GcnPdf from "./GcnPdf.jsx";
 import EditableTree, { setAt } from "./EditableTree.jsx";
+import ConfirmDialog from "./ConfirmDialog.jsx";
 import { STATUS_LABEL } from "./ExtractTable.jsx";
 import {
-  getGcn, putReview, downloadGcn,
+  getGcn, putReview, downloadGcn, deleteGcn,
   claimReviewLock, heartbeatReviewLock, releaseReviewLock,
   friendlyError,
 } from "../api.js";
@@ -42,7 +43,8 @@ function fmtDupDate(v) {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
-export default function Reconcile({ gcnId, onBack, onOpen }) {
+export default function Reconcile({ user, gcnId, onBack, onOpen }) {
+  const canDelete = user?.role === "admin" || user?.role === "operator";
   const [doc, setDoc] = useState(null);
   const [work, setWork] = useState([]);          // bản làm việc của extractions
   const [overrides, setOverrides] = useState({}); // path → value đã sửa
@@ -50,6 +52,8 @@ export default function Reconcile({ gcnId, onBack, onOpen }) {
   const [name, setName] = useState("");
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState("");
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [pdfOpen, setPdfOpen] = useState(true);
   const [lockedBy, setLockedBy] = useState(null); // {by, expires_at} nếu người KHÁC đang giữ
   const [haveLock, setHaveLock] = useState(false); // true nếu CHÍNH mình giữ khóa (được sửa)
@@ -183,6 +187,15 @@ export default function Reconcile({ gcnId, onBack, onOpen }) {
     } finally { setBusy(""); }
   }
 
+  async function confirmDeleteDoc() {
+    setDeleteBusy(true);
+    try {
+      await deleteGcn(gcnId);
+      toastOk("Đã xóa hồ sơ");
+      onBack();
+    } catch (e) { toastErr(e.message || e); setDeleteBusy(false); }
+  }
+
   const entries = useMemo(() => {
     const out = [];
     (work || []).forEach((rec, ri) => {
@@ -279,6 +292,11 @@ export default function Reconcile({ gcnId, onBack, onOpen }) {
         <button className="primary sm" onClick={() => downloadGcn(gcnId, `${zipBaseName}.zip`)}>
           <Icon name="download" size={14} /> Tải hồ sơ
         </button>
+        {canDelete && !readOnly && (
+          <button className="danger sm" onClick={() => setConfirmDeleteOpen(true)}>
+            <Icon name="trash" size={14} /> Xóa hồ sơ
+          </button>
+        )}
       </div>
 
       {readOnly && (
@@ -365,6 +383,17 @@ export default function Reconcile({ gcnId, onBack, onOpen }) {
           })}
         </div>
       </div>
+
+      {confirmDeleteOpen && (
+        <ConfirmDialog
+          title="Xóa hồ sơ"
+          message={<>Xóa vĩnh viễn hồ sơ <b>{currentName}</b> (file PDF gốc + mọi bản cắt). Hành động này
+            KHÔNG thể hoàn tác.</>}
+          busy={deleteBusy}
+          onConfirm={confirmDeleteDoc}
+          onCancel={() => setConfirmDeleteOpen(false)}
+        />
+      )}
     </div>
   );
 }

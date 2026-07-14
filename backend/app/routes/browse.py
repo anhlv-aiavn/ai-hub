@@ -12,7 +12,7 @@ from app import config
 from app.audit import AuditAction, log_action
 from app.batch_counters import bump, init_counts
 from app.db import batches, browse_progress_cache, gcns, import_jobs, s3_connections, users
-from app.deps import ensure_batch_access, is_admin, require_operator
+from app.deps import ensure_batch_access, is_admin, require_operator, scoped_batch_ids
 from app.s3_util import async_head_object, async_list_folder, build_client
 
 router = APIRouter(prefix="/v1/browse", tags=["browse"], dependencies=[Depends(require_operator)])
@@ -196,6 +196,9 @@ async def _list_level_all(client, bucket: str, prefix: str) -> tuple[list[str], 
 
 
 async def _ensure_batch(batch_id: str | None, name: str | None, status: str, user: dict) -> str:
+    """batch_id → nối vào lô đó. Không có batch_id nhưng `name` trùng 1 lô đã có
+    (trong phạm vi user được truy cập) → cũng nối vào lô đó (ưu tiên batch_id
+    trước, name sau — khớp hành vi `POST /v1/batches`, xem routes/batches.py)."""
     now = datetime.now(timezone.utc)
     if batch_id:
         existing = await batches().find_one({"_id": batch_id}, {"_id": 1})
@@ -203,6 +206,15 @@ async def _ensure_batch(batch_id: str | None, name: str | None, status: str, use
             raise HTTPException(status_code=404, detail="Không tìm thấy lô để nối")
         ensure_batch_access(user, batch_id)
         return batch_id
+    match_name = (name or "").strip()
+    if match_name:
+        ids = scoped_batch_ids(user)
+        flt: dict = {"name": match_name}
+        if ids is not None:
+            flt["_id"] = {"$in": ids}
+        existing_by_name = await batches().find_one(flt, {"_id": 1})
+        if existing_by_name:
+            return existing_by_name["_id"]
     batch_id = str(uuid.uuid4())
     await batches().insert_one({
         "_id": batch_id, "name": name or now.strftime("Lô %d/%m %H:%M"),

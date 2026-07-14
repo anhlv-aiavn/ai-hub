@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Icon from "./Icon.jsx";
 import Pager from "./Pager.jsx";
-import { listGcn, listBatches, getStats } from "../api.js";
+import ConfirmDialog from "./ConfirmDialog.jsx";
+import { listGcn, listBatches, getStats, deleteGcn } from "../api.js";
 import { subscribeEvents } from "../events.js";
+import { toastOk, toastErr } from "../toast.js";
 
 const PAGE_SIZE = 50;
 const PENDING = new Set(["queued", "processing"]);
@@ -121,8 +123,13 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
   // hậu kiểm (xem `_viewer_own_or` ở backend) — lọc theo tài khoản khác vô nghĩa
   // với họ (luôn ra rỗng) nên ẩn hẳn dropdown, chỉ hiện cho operator/admin.
   const canFilterReviewer = user?.role !== "viewer";
+  // Xóa cả hồ sơ (khác "xóa mềm 1 giấy chứng nhận con" trong Reconcile.jsx) —
+  // admin + operator, giới hạn trong lô họ được gán (ensure_batch_access ở backend).
+  const canDelete = user?.role === "admin" || user?.role === "operator";
   const [batches, setBatches] = useState([]);
   const [rows, setRows] = useState([]);
+  const [pendingDelete, setPendingDelete] = useState(null); // {gcn_id, name} đang chờ xác nhận xóa
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [status, setStatus] = useState(initialStatus);
   const [review, setReview] = useState("");
   const [reviewer, setReviewer] = useState("");
@@ -176,6 +183,17 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
 
   function goToPage(p) { setPage(p); refresh(p); }
   function runSearch() { setPage(1); refresh(1); }
+
+  async function confirmDeleteGcn() {
+    if (!pendingDelete) return;
+    setDeleteBusy(true);
+    try {
+      await deleteGcn(pendingDelete.gcn_id);
+      toastOk(`Đã xóa "${pendingDelete.name}"`);
+      setPendingDelete(null);
+      refresh();
+    } catch (e) { toastErr(e.message || e); } finally { setDeleteBusy(false); }
+  }
 
   // Live: SSE đẩy tức thì + polling dự phòng khi còn giấy đang chạy (chắc ăn).
   useEffect(() => {
@@ -272,6 +290,15 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
                           <Icon name="clock" size={12} /> Đang hậu kiểm: {f.locked_by}
                         </span>
                       )}
+                      {canDelete && (
+                        <button type="button" className="icon-btn gh-del" title="Xóa hồ sơ này"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPendingDelete({ gcn_id: f.gcn_id, name: f.display_name || f.filename, status: f.status });
+                          }}>
+                          <Icon name="trash" size={13} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                   {items.map((r) => {
@@ -308,6 +335,18 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
       </div>
 
       <Pager page={page} totalPages={totalPages} total={total} unit="file" onChange={goToPage} />
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title="Xóa hồ sơ"
+          blockedReason={pendingDelete.status === "processing" ? "Hồ sơ đang xử lý — chờ xong rồi xóa." : null}
+          message={<>Xóa vĩnh viễn hồ sơ <b>{pendingDelete.name}</b> (file PDF gốc + mọi bản cắt). Hành động này
+            KHÔNG thể hoàn tác.</>}
+          busy={deleteBusy}
+          onConfirm={confirmDeleteGcn}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
     </div>
   );
 }

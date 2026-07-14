@@ -370,6 +370,37 @@ async def retry_errors(body: RetryErrorsIn, user: dict = Depends(require_operato
     return {"requeued": res.modified_count}
 
 
+@router.delete("/{gcn_id}")
+async def delete_gcn(gcn_id: str, user: dict = Depends(require_operator)):
+    """Xóa cứng 1 hồ sơ (khác `review.deleted` — chỉ ẩn 1 giấy chứng nhận con
+    khỏi hiển thị). Xóa cả file gốc lẫn mọi bản cắt trên S3 đích (cùng prefix
+    `{batch_id}/{gcn_id}`, xem `_gcn_doc`/`_build_cuts`) + doc Mongo, giảm
+    `batch.file_count`/`counts` tương ứng. Không phục hồi được."""
+    doc = await gcns().find_one({"_id": gcn_id}, {"batch_id": 1, "status": 1, "filename": 1})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Không tìm thấy GCN")
+    ensure_batch_access(user, doc.get("batch_id"))
+    if doc.get("status") == "processing":
+        raise HTTPException(status_code=409, detail="Hồ sơ đang xử lý, chờ xong rồi xóa")
+
+    batch_id = doc.get("batch_id")
+    try:
+        n_obj = await storage.delete_prefix(f"{batch_id}/{gcn_id}")
+    except DestinationNotConfigured:
+        # Hồ sơ import-theo-tham-chiếu (browse.py, không copy vào đích) — không
+        # có gì để xóa ở đích, không chặn xóa Mongo vì lý do này (giống delete_batch).
+        n_obj = 0
+    await gcns().delete_one({"_id": gcn_id})
+    if batch_id:
+        await batches().update_one({"_id": batch_id}, {"$inc": {"file_count": -1}})
+        await bump(batches(), batch_id, **{doc.get("status", "queued"): -1})
+
+    await log_action(user["username"], AuditAction.GCN_DELETE, gcn_id, {
+        "batch_id": batch_id, "filename": doc.get("filename"), "deleted_objects": n_obj,
+    })
+    return {"ok": True, "deleted_objects": n_obj}
+
+
 @router.get("/{gcn_id}")
 async def get_gcn(gcn_id: str, user: dict = Depends(current_user)):
     doc = await gcns().find_one({"_id": gcn_id})

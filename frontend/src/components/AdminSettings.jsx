@@ -5,14 +5,13 @@ import {
   getSiteConfig, updateSiteConfig, uploadLogo, getSettingsStatus,
   getS3Connections, createS3Connection, updateS3Connection, deleteS3Connection,
   testS3Connection, testS3ConnectionDraft,
-  listBatches, retryErrors, listUsers, getBatchUsers, assignBatchUser, unassignBatchUser,
+  listBatches, retryErrors,
 } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 import { copyToClipboard } from "../clipboard.js";
 
 const TABS = [
   ["org", "Tổ chức"],
-  ["batches", "Lô & phân quyền"],
   ["source", "S3 nguồn"],
   ["dest", "S3 đích"],
   ["errors", "Dead-letter/lỗi"],
@@ -31,7 +30,6 @@ export default function AdminSettings({ onClose }) {
           ))}
         </nav>
         {tab === "org" && <OrgTab />}
-        {tab === "batches" && <BatchAccessTab />}
         {tab === "source" && <S3Tab role="source" />}
         {tab === "dest" && <S3Tab role="destination" />}
         {tab === "errors" && <ErrorsTab />}
@@ -122,87 +120,6 @@ function OrgTab() {
           {busy ? "Đang lưu…" : "Lưu thay đổi"}
         </button>
       </div>
-    </div>
-  );
-}
-
-// ── Tab: Lô & phân quyền — gán/bỏ gán user cho 1 lô cụ thể. Đối xứng với
-// Users.jsx (gán lô cho 1 user): cả hai đều ghi vào `user.assigned_batch_ids`,
-// nên thao tác từ bên này phản ánh ngay ở bên kia. ──────────────────────────
-function BatchAccessTab() {
-  const [batches, setBatches] = useState([]);
-  const [batchId, setBatchId] = useState("");
-  const [assigned, setAssigned] = useState([]); // [{username, role}]
-  const [allUsers, setAllUsers] = useState([]);
-  const [addUsername, setAddUsername] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    listBatches(500).then((d) => setBatches(d.batches || [])).catch(() => {});
-    listUsers().then((d) => setAllUsers(d.users || [])).catch(() => {});
-  }, []);
-
-  async function refreshAssigned() {
-    if (!batchId) { setAssigned([]); return; }
-    try { setAssigned((await getBatchUsers(batchId)).users || []); }
-    catch (e) { toastErr(e.message || e); }
-  }
-  useEffect(() => { refreshAssigned(); /* eslint-disable-next-line */ }, [batchId]);
-
-  const assignable = allUsers.filter((u) => u.role !== "admin"
-    && !assigned.some((a) => a.username === u.username));
-
-  async function assign() {
-    if (!addUsername) return;
-    setBusy(true);
-    try {
-      await assignBatchUser(batchId, addUsername);
-      setAddUsername("");
-      toastOk("Đã gán");
-      refreshAssigned();
-    } catch (e) { toastErr(e.message || e); } finally { setBusy(false); }
-  }
-  async function unassign(username) {
-    setBusy(true);
-    try { await unassignBatchUser(batchId, username); toastOk("Đã bỏ gán"); refreshAssigned(); }
-    catch (e) { toastErr(e.message || e); } finally { setBusy(false); }
-  }
-
-  return (
-    <div className="admin-tab-body">
-      <label className="field-label" htmlFor="ba-batch">Chọn lô</label>
-      <select id="ba-batch" className="text-input" value={batchId} onChange={(e) => setBatchId(e.target.value)}>
-        <option value="">— Chọn lô —</option>
-        {batches.map((b) => (
-          <option key={b.batch_id} value={b.batch_id}>{b.name} · {b.file_count} hồ sơ</option>
-        ))}
-      </select>
-
-      {batchId && (
-        <>
-          <label className="field-label">Tài khoản được truy cập ({assigned.length})</label>
-          <div className="taginput">
-            {assigned.map((a) => (
-              <span className="tag" key={a.username}>{a.username}
-                <button type="button" disabled={busy} onClick={() => unassign(a.username)} aria-label={`Bỏ ${a.username}`}>
-                  <Icon name="x" size={11} />
-                </button>
-              </span>
-            ))}
-            {!assigned.length && <span className="muted small">Chưa có ai được gán lô này.</span>}
-          </div>
-
-          <div className="admin-tab-toolbar">
-            <select className="text-input" value={addUsername} onChange={(e) => setAddUsername(e.target.value)}>
-              <option value="">— Chọn tài khoản để gán —</option>
-              {assignable.map((u) => <option key={u.username} value={u.username}>{u.username} ({u.role})</option>)}
-            </select>
-            <button className="primary sm" disabled={busy || !addUsername} onClick={assign}>
-              <Icon name="plus" size={13} /> Gán
-            </button>
-          </div>
-        </>
-      )}
     </div>
   );
 }

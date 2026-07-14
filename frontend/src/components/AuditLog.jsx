@@ -16,8 +16,10 @@ const ACTIONS = [
   ["gcn.import_minio", "Chọn file MinIO để trích xuất"],
   ["gcn.edit", "Sửa hồ sơ (hậu kiểm)"],
   ["gcn.rows_delete", "Xóa dòng trong hồ sơ"],
+  ["gcn.delete", "Xóa hồ sơ"],
   ["gcn.view", "Xem hồ sơ"],
   ["gcn.download", "Tải hồ sơ"],
+  ["batch.delete", "Xóa lô"],
   ["export.create", "Tải xuất nền"],
 ];
 

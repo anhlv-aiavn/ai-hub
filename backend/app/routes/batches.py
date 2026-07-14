@@ -25,11 +25,14 @@ async def create_batch(
     batch_id: str | None = Form(default=None),
     user: dict = Depends(require_operator),
 ):
-    """Tạo lô MỚI hoặc THÊM file vào lô có sẵn (truyền batch_id).
+    """Tạo lô MỚI hoặc THÊM file vào lô có sẵn (truyền batch_id, hoặc trùng tên).
 
     Frontend upload TỪNG file một (mỗi file một request) để né giới hạn body nginx
     khi lô nặng và để file lỗi không kéo đổ cả lô. Request đầu không có batch_id →
-    tạo lô; các request sau truyền batch_id → nối thêm.
+    tạo lô; các request sau truyền batch_id → nối thêm. Không có batch_id nhưng
+    `name` trùng với 1 lô đã có (trong phạm vi user được truy cập) → cũng coi là
+    nối thêm vào lô đó thay vì tạo lô mới trùng tên (ưu tiên batch_id trước, name
+    sau — batch_id luôn thắng nếu có).
     """
     if not files:
         raise HTTPException(status_code=400, detail="Không có tệp nào")
@@ -46,7 +49,19 @@ async def create_batch(
             raise HTTPException(status_code=404, detail="Không tìm thấy lô để nối")
         ensure_batch_access(user, batch_id)
     else:
-        batch_id = str(uuid.uuid4())
+        match_name = (name or "").strip()
+        existing_by_name = None
+        if match_name:
+            ids = scoped_batch_ids(user)
+            flt: dict = {"name": match_name}
+            if ids is not None:
+                flt["_id"] = {"$in": ids}
+            existing_by_name = await batches().find_one(flt, {"_id": 1})
+        if existing_by_name:
+            batch_id = existing_by_name["_id"]
+            appending = True
+        else:
+            batch_id = str(uuid.uuid4())
     created: list[str] = []
     filenames: list[str] = []
 

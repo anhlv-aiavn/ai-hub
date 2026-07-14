@@ -280,6 +280,9 @@ export async function listBatches(limit = 50) {
 export async function getBatch(id) {
   return handle(await fetch(`/v1/batches/${id}`, { headers: headers() }));
 }
+export async function deleteBatch(id) {
+  return handle(await fetch(`/v1/batches/${id}`, { method: "DELETE", headers: headers() }));
+}
 
 // ── Gán user ↔ lô (admin) — đối xứng với updateUser({assignedBatchIds}) ────
 export async function getBatchUsers(batchId) {
@@ -312,6 +315,9 @@ export async function listGcn({ batchId, status, review, reviewer, q, page = 1, 
 }
 export async function getGcn(id) {
   return handle(await fetch(`/v1/gcn/${id}`, { headers: headers() }));
+}
+export async function deleteGcn(id) {
+  return handle(await fetch(`/v1/gcn/${id}`, { method: "DELETE", headers: headers() }));
 }
 export async function getPageInfo(id) {
   return handle(await fetch(`/v1/gcn/${id}/pageinfo`, { headers: headers() }));

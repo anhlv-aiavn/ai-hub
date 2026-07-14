@@ -12,6 +12,7 @@ import CreateBatch from "./components/CreateBatch.jsx";
 import ExtractTable from "./components/ExtractTable.jsx";
 import Reconcile from "./components/Reconcile.jsx";
 import ExportView from "./components/ExportView.jsx";
+import BatchManager from "./components/BatchManager.jsx";
 
 const FALLBACK_BRANDING = {
   org_name: "VP Đăng ký đất đai TP Hà Nội",
@@ -23,6 +24,7 @@ const TABS = [
   ["create", "Số hóa", "operator"],
   ["table", "Kết quả trích xuất", "viewer"],
   ["export", "Tổng quan", "viewer"],
+  ["manage", "Quản lý lô", "admin"],
   ["audit", "Audit log", "admin"],
 ];
 const ROLE_RANK = { viewer: 0, operator: 1, admin: 2 };
@@ -134,7 +136,7 @@ export default function App() {
         )}
         {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
         {openGcn ? (
-          <Reconcile gcnId={openGcn} onBack={() => setOpenGcn(null)} onOpen={setOpenGcn} />
+          <Reconcile user={user} gcnId={openGcn} onBack={() => setOpenGcn(null)} onOpen={setOpenGcn} />
         ) : (
           <>
             {tab === "create" && rank >= ROLE_RANK.operator && <CreateBatch user={user} onCreated={onCreated} />}
@@ -142,6 +144,7 @@ export default function App() {
               <ExtractTable user={user} batchId={batchId} onPickBatch={setBatchId} onOpen={setOpenGcn} />
             )}
             {tab === "export" && <ExportView user={user} />}
+            {tab === "manage" && isAdmin && <BatchManager />}
             {tab === "audit" && isAdmin && <AuditLog />}
           </>
         )}
