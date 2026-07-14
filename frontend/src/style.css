@@ -934,6 +934,9 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .et-toolbar h2 { margin: 0; color: var(--brand); }
 .et-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-start; }
 .et-filters .search-box { margin-left: auto; }
+/* Ô tìm đợt đứng ngay cạnh select đợt (đầu hàng lọc) -- không đẩy sang phải
+   như ô tìm hồ sơ chính (search-box còn lại, giữ nguyên margin-left: auto). */
+.et-filters .batch-search { margin-left: 0; flex: 0 1 200px; min-width: 140px; max-width: 220px; }
 .et-filters select { padding: 7px 10px; font: inherit; font-size: 13px; border: 1px solid var(--border-2);
   border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text);
   max-width: 200px; text-overflow: ellipsis; }

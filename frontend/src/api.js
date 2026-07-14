@@ -274,8 +274,10 @@ export async function createBatch({ files, name, onProgress }) {
   onProgress?.(100, { index: list.length, count: list.length });
   return { batch_id: batchId, file_count: fileCount, failed };
 }
-export async function listBatches(limit = 50) {
-  return handle(await fetch(`/v1/batches?limit=${limit}`, { headers: headers() }));
+export async function listBatches(limit = 50, name = "") {
+  const params = new URLSearchParams({ limit });
+  if (name) params.set("name", name);
+  return handle(await fetch(`/v1/batches?${params}`, { headers: headers() }));
 }
 export async function getBatch(id) {
   return handle(await fetch(`/v1/batches/${id}`, { headers: headers() }));
