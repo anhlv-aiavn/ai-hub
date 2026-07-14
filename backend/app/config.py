@@ -71,6 +71,10 @@ LOGIN_LOCK_SECONDS = int(os.getenv("AIHUB_LOGIN_LOCK_SECONDS", "300"))
 # có heartbeat (FE gọi mỗi TTL/3) trong TTL giây gần nhất. Đăng nhập mới khi
 # phiên cũ còn trong TTL này bị từ chối (409) thay vì đá phiên cũ.
 SESSION_ACTIVE_TTL = int(os.getenv("AIHUB_SESSION_TTL_SECONDS", "90"))
+# Bật/tắt việc ép buộc 1 phiên/tài khoản (chặn login 409 + vô hiệu token phiên
+# cũ). Mặc định TẮT (không set ENV = cho phép nhiều phiên song song) — tuỳ
+# build/môi trường bật lên khi cần (vd môi trường nội bộ muốn khoá 1 phiên).
+SINGLE_SESSION_ENABLED = _b("AIHUB_SINGLE_SESSION_ENABLED", "false")
 
 # ── Đối soát: DPI/scale render ảnh trang ────────────────────────────────────
 PAGE_RENDER_MAX_W = int(os.getenv("PAGE_RENDER_MAX_W", "2200"))

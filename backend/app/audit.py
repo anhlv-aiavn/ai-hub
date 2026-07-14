@@ -17,6 +17,7 @@ class AuditAction(str, Enum):
     S3_CONNECTION_TEST = "s3_connection.test"
     GCN_UPLOAD = "gcn.upload"
     GCN_IMPORT_MINIO = "gcn.import_minio"
+    BATCH_DELETE = "batch.delete"
     GCN_EDIT = "gcn.edit"
     GCN_ROWS_DELETE = "gcn.rows_delete"
     GCN_VIEW = "gcn.view"

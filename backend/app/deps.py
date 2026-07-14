@@ -38,7 +38,10 @@ async def current_user(
     u = await users().find_one({"username": payload["sub"]}, {"session_id": 1, "active": 1})
     if not u or not u.get("active", True):
         raise HTTPException(status_code=401, detail="Tài khoản không còn hiệu lực")
-    if u.get("session_id") != payload.get("sid"):
+    # Cờ AIHUB_SINGLE_SESSION_ENABLED tắt (mặc định) → bỏ qua so sánh sid, cho
+    # phép nhiều phiên/token hợp lệ song song thay vì phiên sau âm thầm vô hiệu
+    # hóa phiên trước (xem routes/auth.py:login, cùng cờ).
+    if config.SINGLE_SESSION_ENABLED and u.get("session_id") != payload.get("sid"):
         raise HTTPException(status_code=401, detail="Phiên đăng nhập đã kết thúc (đăng nhập nơi khác hoặc bị buộc đăng xuất)")
     return {
         "username": payload["sub"],

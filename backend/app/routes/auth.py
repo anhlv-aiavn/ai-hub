@@ -55,9 +55,12 @@ async def login(body: LoginIn):
 
     # 1 tài khoản chỉ 1 phiên đang hoạt động: phiên cũ còn "sống" (heartbeat gần
     # đây, xem /heartbeat + /session-end) → từ chối, không đá phiên cũ.
-    last_seen = u.get("last_seen_at") or 0
-    if u.get("session_id") and (now - last_seen) < config.SESSION_ACTIVE_TTL:
-        raise HTTPException(status_code=409, detail="Tài khoản đang được sử dụng ở nơi khác")
+    # Cờ AIHUB_SINGLE_SESSION_ENABLED tắt (mặc định) → bỏ qua, cho phép nhiều
+    # phiên song song (xem deps.py:current_user cũng phải bỏ qua so sánh sid).
+    if config.SINGLE_SESSION_ENABLED:
+        last_seen = u.get("last_seen_at") or 0
+        if u.get("session_id") and (now - last_seen) < config.SESSION_ACTIVE_TTL:
+            raise HTTPException(status_code=409, detail="Tài khoản đang được sử dụng ở nơi khác")
 
     sid = uuid.uuid4().hex
     token = auth.make_token({"sub": u["username"], "role": u.get("role", "user"),

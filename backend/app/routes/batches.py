@@ -10,7 +10,7 @@ from app.audit import AuditAction, log_action
 from app.batch_counters import bump, init_counts
 from app.branches import get_branches, is_valid_branch
 from app.db import batches, gcns
-from app.deps import current_user, ensure_branch_access, is_admin, require_operator
+from app.deps import current_user, ensure_branch_access, is_admin, require_admin, require_operator
 
 router = APIRouter(prefix="/v1/batches", tags=["batches"], dependencies=[Depends(current_user)])
 
@@ -151,6 +151,35 @@ async def get_batch(batch_id: str, user: dict = Depends(current_user)):
         "file_count": b.get("file_count", 0), "created_at": b.get("created_at"),
         "counts": await _status_counts(b),
     }
+
+
+@router.delete("/{batch_id}")
+async def delete_batch(batch_id: str, admin: dict = Depends(require_admin)):
+    """Xóa cứng 1 lô: toàn bộ GCN thuộc lô + object trên S3 đích (prefix
+    `{batch_id}/`) + doc lô. Không phục hồi được. Không đụng `import_jobs`/
+    `audit_log` cũ liên quan (giữ lịch sử, giống `scripts/delete_branch.py`).
+    """
+    b = await batches().find_one({"_id": batch_id})
+    if not b:
+        raise HTTPException(status_code=404, detail="Không tìm thấy lô")
+    if b.get("status") in ("processing", "importing"):
+        raise HTTPException(status_code=409, detail="Lô đang xử lý, chờ xong rồi xóa")
+
+    n_gcn = await gcns().count_documents({"batch_id": batch_id})
+    try:
+        n_obj = await storage.delete_prefix(f"{batch_id}/")
+    except storage.DestinationNotConfigured:
+        # Lô toàn file import-theo-tham-chiếu (browse.py, không copy vào đích)
+        # thì không có gì để xóa ở đích — không chặn xóa Mongo vì lý do này.
+        n_obj = 0
+    await gcns().delete_many({"batch_id": batch_id})
+    await batches().delete_one({"_id": batch_id})
+
+    await log_action(admin["username"], AuditAction.BATCH_DELETE, batch_id, {
+        "name": b.get("name"), "branch": b.get("branch"),
+        "file_count": b.get("file_count", 0), "deleted_gcn": n_gcn, "deleted_objects": n_obj,
+    })
+    return {"ok": True, "deleted_gcn": n_gcn, "deleted_objects": n_obj}
 
 
 async def _status_counts(b: dict) -> dict:

@@ -7,6 +7,7 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+import aioboto3
 import pypdfium2 as pdfium
 from botocore.exceptions import ClientError
 from PIL import Image
@@ -146,6 +147,35 @@ async def get_pdf(key: str, source_connection_id: str | None = None) -> io.Bytes
         raise SourceObjectUnavailable(f"Không đọc được file ({code or e}): {key}") from e
     except Exception as e:  # noqa: BLE001 — lỗi mạng/kết nối (không phải ClientError)
         raise SourceObjectUnavailable(f"Không đọc được file ({e}): {key}") from e
+
+
+async def delete_prefix(prefix: str) -> int:
+    """Xoá STREAMING mọi object dưới 1 prefix trên kho ĐÍCH đang cấu hình (không
+    liệt kê cả bucket vào RAM, xem `scripts/delete_branch.py` — cùng nguyên
+    tắc nhưng dùng `_get_dest_client()` thay vì `minio_client`/`AIHUB_BUCKET`
+    cứng, để xoá đúng bucket đang thật sự cấu hình `role=destination`, không
+    lệch giữa nơi ghi (`put_pdf`) và nơi xoá). Dùng cho xoá 1 đợt — object đặt
+    theo `"<batch_id>/..."` nên `prefix=f"{batch_id}/"` trúng đúng object đó.
+    `DestinationNotConfigured` truyền nguyên xuống người gọi."""
+    client, bucket = await _get_dest_client()
+    total = 0
+    session = aioboto3.Session()
+    async with session.client(
+        "s3", endpoint_url=client.endpoint_url, aws_access_key_id=client.aws_access_key_id,
+        aws_secret_access_key=client.aws_secret_access_key, verify=client.verify,
+        region_name="us-east-1",
+    ) as s3:
+        token = None
+        while True:
+            keys, token = await client.async_list_files_paginated(
+                bucket, prefix=prefix, continuation_token=token, max_keys=1000,
+            )
+            if keys:
+                await s3.delete_objects(Bucket=bucket, Delete={"Objects": [{"Key": k} for k in keys]})
+                total += len(keys)
+            if not token:
+                break
+    return total
 
 
 def _render_page_png(pdf_bytes: bytes, page_index: int, width: int) -> bytes:

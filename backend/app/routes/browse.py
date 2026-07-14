@@ -123,6 +123,7 @@ class ImportIn(BaseModel):
     keys: list[str] | None = None
     branch: str
     batch_id: str | None = None
+    name: str | None = None
 
 
 def _gcn_doc(batch_id: str, branch: str, source_id: str, key: str, meta: dict, now) -> dict:
@@ -228,7 +229,7 @@ async def import_from_minio(source_id: str, body: ImportIn, user: dict = Depends
         raise HTTPException(status_code=400, detail="Chi nhánh không hợp lệ")
 
     if body.keys:
-        batch_id, branch = await _ensure_batch(body.batch_id, branch, None, "processing", user)
+        batch_id, branch = await _ensure_batch(body.batch_id, branch, body.name, "processing", user)
         client = build_client(conn)
         items = []
         for key in body.keys:
@@ -247,7 +248,7 @@ async def import_from_minio(source_id: str, body: ImportIn, user: dict = Depends
     if not body.prefix and not body.recursive:
         raise HTTPException(status_code=400, detail="Cần 'keys' hoặc 'prefix'+recursive")
 
-    batch_id, branch = await _ensure_batch(body.batch_id, branch, None, "importing", user)
+    batch_id, branch = await _ensure_batch(body.batch_id, branch, body.name, "importing", user)
     if body.batch_id:  # nối vào lô đang chạy: đánh dấu importing lại
         await batches().update_one({"_id": batch_id}, {"$set": {"status": "importing"}})
 
