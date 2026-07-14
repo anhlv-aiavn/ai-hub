@@ -13,7 +13,7 @@ from app.audit import AuditAction, log_action
 from app.batch_counters import bump, init_counts
 from app.db import batches, browse_progress_cache, gcns, import_jobs, s3_connections, users
 from app.deps import ensure_batch_access, is_admin, require_operator, scoped_batch_ids
-from app.s3_util import async_list_folder, build_client, head_objects
+from app.s3_util import async_list_folder, build_client, head_objects, list_folder_page, open_s3_client
 
 router = APIRouter(prefix="/v1/browse", tags=["browse"], dependencies=[Depends(require_operator)])
 
@@ -54,22 +54,24 @@ async def browse_folder(source_id: str, prefix: str = "", token: str | None = No
 async def _list_recursive_capped(client, bucket: str, prefix: str) -> tuple[list[str], bool]:
     """Duyệt đệ quy TOÀN BỘ file dưới 1 prefix, dừng khi chạm `BROWSE_PROGRESS_CAP`
     (không chỉ giới hạn số file mà còn tránh cây quá RỘNG khiến tốn hàng trăm lần
-    gọi S3 liệt kê tuần tự — mỗi lần đó lại mở 1 session mới, khá đắt)."""
+    gọi S3 liệt kê tuần tự -- dùng 1 s3 client DÙNG CHUNG cho cả vòng lặp, xem
+    open_s3_client(), thay vì mở session mới mỗi lần gọi)."""
     keys: list[str] = []
     capped = False
-    stack = [prefix]
-    while stack and not capped:
-        p = stack.pop()
-        token = None
-        while True:
-            folders, files, token = await async_list_folder(client, bucket, p, token)
-            stack.extend(folders)
-            keys.extend(f["key"] for f in files)
-            if len(keys) >= config.BROWSE_PROGRESS_CAP:
-                capped = True
-                break
-            if not token:
-                break
+    async with open_s3_client(client) as s3:
+        stack = [prefix]
+        while stack and not capped:
+            p = stack.pop()
+            token = None
+            while True:
+                folders, files, token = await list_folder_page(s3, bucket, p, token)
+                stack.extend(folders)
+                keys.extend(f["key"] for f in files)
+                if len(keys) >= config.BROWSE_PROGRESS_CAP:
+                    capped = True
+                    break
+                if not token:
+                    break
     return keys, capped
 
 
@@ -181,17 +183,21 @@ async def _sync_import_files(
 
 
 async def _list_level_all(client, bucket: str, prefix: str) -> tuple[list[str], list[dict]]:
-    """Liệt kê ĐẦY ĐỦ 1 cấp (mọi trang) — dùng cho planner sharding (§5), không
-    phải hot path nên phân trang trọn vẹn ở đây chấp nhận được."""
+    """Liệt kê ĐẦY ĐỦ 1 cấp (mọi trang) — dùng cho planner sharding (§5). Prefix
+    phẳng (không sub-folder) nhưng nhiều nghìn file vẫn cần nhiều trang; dùng 1
+    s3 client DÙNG CHUNG cho cả vòng lặp (xem open_s3_client()) thay vì mở
+    session mới mỗi trang, nếu không request có thể timeout trước khi liệt kê
+    xong (đã xảy ra thực tế với prefix ~vài chục nghìn file)."""
     folders: list[str] = []
     files: list[dict] = []
-    token = None
-    while True:
-        f, fl, token = await async_list_folder(client, bucket, prefix, token)
-        folders.extend(f)
-        files.extend(fl)
-        if not token:
-            break
+    async with open_s3_client(client) as s3:
+        token = None
+        while True:
+            f, fl, token = await list_folder_page(s3, bucket, prefix, token)
+            folders.extend(f)
+            files.extend(fl)
+            if not token:
+                break
     return folders, files
 
 
