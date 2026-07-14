@@ -6,7 +6,7 @@ import Icon from "./Icon.jsx";
 // Escape để đóng), phần input+list tham khảo MinioBrowser.jsx.
 export default function SearchableSelect({
   value, onChange, options, placeholder = "Chọn…", searchPlaceholder = "Tìm…",
-  query, onQueryChange, className = "",
+  query, onQueryChange, className = "", maxVisible = 50,
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
@@ -28,6 +28,12 @@ export default function SearchableSelect({
   useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
 
   const selected = options.find((o) => o.value === value);
+
+  // Cau lung khong render het options len toi vai tram dong -- vua nang (nhieu
+  // node DOM) vua de vo layout khi cuon. Truong hop tim mo ho (vd 1 ky tu pho
+  // bien) van con qua nhieu ket qua -> chi hien N dong dau, goi y go them.
+  const visible = options.slice(0, maxVisible);
+  const hiddenCount = options.length - visible.length;
 
   function pick(v) { onChange(v); setOpen(false); }
 
@@ -51,7 +57,7 @@ export default function SearchableSelect({
             />
           </div>
           <div className="ssel-list">
-            {options.map((o) => (
+            {visible.map((o) => (
               <button
                 type="button" key={o.value || "__all__"} role="option" aria-selected={o.value === value}
                 className={`ssel-item${o.value === value ? " active" : ""}`}
@@ -62,6 +68,9 @@ export default function SearchableSelect({
             ))}
             {options.length === 0 && <div className="ssel-empty">Không có kết quả</div>}
           </div>
+          {hiddenCount > 0 && (
+            <div className="ssel-hint">Còn {hiddenCount} kết quả khác — gõ thêm để thu hẹp</div>
+          )}
         </div>
       )}
     </div>

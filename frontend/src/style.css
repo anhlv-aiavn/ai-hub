@@ -249,6 +249,8 @@ button.login-btn:disabled { opacity: .45; }
 .ssel-item:hover { background: var(--surface-3); }
 .ssel-item.active { background: var(--surface-3); font-weight: 600; }
 .ssel-empty { padding: 10px; font-size: 13px; color: var(--text-3); text-align: center; }
+.ssel-hint { margin-top: 4px; padding: 6px 8px 2px; font-size: 11.5px; color: var(--text-3); text-align: center;
+  border-top: 1px solid var(--border-2); }
 .users-panel { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
 .user-form { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; }
 .user-form .uf-field { display: flex; flex-direction: column; gap: 5px; flex: 1 1 150px; min-width: 130px; }
