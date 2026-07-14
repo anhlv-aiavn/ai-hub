@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
 from app import config, storage
@@ -14,6 +14,7 @@ from app.deps import (
     current_user, ensure_batch_access, is_admin, require_admin, require_operator,
     scoped_batch_ids,
 )
+from app.vn_text import ci_pattern
 
 router = APIRouter(prefix="/v1/batches", tags=["batches"], dependencies=[Depends(current_user)])
 
@@ -132,9 +133,18 @@ async def create_batch(
 
 
 @router.get("")
-async def list_batches(limit: int = 50, user: dict = Depends(current_user)):
+async def list_batches(
+    limit: int = 50,
+    name: str | None = Query(default=None, description=(
+        "Tìm lô theo tên — khớp MỘT PHẦN, không phân biệt hoa/thường (kể cả chữ "
+        "có dấu). Dùng để tra `batch_id` từ tên đã biết, hoặc kiểm tra trước xem "
+        "đã có lô trùng tên chưa (xem POST /v1/batches — trùng tên sẽ tự nối)")),
+    user: dict = Depends(current_user),
+):
     ids = scoped_batch_ids(user)
-    flt = {} if ids is None else {"_id": {"$in": ids}}
+    flt: dict = {} if ids is None else {"_id": {"$in": ids}}
+    if name and name.strip():
+        flt["name"] = {"$regex": ci_pattern(name.strip())}
     rows = await batches().find(flt).sort("created_at", -1).limit(limit).to_list(length=limit)
     out = []
     for b in rows:

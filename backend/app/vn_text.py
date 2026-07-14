@@ -1,8 +1,24 @@
 """Tiện ích xử lý chuỗi tiếng Việt dùng chung cho tìm kiếm không phân biệt dấu."""
 
+import re
 import unicodedata
 
 _DEDOT_D = str.maketrans("đĐ", "dD")
+
+
+def ci_pattern(s: str) -> str:
+    """Dựng regex khớp `s` không phân biệt hoa/thường theo đúng nghĩa Unicode
+    (kể cả chữ Việt có dấu), vì Mongo $options:"i" chỉ casefold ASCII."""
+    parts = []
+    for ch in s:
+        lo, up = ch.lower(), ch.upper()
+        # len==1 guard: vài ký tự upper()/lower() ra chuỗi nhiều ký tự (vd "ß"→"SS"),
+        # lúc đó không thể gộp vào 1 character-class — giữ nguyên literal cho an toàn.
+        if lo != up and len(lo) == 1 and len(up) == 1:
+            parts.append(f"[{re.escape(lo)}{re.escape(up)}]")
+        else:
+            parts.append(re.escape(ch))
+    return "".join(parts)
 
 
 def strip_diacritics(s: str) -> str:
