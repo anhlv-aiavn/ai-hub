@@ -31,15 +31,21 @@ const fmt = (n) => (n || 0).toLocaleString("vi-VN");
 // Làm tròn đến 2 chữ số thập phân — làm tròn số nguyên rồi cộng các phần có thể lệch tổng (vd 99%/101%).
 const pct = (n, total) => (total ? ((n / total) * 100).toFixed(2) : "0.00");
 
-function SegBar({ title, segs, data, unit = "hồ sơ" }) {
+function SegBar({ title, segs, data, unit = "hồ sơ", pendingKeys }) {
   const items = segs.map((x) => ({ ...x, n: data[x.key] || 0 }));
   const total = items.reduce((a, b) => a + b.n, 0);
   const denom = total || 1;
+  // pendingKeys: các trạng thái coi là "chưa xử lý xong" (vd Chờ, Đang xử lý).
+  // Đã xử lý = tổng - các trạng thái đó (khớp cách tính ở ProgressMini/_rollup).
+  const pending = pendingKeys ? pendingKeys.reduce((a, k) => a + (data[k] || 0), 0) : null;
+  const processed = pendingKeys ? total - pending : null;
   return (
     <div className="seg-block">
       <div className="seg-head">
         <span className="seg-title">{title}</span>
-        <span className="seg-total">{fmt(total)} <small>{unit}</small></span>
+        <span className="seg-total">
+          {pendingKeys ? `${fmt(processed)}/${fmt(total)}` : fmt(total)} <small>{unit}</small>
+        </span>
       </div>
       <div className="seg-bar" role="img"
         aria-label={items.map((x) => `${x.label}: ${x.n} (${pct(x.n, denom)}%)`).join(", ")}>
@@ -270,7 +276,7 @@ export default function ExportView({ user }) {
       </div>
 
       <div className="seg-row">
-        <SegBar title="Trạng thái xử lý" segs={STATUS_SEGS} data={st} />
+        <SegBar title="Trạng thái xử lý" segs={STATUS_SEGS} data={st} pendingKeys={["queued", "processing"]} />
         <SegBar title="Hậu kiểm" segs={REVIEW_SEGS} data={s.by_review || {}} />
       </div>
 

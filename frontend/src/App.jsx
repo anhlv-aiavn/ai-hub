@@ -32,7 +32,7 @@ const ROLE_RANK = { viewer: 0, operator: 1, admin: 2 };
 export default function App() {
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
-  const [tab, setTab] = useState("table");
+  const [tab, setTab] = useState("export");
   const [batchId, setBatchId] = useState(null);
   const [openGcn, setOpenGcn] = useState(null);
   const [showUsers, setShowUsers] = useState(false);
