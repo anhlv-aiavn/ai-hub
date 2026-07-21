@@ -290,11 +290,37 @@ def _report(recs: list[Rec], meter: VlmMeter, elapsed: float, in_flight: int, vl
         print(f" {name:<16}{a:>9.2f}{p(attr, 50):>8.2f}{p(attr, 90):>8.2f}{a / tot * 100:>8.1f}%")
     print(f" {'TOTAL/file':<16}{avg('total'):>9.2f}{p('total', 50):>8.2f}{p('total', 90):>8.2f}")
     print("-" * 72)
+    # ── Số trang: phân bố trang/file + trang mỗi bộ GCN ──
+    pages = [r.pages for r in ok]
+    if pages:
+        total_pages = sum(pages)
+        total_groups = sum(r.groups for r in ok) or 1
+        print(" SỐ TRANG")
+        print(f"   trang/file   : avg {statistics.mean(pages):.1f}  p50 {_pct(pages, 50):.0f}  "
+              f"p90 {_pct(pages, 90):.0f}  max {max(pages)}  ·  tổng {total_pages} trang")
+        print(f"   trang/bộ GCN : avg {total_pages / total_groups:.1f}  "
+              f"(1 file → avg {statistics.mean([r.groups for r in ok]):.2f} bộ)")
+        # Histogram theo khoảng số trang.
+        buckets = [("1", 1, 1), ("2", 2, 2), ("3-5", 3, 5), ("6-10", 6, 10),
+                   ("11-20", 11, 20), (">20", 21, 10**9)]
+        print("   phân bố      :")
+        for label, lo, hi in buckets:
+            c = sum(1 for pg in pages if lo <= pg <= hi)
+            if c:
+                bar = "█" * round(c / len(pages) * 40)
+                print(f"     {label:>6} trang: {c:>4} file ({c / len(pages) * 100:4.1f}%) {bar}")
+    print("-" * 72)
     print(" VLM")
     print(f"   utilization : {util * 100:5.1f}%   peak {meter.peak_inuse}/{meter.limit}   "
           f"chờ-slot {meter.wait_seconds:.0f}s")
-    print("   → so với bench model: util ở đây THẤP hơn nhiều ⇒ GPU bị đói vì I/O")
-    print("     (download/PIL/upload) hoặc encode PIL đồng bộ chẹn event loop.")
+    if util >= 0.75:
+        print("   → util cao + peak chạm trần ⇒ GPU no gần kịch: đây LÀ nút cổ chai")
+        print("     (compute-bound). Muốn nhanh hơn: thêm GPU / bớt token, không phải I/O.")
+    elif meter.peak_inuse < meter.limit * 0.8:
+        print("   → peak < trần: chưa đủ file lấp slot (mẫu nhỏ) HOẶC I/O (download/render)")
+        print("     không feed kịp ⇒ GPU đói. Tăng --limit hoặc gỡ nghẽn download.")
+    else:
+        print("   → util vừa phải: GPU thỉnh thoảng đói giữa các đợt I/O (download/render).")
     errs = [(r.key, r.error) for r in recs if r.error][:8]
     if errs:
         print("-" * 72)
