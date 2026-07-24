@@ -32,8 +32,8 @@ from collections import Counter
 from app import config
 from app.db import gcns
 from src.extentions.multimodal.mdsdd import (
+    _DVHC_MA,
     chuan_hoa,
-    don_vi_hanh_chinh,
     ky_hieu_trong_text,
     la_dat_o,
     map_dat_o,
@@ -142,12 +142,12 @@ async def run(limit: int | None, batch_id: str | None, csv_path: str | None,
                 if r["ambiguous"]:
                     cach_quyet["KHÔNG QUYẾT ĐƯỢC"] += 1
                     ly_do_ambiguous["địa chỉ thửa RỖNG" if not chuan_hoa(dia_chi)
-                                    else "có địa chỉ, không nêu phường/thị trấn/xã"] += 1
+                                    else "có địa chỉ, không bậc nào bắt được"] += 1
                     mau_ambiguous.offer((text, dia_chi))
                 else:
                     cach_quyet[r["method"]] += 1
                     ra_ma[r["ky_hieu"]] += 1
-                    if r["method"] == "dia_chi":
+                    if r["method"].startswith("dia_chi"):
                         dvhc[r.get("dvhc") or "?"] += 1
                         mau_dia_chi_suy.offer((text, dia_chi, r["ky_hieu"]))
 
@@ -218,7 +218,9 @@ def _report(docs, n_thua, n_md, n_rong, phan_nhom, cach_quyet, ra_ma, dvhc,
         "ky_hieu_ngoac": "ký hiệu trong ngoặc  (ONT)/(ODT)",
         "ky_hieu_token": "ký hiệu đứng riêng   ONT/ODT",
         "ten_exact": "tên đầy đủ           nông thôn/đô thị",
-        "dia_chi": "SUY từ địa chỉ thửa",
+        "dia_chi_xa": "SUY · cấp xã   phường/thị trấn/xã",
+        "dia_chi_huyen": "SUY · cấp huyện  quận→ODT huyện→ONT",
+        "dia_chi_thon": "SUY · điểm dân cư  thôn/xóm→ONT",
         "KHÔNG QUYẾT ĐƯỢC": "KHÔNG QUYẾT ĐƯỢC → rà tay",
     }
     for k, nhan in nhan_pp.items():
@@ -239,8 +241,8 @@ def _report(docs, n_thua, n_md, n_rong, phan_nhom, cach_quyet, ra_ma, dvhc,
     if dvhc:
         print("\n ĐƠN VỊ HÀNH CHÍNH BẮT ĐƯỢC TỪ ĐỊA CHỈ (nhánh suy dẫn)")
         tong_dv = sum(dvhc.values())
-        for k in ("phuong", "thi_tran", "xa"):
-            print(_line(f"{k}  → {'ODT' if k != 'xa' else 'ONT'}", dvhc.get(k, 0), tong_dv))
+        for k in ("phuong", "thi_tran", "xa", "quan", "huyen", "to_dan_pho", "thon"):
+            print(_line(f"{k}  → {_DVHC_MA.get(k, '?')}", dvhc.get(k, 0), tong_dv))
 
     if ly_do:
         print("\n VÌ SAO KHÔNG QUYẾT ĐƯỢC (đây là khối lượng rà tay thật)")
