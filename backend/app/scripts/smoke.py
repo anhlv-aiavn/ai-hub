@@ -1,0 +1,160 @@
+"""Runner smoke E2E tập trung (nhiều stage) — hạ tầng THẬT (Mongo), đọc-only.
+
+Theo house-style datalens (testing-and-eval.md §Hai tầng smoke): tầng PURE nằm
+trong `__main__` từng module (vd `python -m src.extentions.multimodal.chu_cuoi`);
+tầng E2E đụng store thật gom về ĐÂY theo stage. Thêm khả năng ⇒ thêm 1 stage +
+đăng ký `_STAGES` (+ dọn trong `cleanup()` nếu stage có ghi — hiện mọi stage
+đọc-only nên cleanup rỗng).
+
+Gate hạ tầng: nối Mongo lỗi ⇒ stage tự SKIP (không KILL) để phần khác vẫn chạy.
+KILL đỏ ⇒ dừng, sửa GỐC — không vá vội.
+
+Chạy TRONG CONTAINER:
+    docker compose exec api python -m app.scripts.smoke chu_cuoi_real
+    docker compose exec api python -m app.scripts.smoke chu_cuoi_real --limit 50
+"""
+
+import argparse
+import asyncio
+import sys
+
+from app import config
+from app.db import gcns
+from src.extentions.multimodal.chu_cuoi import chu_cuoi_for_result
+
+
+class Kill(Exception):
+    """Bất biến vỡ — stage FAIL."""
+
+
+class Skip(Exception):
+    """Thiếu hạ tầng — stage bỏ qua, không tính FAIL."""
+
+
+def _entries(doc: dict):
+    for rec in doc.get("extractions") or []:
+        if isinstance(rec, dict) and isinstance(rec.get("result"), dict):
+            yield rec["result"]
+
+
+async def _sample_docs(match: dict, limit: int) -> list[dict]:
+    try:
+        cur = gcns().aggregate([{"$match": match}, {"$sample": {"size": limit}},
+                                {"$project": {"extractions": 1}}])
+        return [d async for d in cur]
+    except Exception as e:  # noqa: BLE001 — Mongo không nối được / chưa có data
+        raise Skip(f"không lấy được mẫu từ Mongo: {e}") from e
+
+
+async def stage_chu_cuoi_real(limit: int) -> None:
+    """chu_cuoi_for_result trên doc CÓ biến động thật — không crash + đo tỉ lệ 'thap'.
+
+    docker compose exec api python -m app.scripts.smoke chu_cuoi_real
+    """
+    docs = await _sample_docs(
+        {"extractions.result.Đăng ký.Biến động.Nội dung biến động": {"$exists": True, "$ne": ""}},
+        limit)
+    if not docs:
+        raise Skip("không có doc nào có biến động")
+
+    n_cc = n_entry = 0
+    nguon = {"bien_dong": 0, "giay_goc": 0}
+    conf = {"cao": 0, "thap": 0}
+    thap_samples: list[str] = []
+
+    for doc in docs:
+        gid = doc.get("_id", "?")
+        for result in _entries(doc):
+            try:
+                ccs = chu_cuoi_for_result(result)
+            except Exception as e:  # noqa: BLE001
+                raise Kill(f"chu_cuoi CRASH trên doc {gid}: {e}") from e
+            reg = result.get("Đăng ký") or []
+            if len(ccs) != len([e for e in reg if isinstance(e, dict)]):
+                raise Kill(f"doc {gid}: số chu_cuoi ({len(ccs)}) ≠ số entry Đăng ký")
+            for cc, entry in zip(ccs, reg):
+                n_entry += 1
+                nguon[cc["nguon"]] = nguon.get(cc["nguon"], 0) + 1
+                conf[cc["confidence"]] = conf.get(cc["confidence"], 0) + 1
+                if cc["nguon"] == "bien_dong":
+                    n_cc += 1
+                # Bất biến: Số giấy tờ (nếu có) phải đúng 9 hoặc 12 chữ số
+                for c in cc["chu"]:
+                    sg = c.get("Số giấy tờ") or ""
+                    if sg and not (sg.isdigit() and len(sg) in (9, 12)):
+                        raise Kill(f"doc {gid}: Số giấy tờ sai định dạng: {sg!r}")
+                # Bất biến: có chủ gốc mà chu rỗng ở nhánh giay_goc = mất người
+                if cc["nguon"] == "giay_goc" and not cc["chu"]:
+                    goc = [c for c in (entry.get("Chủ sử dụng") or [])
+                           if isinstance(c, dict) and (c.get("Tên chủ") or "").strip()]
+                    if goc:
+                        raise Kill(f"doc {gid}: giay_goc mất chủ (gốc có {len(goc)}, chu cuối 0)")
+                if cc["confidence"] == "thap" and cc["nguon"] == "bien_dong" and len(thap_samples) < 15:
+                    thap_samples.append(
+                        f"{gid} · {cc['thoi_gian']} · chu={[c['Tên chủ'] for c in cc['chu']]}")
+
+    print(f"\n  doc {len(docs)} · entry {n_entry} · từ biến động {n_cc} · từ giấy gốc {nguon['giay_goc']}")
+    tot = max(n_entry, 1)
+    print(f"  nguồn   : bien_dong {nguon['bien_dong']} ({nguon['bien_dong']/tot*100:.1f}%)"
+          f"  ·  giay_goc {nguon['giay_goc']} ({nguon['giay_goc']/tot*100:.1f}%)")
+    print(f"  độ tin  : cao {conf['cao']} ({conf['cao']/tot*100:.1f}%)"
+          f"  ·  THAP {conf['thap']} ({conf['thap']/tot*100:.1f}%)  ← khối lượng cần LLM")
+    if thap_samples:
+        print("  mẫu 'thap' từ biến động (ca regex chưa chắc — đầu vào luyện prompt LLM):")
+        for s in thap_samples:
+            print(f"    · {s}")
+
+
+# đăng ký stage: tên → (hàm, mô tả)
+_STAGES = {
+    "chu_cuoi_real": (stage_chu_cuoi_real, "chu_cuoi trên doc có biến động thật"),
+}
+
+
+async def cleanup() -> None:
+    """Mọi stage hiện đọc-only → không có gì phải dọn."""
+    return None
+
+
+async def main() -> int:
+    p = argparse.ArgumentParser(description="Runner smoke E2E (Mongo thật, đọc-only).")
+    p.add_argument("stages", nargs="*", help=f"stage cần chạy: {', '.join(_STAGES)}")
+    p.add_argument("--limit", type=int, default=20, help="Số doc lấy mẫu mỗi stage.")
+    p.add_argument("--list", action="store_true", help="Liệt kê stage rồi thoát.")
+    args = p.parse_args()
+
+    if args.list or not args.stages:
+        print("Stage khả dụng:")
+        for name, (_, desc) in _STAGES.items():
+            print(f"  {name:<16} {desc}")
+        return 0
+
+    print(f"DB: {config.MONGO_URI}/{config.MONGO_DB}  ·  limit {args.limit}")
+    n_fail = n_skip = 0
+    for name in args.stages:
+        if name not in _STAGES:
+            print(f"\n[{name}] KHÔNG có stage này — bỏ qua")
+            n_fail += 1
+            continue
+        fn, _ = _STAGES[name]
+        print(f"\n=== {name} ===")
+        try:
+            await fn(args.limit)
+            print(f"[{name}] PASS")
+        except Skip as e:
+            print(f"[{name}] SKIP — {e}")
+            n_skip += 1
+        except Kill as e:
+            print(f"[{name}] KILL — {e}")
+            n_fail += 1
+        except Exception as e:  # noqa: BLE001 — lỗi ngoài dự kiến = FAIL
+            print(f"[{name}] KILL (lỗi lạ) — {type(e).__name__}: {e}")
+            n_fail += 1
+
+    await cleanup()
+    print(f"\n{'─'*50}\nTổng: {len(args.stages)} stage · FAIL {n_fail} · SKIP {n_skip}")
+    return 1 if n_fail else 0
+
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(main()))
