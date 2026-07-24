@@ -21,6 +21,7 @@ import sys
 from app import config
 from app.db import gcns
 from src.extentions.multimodal.chu_cuoi import chu_cuoi_for_result
+from src.extentions.multimodal.mdsdd import LOAI_MDSDD, map_dat_o
 
 
 class Kill(Exception):
@@ -130,6 +131,75 @@ def _clip(s: str, n: int = 320) -> str:
     import re
     s = re.sub(r"\s+", " ", str(s)).strip()
     return s if len(s) <= n else s[:n] + " …"
+
+
+async def stage_mdsdd_real(limit: int) -> None:
+    """map_dat_o trên thửa đất THẬT — bất biến mã + đo tỉ lệ quyết được ONT/ODT.
+
+    docker compose exec api python -m app.scripts.smoke mdsdd_real
+    """
+    docs = await _sample_docs(
+        {"extractions.result.Đăng ký.Thửa đất.Mục đích sử dụng.Loại mục đích":
+            {"$exists": True, "$ne": ""}},
+        limit)
+    if not docs:
+        raise Skip("không có doc nào có Mục đích sử dụng")
+
+    hop_le = {m["id"] for m in LOAI_MDSDD}
+    n_md = n_dat_o = n_quyet = 0
+    pp = {}
+    ma = {"ONT": 0, "ODT": 0}
+    mau_amb: list[tuple[str, str]] = []
+
+    for doc in docs:
+        gid = doc.get("_id", "?")
+        for result in _entries(doc):
+            for entry in result.get("Đăng ký") or []:
+                if not isinstance(entry, dict):
+                    continue
+                for thua in entry.get("Thửa đất") or []:
+                    if not isinstance(thua, dict):
+                        continue
+                    dia_chi = thua.get("Địa chỉ") or ""
+                    for md in thua.get("Mục đích sử dụng") or []:
+                        if not isinstance(md, dict):
+                            continue
+                        n_md += 1
+                        text = md.get("Loại mục đích") or ""
+                        try:
+                            r = map_dat_o(text, dia_chi)
+                        except Exception as e:  # noqa: BLE001
+                            raise Kill(f"map_dat_o CRASH doc {gid} trên {text!r}: {e}") from e
+                        if r is None:
+                            continue
+                        n_dat_o += 1
+                        # Bất biến 1: ra mã thì mã phải THUỘC DANH MỤC
+                        if r["id"] is not None and r["id"] not in hop_le:
+                            raise Kill(f"doc {gid}: mã ngoài danh mục {r} cho {text!r}")
+                        # Bất biến 2: ambiguous và có mã là LOẠI TRỪ NHAU —
+                        # nhập nhằng mà vẫn gán mã = đoán bừa, đúng thứ plan cấm.
+                        if r["ambiguous"] != (r["id"] is None):
+                            raise Kill(f"doc {gid}: ambiguous/id mâu thuẫn {r} cho {text!r}")
+                        if r["id"] is None:
+                            if len(mau_amb) < 15:
+                                mau_amb.append((text, dia_chi))
+                            continue
+                        n_quyet += 1
+                        pp[r["method"]] = pp.get(r["method"], 0) + 1
+                        ma[r["ky_hieu"]] += 1
+
+    if not n_dat_o:
+        raise Skip(f"mẫu {len(docs)} doc / {n_md} bản ghi mục đích nhưng không có 'đất ở'")
+
+    print(f"\n  doc {len(docs)} · bản ghi mục đích {n_md} · đất ở {n_dat_o} "
+          f"({n_dat_o/max(n_md,1)*100:.1f}%)")
+    print(f"  quyết được ONT/ODT: {n_quyet}/{n_dat_o} ({n_quyet/n_dat_o*100:.1f}%)"
+          f"  ·  ONT {ma['ONT']} · ODT {ma['ODT']}")
+    print("  đường quyết: " + "  ·  ".join(f"{k} {v}" for k, v in sorted(pp.items())))
+    if mau_amb:
+        print(f"\n  {len(mau_amb)} ca KHÔNG quyết được (đầu vào nới luật địa chỉ):")
+        for text, dc in mau_amb:
+            print(f"    · {_clip(text, 40):<42} | {_clip(dc, 90)}")
 
 
 async def stage_chu_cuoi_llm(limit: int) -> None:
@@ -312,6 +382,7 @@ _STAGES = {
     "cut_diagnose": (stage_cut_diagnose, "PURE — chẩn đoán cắt sai từ chuỗi nhãn"),
     "requeue_guard": (stage_requeue_guard, "PURE — requeue không đụng hồ sơ đã hậu kiểm"),
     "chu_cuoi_real": (stage_chu_cuoi_real, "chu_cuoi trên doc có biến động thật"),
+    "mdsdd_real": (stage_mdsdd_real, "ONT/ODT trên thửa đất thật"),
     "chu_cuoi_llm": (stage_chu_cuoi_llm, "LLM text-only cứu ca regex bó tay (cần vLLM)"),
     "backfill_idem": (stage_backfill_idem, "regex tất định (idempotent) cho backfill"),
 }
