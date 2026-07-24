@@ -192,14 +192,19 @@ async def stage_mdsdd_real(limit: int) -> None:
                         if r is None:
                             continue
                         n_dat_o += 1
-                        # Bất biến 1: ra mã thì mã phải THUỘC DANH MỤC
+                        # Bất biến 1: nhánh đất ở CHỈ được ra ONT/ODT. Mã khác
+                        # lọt vào đây = chuỗi đa mục đích bị đọc nhầm.
+                        if r["ky_hieu"] is not None and r["ky_hieu"] not in ("ONT", "ODT"):
+                            raise Kill(f"doc {gid}: nhánh đất ở trả mã lạ {r} cho {text!r}")
+                        # Bất biến 2: ambiguous và có mã LOẠI TRỪ NHAU — nhập
+                        # nhằng mà vẫn gán mã = đoán bừa, đúng thứ plan cấm.
+                        # So theo ky_hieu chứ KHÔNG theo id: id để None là CỐ Ý
+                        # cho các mã chưa có file danh mục 80 mã.
+                        if r["ambiguous"] != (r["ky_hieu"] is None):
+                            raise Kill(f"doc {gid}: ambiguous/ký hiệu mâu thuẫn {r} cho {text!r}")
                         if r["id"] is not None and r["id"] not in hop_le:
-                            raise Kill(f"doc {gid}: mã ngoài danh mục {r} cho {text!r}")
-                        # Bất biến 2: ambiguous và có mã là LOẠI TRỪ NHAU —
-                        # nhập nhằng mà vẫn gán mã = đoán bừa, đúng thứ plan cấm.
-                        if r["ambiguous"] != (r["id"] is None):
-                            raise Kill(f"doc {gid}: ambiguous/id mâu thuẫn {r} cho {text!r}")
-                        if r["id"] is None:
+                            raise Kill(f"doc {gid}: id ngoài danh mục {r} cho {text!r}")
+                        if r["ky_hieu"] is None:
                             if len(mau_amb) < 15:
                                 mau_amb.append((text, dia_chi))
                             continue

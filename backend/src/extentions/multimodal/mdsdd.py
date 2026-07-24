@@ -246,6 +246,9 @@ ALIAS: dict[str, str] = {
     "dat nghia trang": "NTD", "dat nghia trang, nghia dia": "NTD",
     "dat co so ton giao": "TON", "dat co so tin nguong": "TIN",
     "dat cho": "DCH",
+    # viết tắt có thật trên giấy
+    "dat tcln": "CLN", "tcln": "CLN", "dat trong cay lau nam khac": "CLN",
+    "dat trong thuy san": "NTS",   # phủ cả "thuỷ" vì khóa đã bỏ dấu
 }
 
 # NHẬP NHẰNG THẬT — có mặt nhiều trong kho nhưng KHÔNG suy ra được đúng một mã.
@@ -271,6 +274,20 @@ KHONG_PHAI_MUC_DICH: set[str] = {
     "lau dai", "10%", "su dung dat", "duong di chuyen",
     "dat duoc giao hoac thue: duoc giao", "dat duoc giao hoac thue",
 }
+
+# ĐUÔI DÀI: audit đo được 404 bản ghi "chưa map" trải trên 281 chuỗi, đầu bảng
+# chỉ 9 lần — liệt kê từng chuỗi là vô vọng và sẽ phải nuôi tay mãi. Nhưng đọc
+# thì chúng thuộc vài HỌ lặp lại ("Lúa nước", "Lúa lai", "Lúa dài", "Lúa đời"…).
+# Bắt theo họ phủ được cả đuôi lẫn các biến thể chưa từng gặp.
+#
+# Hai regex này chỉ chạy SAU khi mọi phép khớp tuyệt đối đã trượt, nên không
+# bao giờ cướp mã của chuỗi đã map được ("Đất trồng cây lâu năm khác" → CLN
+# qua ALIAS, dù nó cũng chứa "trồng cây").
+_RE_HO_LAN_COT = re.compile(
+    r"\b(su dung (chung|rieng|khac|rong)|dien tich|duoc giao|thue dat"
+    r"|khong duoc cap|lao dong)\b")
+_RE_HO_NHAP_NHANG = re.compile(
+    r"\b(vuon|ao|lua|rung|lam nghiep|nong nghiep|trong cay|trong rung)\b")
 
 
 def ky_hieu_trong_text(text) -> tuple[str, str] | None:
@@ -324,7 +341,10 @@ def map_dat_o(text, dia_chi: str = "") -> dict | None:
         return None
 
     kh = ky_hieu_trong_text(text)
-    if kh and kh[0] in _THEO_KY_HIEU:
+    # CHỈ ONT/ODT — cùng bẫy như la_dat_o: chuỗi đa mục đích "đất ở, CLN" vào
+    # được nhánh này, nếu nhận cả danh mục thì nó trả về CLN cho một bản ghi
+    # đất ở. Mã ngoài đất ở là việc của map_muc_dich.
+    if kh and kh[0] in _MA_DAT_O:
         return _kq(kh[0], kh[1], 1.0)
 
     t = chuan_hoa(text)
@@ -387,6 +407,11 @@ def map_muc_dich(text, dia_chi: str = "") -> dict | None:
         return _amb("khong_phai_muc_dich")
     if t in NHAP_NHANG:
         return _amb("nhap_nhang")
+    # bắt theo HỌ — chỉ tới đây khi mọi khớp tuyệt đối đã trượt
+    if _RE_HO_LAN_COT.search(t):
+        return _amb("khong_phai_muc_dich")
+    if _RE_HO_NHAP_NHANG.search(t):
+        return _amb("nhap_nhang")
     return _amb("chua_map")
 
 
@@ -432,9 +457,13 @@ def _smoke() -> None:
     for x in ("", None, "   "):
         assert map_dat_o(x, "phường Nghĩa Tân") is None, f"KILL [9] text rỗng ra mã: {x!r}"
 
-    # 10. mục đích KHÁC đất ở → None (Phase 1 xử), không nhận vơ
+    # 10. mục đích KHÁC đất ở → None (map_muc_dich xử), không nhận vơ
     for x in ("Đất trồng cây lâu năm (CLN)", "Đất chuyên trồng lúa nước"):
         assert map_dat_o(x, "xã Ea Tu") is None, f"KILL [10] nhận vơ mã không phải đất ở: {x}"
+    # ca THẬT từ stage mdsdd_real: chuỗi đa mục đích chứa ký hiệu của mã KHÁC.
+    # Nhánh đất ở không được trả về mã đó — nó phải quyết ONT/ODT như thường.
+    r = map_dat_o("đất ở, CLN", "xã Cổ Bi, huyện Gia Lâm")
+    assert r and r["ky_hieu"] == "ONT", f"KILL [10b] 'đất ở, CLN' phải ra ONT: {r}"
 
     # 11. mã trả về luôn thuộc danh mục, method luôn hợp lệ
     for txt, dc in [("Đất ở (ODT)", ""), ("Đất ở tại nông thôn", ""), ("Đất ở", "xã X")]:
@@ -558,6 +587,22 @@ def _smoke() -> None:
     # chuỗi lạ hoàn toàn → chua_map, không phải nhap_nhang
     r = map_muc_dich("Đất abc xyz không có thật", "")
     assert r["ambiguous"] and r["ly_do"] == "chua_map", f"KILL [20d] {r}"
+
+    # ── 20e. ĐUÔI DÀI bắt theo HỌ (chuỗi thật từ danh sách "chưa map") ────
+    for txt in ("Lúa nước", "Lúa lai", "Lúa dài", "vườn liền kề", "Vườn ao",
+                "Đất vườn + Ao", "Đất trồng rừng", "Lâm nghiệp", "Nông nghiệp",
+                "Đất trồng nông nghiệp", "Đất trồng cây hàng năm"):
+        r = map_muc_dich(txt, "")
+        assert r["ly_do"] == "nhap_nhang", f"KILL [20e] {txt!r} phải vào họ nhập nhằng: {r}"
+    for txt in ("Đất sử dụng chung", "Diện tích sử dụng riêng", "Sử dụng rộng",
+                "Sử dụng khác", "Thuế đất", "Đất không được cấp Giấy chứng nhận"):
+        r = map_muc_dich(txt, "")
+        assert r["ly_do"] == "khong_phai_muc_dich", f"KILL [20f] {txt!r}: {r}"
+    # HỌ KHÔNG ĐƯỢC CƯỚP MÃ của chuỗi đã khớp tuyệt đối
+    for txt, ky in (("Đất trồng cây lâu năm khác", "CLN"), ("Đất TCLN", "CLN"),
+                    ("Đất trồng cây lâu năm", "CLN"), ("Đất nuôi trồng thủy sản", "NTS")):
+        r = map_muc_dich(txt, "")
+        assert r["ky_hieu"] == ky, f"KILL [20g] họ cướp mã của {txt!r}: {r}"
 
     # ── 21. map_muc_dich KHÔNG được phá nhánh đất ở ───────────────────────
     r = map_muc_dich("Đất ở", "Thắng Lợi, Phú Minh, Sóc Sơn, Hà Nội")
