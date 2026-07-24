@@ -262,9 +262,44 @@ async def stage_cut_diagnose(limit: int) -> None:
     print("  8 ca (luật 1 bìa: đầu/giữa/cuối/rải · 2 bìa · xếp ngược · mất bìa · ca lành) ✓")
 
 
+async def stage_requeue_guard(limit: int) -> None:
+    """PURE — lưới chặn của requeue_cat_lai: KHÔNG được đụng hồ sơ đã hậu kiểm.
+
+    Chạy lại làm đổi số nhóm extractions, mà overrides/deleted đánh theo INDEX →
+    chữa tay của chuyên viên sẽ gắn sang giấy khác. Đây là mất dữ liệu người dùng,
+    nghiêm trọng hơn cắt sai, nên phải có KILL riêng.
+
+    docker compose exec api python -m app.scripts.smoke requeue_guard
+    """
+    from app.scripts.requeue_cat_lai import _da_doi_soat
+
+    phai_bo = [
+        ("có overrides", {"review": {"overrides": {"0": {"Chủ sử dụng": "X"}}}}),
+        ("có deleted", {"review": {"deleted": [1]}}),
+        ("status reviewed", {"review": {"status": "reviewed"}}),
+        ("status needs_review", {"review": {"status": "needs_review"}}),
+    ]
+    for ten, doc in phai_bo:
+        if not _da_doi_soat(doc):
+            raise Kill(f"[1] hồ sơ {ten} PHẢI bị loại khỏi requeue — sẽ lệch overrides")
+
+    phai_lay = [
+        ("không có review", {}),
+        ("review rỗng", {"review": {}}),
+        ("chỉ đổi tên hồ sơ", {"review": {"display_name": "Nhà ông A"}}),
+        ("overrides rỗng", {"review": {"overrides": {}, "deleted": []}}),
+    ]
+    for ten, doc in phai_lay:
+        if _da_doi_soat(doc):
+            raise Kill(f"[2] hồ sơ {ten} bị loại OAN — không có dữ liệu gắn theo index")
+
+    print("  8 ca (4 phải bỏ · 4 phải lấy) ✓")
+
+
 # đăng ký stage: tên → (hàm, mô tả)
 _STAGES = {
     "cut_diagnose": (stage_cut_diagnose, "PURE — chẩn đoán cắt sai từ chuỗi nhãn"),
+    "requeue_guard": (stage_requeue_guard, "PURE — requeue không đụng hồ sơ đã hậu kiểm"),
     "chu_cuoi_real": (stage_chu_cuoi_real, "chu_cuoi trên doc có biến động thật"),
     "chu_cuoi_llm": (stage_chu_cuoi_llm, "LLM text-only cứu ca regex bó tay (cần vLLM)"),
     "backfill_idem": (stage_backfill_idem, "regex tất định (idempotent) cho backfill"),
