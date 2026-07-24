@@ -21,7 +21,12 @@ import sys
 from app import config
 from app.db import gcns
 from src.extentions.multimodal.chu_cuoi import chu_cuoi_for_result
-from src.extentions.multimodal.mdsdd import LOAI_MDSDD, map_dat_o
+from src.extentions.multimodal.mdsdd import (
+    LOAI_MDSDD,
+    LY_DO,
+    map_dat_o,
+    map_muc_dich,
+)
 
 
 class Kill(Exception):
@@ -146,9 +151,11 @@ async def stage_mdsdd_real(limit: int) -> None:
         raise Skip("không có doc nào có Mục đích sử dụng")
 
     hop_le = {m["id"] for m in LOAI_MDSDD}
+    ky_hop_le = {m["ky_hieu_muc_dich"] for m in LOAI_MDSDD}
     n_md = n_dat_o = n_quyet = 0
     pp = {}
     ma = {"ONT": 0, "ODT": 0}
+    khac: dict[str, int] = {}
     mau_amb: list[tuple[str, str]] = []
 
     for doc in docs:
@@ -167,9 +174,21 @@ async def stage_mdsdd_real(limit: int) -> None:
                         n_md += 1
                         text = md.get("Loại mục đích") or ""
                         try:
-                            r = map_dat_o(text, dia_chi)
+                            rr = map_muc_dich(text, dia_chi)
                         except Exception as e:  # noqa: BLE001
-                            raise Kill(f"map_dat_o CRASH doc {gid} trên {text!r}: {e}") from e
+                            raise Kill(f"map_muc_dich CRASH doc {gid} trên {text!r}: {e}") from e
+                        if rr is not None:
+                            # Bất biến toàn danh mục: hoặc ra mã CÓ THẬT, hoặc
+                            # ambiguous kèm lý do hợp lệ. Không có dạng thứ ba.
+                            if rr["ambiguous"]:
+                                if rr.get("ly_do") not in LY_DO:
+                                    raise Kill(f"doc {gid}: lý do lạ {rr} cho {text!r}")
+                                khac[rr["ly_do"]] = khac.get(rr["ly_do"], 0) + 1
+                            elif rr["ky_hieu"] not in ky_hop_le:
+                                raise Kill(f"doc {gid}: ký hiệu ngoài danh mục {rr} cho {text!r}")
+                            else:
+                                khac["ra_ma"] = khac.get("ra_ma", 0) + 1
+                        r = map_dat_o(text, dia_chi)
                         if r is None:
                             continue
                         n_dat_o += 1
@@ -196,6 +215,8 @@ async def stage_mdsdd_real(limit: int) -> None:
     print(f"  quyết được ONT/ODT: {n_quyet}/{n_dat_o} ({n_quyet/n_dat_o*100:.1f}%)"
           f"  ·  ONT {ma['ONT']} · ODT {ma['ODT']}")
     print("  đường quyết: " + "  ·  ".join(f"{k} {v}" for k, v in sorted(pp.items())))
+    print("  TOÀN danh mục (cả không phải đất ở): "
+          + "  ·  ".join(f"{k} {v}" for k, v in sorted(khac.items())))
     if mau_amb:
         print(f"\n  {len(mau_amb)} ca KHÔNG quyết được (đầu vào nới luật địa chỉ):")
         for text, dc in mau_amb:

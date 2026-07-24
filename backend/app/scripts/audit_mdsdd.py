@@ -33,10 +33,12 @@ from app import config
 from app.db import gcns
 from src.extentions.multimodal.mdsdd import (
     _DVHC_MA,
+    LY_DO,
     chuan_hoa,
     ky_hieu_trong_text,
     la_dat_o,
     map_dat_o,
+    map_muc_dich,
 )
 
 
@@ -99,7 +101,9 @@ async def run(limit: int | None, batch_id: str | None, csv_path: str | None,
     distinct = Counter()         # chuỗi đã chuẩn hóa → tần suất
     dai_dien: dict[str, str] = {}   # chuỗi chuẩn hóa → 1 bản gốc để in cho người đọc
     ky_hieu_khac = Counter()     # ký hiệu bắt được ở nhóm KHÔNG phải đất ở
-    khac_distinct = Counter()
+    khac_ket_qua = Counter()     # ra_ma / nhap_nhang / khong_phai_muc_dich / chua_map
+    khac_ma = Counter()          # mã nào ra được bao nhiêu
+    khac_theo_ly_do: dict[str, Counter] = {k: Counter() for k in LY_DO}
 
     mau_ambiguous = Reservoir(n_sample)
     mau_dia_chi_suy = Reservoir(n_sample)
@@ -131,7 +135,13 @@ async def run(limit: int | None, batch_id: str | None, csv_path: str | None,
 
                 if not la_dat_o(text):
                     phan_nhom["khac"] += 1
-                    khac_distinct[t] += 1
+                    r = map_muc_dich(text, dia_chi)
+                    if r["ambiguous"]:
+                        khac_ket_qua[r["ly_do"]] += 1
+                        khac_theo_ly_do[r["ly_do"]][t] += 1
+                    else:
+                        khac_ket_qua["ra_ma"] += 1
+                        khac_ma[r["ky_hieu"]] += 1
                     kh = ky_hieu_trong_text(text)
                     if kh:
                         ky_hieu_khac[kh[0]] += 1
@@ -157,17 +167,22 @@ async def run(limit: int | None, batch_id: str | None, csv_path: str | None,
         for t, n in distinct.most_common():
             luy_ke += n
             goc = dai_dien.get(t, t)
-            kh = ky_hieu_trong_text(goc)
+            # map với địa chỉ RỖNG: cột này nói chuỗi TỰ NÓ ra được mã gì, tách
+            # khỏi phần suy từ địa chỉ (vốn khác nhau từng thửa). Đất ở vì thế
+            # để trống mã ở đây là đúng — xem bảng ONT/ODT phía trên.
+            r = map_muc_dich(goc, "") or {}
             rows_csv.append({
                 "gia_tri_chuan_hoa": t, "gia_tri_goc": goc, "so_lan": n,
                 "ty_le_%": round(n / tong * 100, 4) if tong else 0,
                 "luy_ke_%": round(luy_ke / tong * 100, 4) if tong else 0,
-                "ky_hieu": (kh[0] if kh else ""),
                 "la_dat_o": int(la_dat_o(goc)),
+                "ky_hieu": r.get("ky_hieu") or "",
+                "ly_do_chua_ra_ma": r.get("ly_do") or "",
             })
 
     _report(docs, n_thua, n_md, n_rong, phan_nhom, cach_quyet, ra_ma, dvhc,
-            ly_do_ambiguous, distinct, dai_dien, khac_distinct, ky_hieu_khac,
+            ly_do_ambiguous, distinct, dai_dien, khac_ket_qua, khac_ma,
+            khac_theo_ly_do, ky_hieu_khac,
             mau_ambiguous, mau_dia_chi_suy, top)
 
     if csv_path and rows_csv:
@@ -194,8 +209,8 @@ def _clip(s: str, n: int = 120) -> str:
 
 
 def _report(docs, n_thua, n_md, n_rong, phan_nhom, cach_quyet, ra_ma, dvhc,
-            ly_do, distinct, dai_dien, khac_distinct, ky_hieu_khac,
-            mau_ambiguous, mau_dia_chi_suy, top) -> None:
+            ly_do, distinct, dai_dien, khac_ket_qua, khac_ma, khac_theo_ly_do,
+            ky_hieu_khac, mau_ambiguous, mau_dia_chi_suy, top) -> None:
     print("\n" + "=" * 80)
     print(f" AUDIT MỤC ĐÍCH SỬ DỤNG — {docs:,} hồ sơ · {n_thua:,} thửa · "
           f"{n_md:,} bản ghi mục đích")
@@ -274,14 +289,36 @@ def _report(docs, n_thua, n_md, n_rong, phan_nhom, cach_quyet, ra_ma, dvhc,
     for m, i in moc.items():
         print(f"   phủ {m}% cần {i if i else '—'} chuỗi distinct")
 
-    print("\n" + "-" * 80)
-    print(f" TOP {top} MỤC ĐÍCH KHÁC ĐẤT Ở (đầu vào dựng danh mục Phase 1)")
-    print("-" * 80)
-    tong_k = sum(khac_distinct.values()) or 1
-    for i, (t, n) in enumerate(khac_distinct.most_common(top), 1):
-        print(f"  {i:>3}. {n:>8,} ({n / tong_k * 100:5.2f}%)  {_clip(dai_dien.get(t, t), 80)}")
+    print("\n" + "=" * 80)
+    print(" MỤC ĐÍCH KHÁC ĐẤT Ở — CHUẨN HÓA VỀ DANH MỤC")
+    print("=" * 80)
+    tong_k = sum(khac_ket_qua.values()) or 1
+    print(_line("RA MÃ", khac_ket_qua.get("ra_ma", 0), tong_k))
+    nhan_ld = {
+        "nhap_nhang": "nhập nhằng THẬT → chuyên viên quyết",
+        "khong_phai_muc_dich": "LẪN CỘT khác → sửa prompt extract",
+        "chua_map": "chưa có trong bảng → bổ sung alias",
+    }
+    for k, nhan in nhan_ld.items():
+        print(_line(nhan, khac_ket_qua.get(k, 0), tong_k))
+
+    if khac_ma:
+        print("\n   Mã ra được:")
+        print("   " + "  ".join(f"{k}:{n:,}" for k, n in khac_ma.most_common(30)))
+
+    # Ba danh sách này là VIỆC PHẢI LÀM, mỗi cái một cách xử khác nhau
+    for ld, nhan in nhan_ld.items():
+        c = khac_theo_ly_do.get(ld) or Counter()
+        if not c:
+            continue
+        print("\n" + "-" * 80)
+        print(f" {nhan.upper()}  —  {sum(c.values()):,} bản ghi / {len(c):,} chuỗi")
+        print("-" * 80)
+        for i, (t, n) in enumerate(c.most_common(top), 1):
+            print(f"  {i:>3}. {n:>7,}  {_clip(dai_dien.get(t, t), 80)}")
+
     if ky_hieu_khac:
-        print("\n   Ký hiệu bắt được ở nhóm này (top 40):")
+        print("\n   Ký hiệu bắt được ở nhóm này (top 40) — cẩn thận, có cả rác:")
         print("   " + "  ".join(f"{k}:{n:,}" for k, n in ky_hieu_khac.most_common(40)))
 
     print("\n" + "-" * 80)

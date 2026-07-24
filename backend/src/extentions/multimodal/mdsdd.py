@@ -18,15 +18,86 @@ import re
 
 from app.vn_text import strip_diacritics
 
-# Danh mục — hiện chỉ 2 mã đã CHỐT. Phase 1 bổ sung phần còn lại từ audit 0.3.
+# ── DANH MỤC LOẠI ĐẤT ────────────────────────────────────────────────────────
+# ky_hieu + ten là ký hiệu loại đất chuẩn dùng trên GCN và bản đồ địa chính.
+#
+# `id`: CHỈ ONT/ODT có số đã chốt (191/192). Các mã khác để None vì số id thuộc
+# danh mục 80 mã của hệ thống bên nghiệp vụ — CHƯA CÓ FILE, và bịa số id là kiểu
+# sai tệ nhất: trông như dữ liệu thật, không ai phát hiện. Có file thì chỉ việc
+# điền cột id, toàn bộ luật map bên dưới không phải sửa (khoá chính là ky_hieu).
 LOAI_MDSDD: list[dict] = [
+    # nhóm nông nghiệp
+    {"id": None, "ky_hieu_muc_dich": "LUC", "ten_muc_dich": "Đất chuyên trồng lúa nước"},
+    {"id": None, "ky_hieu_muc_dich": "LUK", "ten_muc_dich": "Đất trồng lúa nước còn lại"},
+    {"id": None, "ky_hieu_muc_dich": "LUN", "ten_muc_dich": "Đất trồng lúa nương"},
+    {"id": None, "ky_hieu_muc_dich": "BHK", "ten_muc_dich": "Đất bằng trồng cây hàng năm khác"},
+    {"id": None, "ky_hieu_muc_dich": "NHK", "ten_muc_dich": "Đất nương rẫy trồng cây hàng năm khác"},
+    {"id": None, "ky_hieu_muc_dich": "CLN", "ten_muc_dich": "Đất trồng cây lâu năm"},
+    {"id": None, "ky_hieu_muc_dich": "RSX", "ten_muc_dich": "Đất rừng sản xuất"},
+    {"id": None, "ky_hieu_muc_dich": "RPH", "ten_muc_dich": "Đất rừng phòng hộ"},
+    {"id": None, "ky_hieu_muc_dich": "RDD", "ten_muc_dich": "Đất rừng đặc dụng"},
+    {"id": None, "ky_hieu_muc_dich": "NTS", "ten_muc_dich": "Đất nuôi trồng thủy sản"},
+    {"id": None, "ky_hieu_muc_dich": "LMU", "ten_muc_dich": "Đất làm muối"},
+    {"id": None, "ky_hieu_muc_dich": "NKH", "ten_muc_dich": "Đất nông nghiệp khác"},
+    # nhóm đất ở
     {"id": 191, "ky_hieu_muc_dich": "ONT", "ten_muc_dich": "Đất ở tại nông thôn"},
     {"id": 192, "ky_hieu_muc_dich": "ODT", "ten_muc_dich": "Đất ở tại đô thị"},
+    # trụ sở, sự nghiệp
+    {"id": None, "ky_hieu_muc_dich": "TSC", "ten_muc_dich": "Đất xây dựng trụ sở cơ quan"},
+    {"id": None, "ky_hieu_muc_dich": "DTS", "ten_muc_dich": "Đất xây dựng trụ sở của tổ chức sự nghiệp"},
+    {"id": None, "ky_hieu_muc_dich": "DVH", "ten_muc_dich": "Đất xây dựng cơ sở văn hóa"},
+    {"id": None, "ky_hieu_muc_dich": "DYT", "ten_muc_dich": "Đất xây dựng cơ sở y tế"},
+    {"id": None, "ky_hieu_muc_dich": "DGD", "ten_muc_dich": "Đất xây dựng cơ sở giáo dục và đào tạo"},
+    {"id": None, "ky_hieu_muc_dich": "DTT", "ten_muc_dich": "Đất xây dựng cơ sở thể dục thể thao"},
+    {"id": None, "ky_hieu_muc_dich": "DKH", "ten_muc_dich": "Đất xây dựng cơ sở khoa học và công nghệ"},
+    {"id": None, "ky_hieu_muc_dich": "DXH", "ten_muc_dich": "Đất xây dựng cơ sở dịch vụ xã hội"},
+    {"id": None, "ky_hieu_muc_dich": "DNG", "ten_muc_dich": "Đất xây dựng cơ sở ngoại giao"},
+    {"id": None, "ky_hieu_muc_dich": "DSK", "ten_muc_dich": "Đất xây dựng công trình sự nghiệp khác"},
+    # quốc phòng, an ninh
+    {"id": None, "ky_hieu_muc_dich": "CQP", "ten_muc_dich": "Đất quốc phòng"},
+    {"id": None, "ky_hieu_muc_dich": "CAN", "ten_muc_dich": "Đất an ninh"},
+    # sản xuất, kinh doanh
+    {"id": None, "ky_hieu_muc_dich": "SKK", "ten_muc_dich": "Đất khu công nghiệp"},
+    {"id": None, "ky_hieu_muc_dich": "SKN", "ten_muc_dich": "Đất cụm công nghiệp"},
+    {"id": None, "ky_hieu_muc_dich": "SKT", "ten_muc_dich": "Đất khu chế xuất"},
+    {"id": None, "ky_hieu_muc_dich": "TMD", "ten_muc_dich": "Đất thương mại, dịch vụ"},
+    {"id": None, "ky_hieu_muc_dich": "SKC", "ten_muc_dich": "Đất cơ sở sản xuất phi nông nghiệp"},
+    {"id": None, "ky_hieu_muc_dich": "SKS", "ten_muc_dich": "Đất sử dụng cho hoạt động khoáng sản"},
+    {"id": None, "ky_hieu_muc_dich": "SKX", "ten_muc_dich": "Đất sản xuất vật liệu xây dựng, làm đồ gốm"},
+    # công cộng
+    {"id": None, "ky_hieu_muc_dich": "DGT", "ten_muc_dich": "Đất giao thông"},
+    {"id": None, "ky_hieu_muc_dich": "DTL", "ten_muc_dich": "Đất thủy lợi"},
+    {"id": None, "ky_hieu_muc_dich": "DNL", "ten_muc_dich": "Đất công trình năng lượng"},
+    {"id": None, "ky_hieu_muc_dich": "DBV", "ten_muc_dich": "Đất công trình bưu chính, viễn thông"},
+    {"id": None, "ky_hieu_muc_dich": "DSH", "ten_muc_dich": "Đất sinh hoạt cộng đồng"},
+    {"id": None, "ky_hieu_muc_dich": "DKV", "ten_muc_dich": "Đất khu vui chơi, giải trí công cộng"},
+    {"id": None, "ky_hieu_muc_dich": "DCH", "ten_muc_dich": "Đất chợ"},
+    {"id": None, "ky_hieu_muc_dich": "DDT", "ten_muc_dich": "Đất có di tích lịch sử - văn hóa"},
+    {"id": None, "ky_hieu_muc_dich": "DDL", "ten_muc_dich": "Đất danh lam thắng cảnh"},
+    {"id": None, "ky_hieu_muc_dich": "DRA", "ten_muc_dich": "Đất bãi thải, xử lý chất thải"},
+    {"id": None, "ky_hieu_muc_dich": "DCK", "ten_muc_dich": "Đất công trình công cộng khác"},
+    # tôn giáo, tín ngưỡng, nghĩa trang
+    {"id": None, "ky_hieu_muc_dich": "TON", "ten_muc_dich": "Đất cơ sở tôn giáo"},
+    {"id": None, "ky_hieu_muc_dich": "TIN", "ten_muc_dich": "Đất cơ sở tín ngưỡng"},
+    {"id": None, "ky_hieu_muc_dich": "NTD", "ten_muc_dich": "Đất làm nghĩa trang, nghĩa địa"},
+    # sông nước, chưa sử dụng
+    {"id": None, "ky_hieu_muc_dich": "SON", "ten_muc_dich": "Đất sông, ngòi, kênh, rạch, suối"},
+    {"id": None, "ky_hieu_muc_dich": "MNC", "ten_muc_dich": "Đất có mặt nước chuyên dùng"},
+    {"id": None, "ky_hieu_muc_dich": "PNK", "ten_muc_dich": "Đất phi nông nghiệp khác"},
+    {"id": None, "ky_hieu_muc_dich": "BCS", "ten_muc_dich": "Đất bằng chưa sử dụng"},
+    {"id": None, "ky_hieu_muc_dich": "DCS", "ten_muc_dich": "Đất đồi núi chưa sử dụng"},
+    {"id": None, "ky_hieu_muc_dich": "NCS", "ten_muc_dich": "Núi đá không có rừng cây"},
 ]
 _THEO_KY_HIEU = {m["ky_hieu_muc_dich"]: m for m in LOAI_MDSDD}
+_MA_DAT_O = ("ONT", "ODT")
 
-METHODS = ("ky_hieu_ngoac", "ky_hieu_token", "ten_exact",
+METHODS = ("ky_hieu_ngoac", "ky_hieu_token", "ten_exact", "alias",
            "dia_chi_xa", "dia_chi_huyen", "dia_chi_thon", "dia_chi_ten_huyen")
+
+# Lý do KHÔNG ra mã — phân biệt được ba loại là quan trọng, vì mỗi loại xử khác
+# nhau: nhập nhằng → chuyên viên quyết · lẫn cột → sửa prompt extract · chưa map
+# → bổ sung alias. Gộp chung một rọ "chưa map" thì không biết đường nào mà lần.
+LY_DO = ("nhap_nhang", "khong_phai_muc_dich", "chua_map")
 
 # Ký hiệu trong ngoặc: "Đất ở tại nông thôn (ONT)" — dạng chính xác nhất.
 _RE_NGOAC = re.compile(r"\(\s*([A-Za-z]{2,4})\s*\)")
@@ -161,6 +232,47 @@ def suy_tu_dia_chi(dia_chi) -> dict | None:
     return None
 
 
+# ── BẢNG TRA, dựng TỪ TOP-40 CHUỖI THẬT của audit 0.3 (không đoán) ──────────
+# Khóa đã chuẩn hóa; so khớp TUYỆT ĐỐI cả chuỗi, không khớp một phần — "Đất
+# trồng cây" khác "Đất trồng cây lâu năm" đúng ở chỗ quyết định mã.
+ALIAS: dict[str, str] = {
+    "dat trong cay lau nam": "CLN", "trong cay lau nam": "CLN", "cln": "CLN",
+    "dat nuoi trong thuy san": "NTS", "nuoi trong thuy san": "NTS",
+    "dat giao thong": "DGT",
+    "dat thuy loi": "DTL",
+    "dat trong lua": "LUC", "dat chuyen trong lua nuoc": "LUC",
+    "dat trong cay hang nam khac": "BHK", "dat bang trong cay hang nam khac": "BHK",
+    "dat rung san xuat": "RSX", "dat rung phong ho": "RPH", "dat rung dac dung": "RDD",
+    "dat nghia trang": "NTD", "dat nghia trang, nghia dia": "NTD",
+    "dat co so ton giao": "TON", "dat co so tin nguong": "TIN",
+    "dat cho": "DCH",
+}
+
+# NHẬP NHẰNG THẬT — có mặt nhiều trong kho nhưng KHÔNG suy ra được đúng một mã.
+# Trả ambiguous kèm lý do để chuyên viên quyết, TUYỆT ĐỐI không chọn bừa:
+#   · "đất vườn"/"vườn"/"ao" — danh mục KHÔNG có mã "vườn"; tùy thửa mà là CLN
+#     hay BHK (vườn) / NTS hay MNC (ao). Chọn hộ là gán sai mã pháp lý.
+#   · "lúa" trần — không phân biệt được LUC (chuyên trồng) với LUK (còn lại).
+#   · "rừng" trần — RSX/RPH/RDD là ba chế độ pháp lý khác hẳn nhau.
+#   · "đất nông nghiệp"/"sản xuất nông nghiệp" — tên NHÓM đất, không phải mã.
+NHAP_NHANG: set[str] = {
+    "dat vuon", "vuon", "dat vuon, ao", "dat ao", "ao", "vuon, ao",
+    "lua", "lua trong", "lua nuoc 2 nam", "dat trong cay", "trong cay",
+    "rung", "dat nong nghiep", "san xuat nong nghiep", "sx nong nghiep",
+    "dat khac", "khac", "dat", "dat khu vuc nong thon", "dat nong thon",
+    "dat ven truc giao thong", "kinh te gia dinh", "dat lam kho",
+}
+
+# KHÔNG PHẢI MỤC ĐÍCH — giá trị của CỘT KHÁC bị VLM nhét nhầm sang "Loại mục
+# đích". Đếm riêng vì cách sửa khác hẳn: sửa prompt extract, không phải bổ sung
+# alias. Gộp vào "chưa map" sẽ làm tưởng bảng mã còn thiếu.
+KHONG_PHAI_MUC_DICH: set[str] = {
+    "su dung chung", "su dung rieng", "rieng", "chung", "dien tich su dung chung",
+    "lau dai", "10%", "su dung dat", "duong di chuyen",
+    "dat duoc giao hoac thue: duoc giao", "dat duoc giao hoac thue",
+}
+
+
 def ky_hieu_trong_text(text) -> tuple[str, str] | None:
     """→ (ký hiệu, method) — ưu tiên trong ngoặc, sau đó token viết HOA."""
     raw = text if isinstance(text, str) else ""
@@ -195,7 +307,9 @@ def la_dat_o(text) -> bool:
     if t == "o" or re.search(r"\bdat o\b|\btho cu\b|\bnha o\b|\bcho o\b", t):
         return True
     kh = ky_hieu_trong_text(text)
-    return bool(kh and kh[0] in _THEO_KY_HIEU)
+    # CHỈ ONT/ODT — không phải cả danh mục. Dùng _THEO_KY_HIEU ở đây là bẫy:
+    # danh mục mở rộng thì "Đất trồng cây lâu năm (CLN)" hóa thành "đất ở".
+    return bool(kh and kh[0] in _MA_DAT_O)
 
 
 def map_dat_o(text, dia_chi: str = "") -> dict | None:
@@ -224,8 +338,56 @@ def map_dat_o(text, dia_chi: str = "") -> dict | None:
         # score < 1.0: đây là SUY DẪN từ địa chỉ, không phải chữ trên giấy.
         return {**_kq(dc["ky_hieu"], dc["method"], dc["score"]), "dvhc": dc["dvhc"]}
 
-    return {"id": None, "ky_hieu": None, "ten": None,
-            "method": None, "score": 0.0, "ambiguous": True}
+    return _amb("nhap_nhang")
+
+
+# tên chuẩn (đã bỏ dấu) → ký hiệu, dựng 1 lần lúc import
+_THEO_TEN = {chuan_hoa(m["ten_muc_dich"]): m["ky_hieu_muc_dich"] for m in LOAI_MDSDD}
+# tiền tố mã số của hệ cũ: "005-Đất khu vực nông thôn"
+_RE_TIEN_TO_SO = re.compile(r"^\d+\s*[-.]\s*")
+
+
+def _khoa(text) -> str:
+    """Khóa tra bảng: chuẩn hóa + bỏ tiền tố mã số kiểu "005-"."""
+    return _RE_TIEN_TO_SO.sub("", chuan_hoa(text)).strip()
+
+
+def _amb(ly_do: str) -> dict:
+    return {"id": None, "ky_hieu": None, "ten": None, "method": None,
+            "score": 0.0, "ambiguous": True, "ly_do": ly_do}
+
+
+def map_muc_dich(text, dia_chi: str = "") -> dict | None:
+    """Chuẩn hóa MỘT chuỗi "Loại mục đích" về mã trong LOAI_MDSDD.
+
+    → None nếu chuỗi rỗng.
+    → dict có `ambiguous: True` + `ly_do` khi không ra được đúng một mã. Ba lý
+      do tách bạch (xem LY_DO): nhập nhằng thật · giá trị lẫn từ cột khác · chưa
+      có trong bảng alias. Mỗi loại có cách xử khác nhau nên không được gộp.
+
+    Thứ tự khớp theo độ chắc giảm dần; đất ở tách riêng vì còn phải suy ONT/ODT
+    từ địa chỉ thửa (xem map_dat_o).
+    """
+    t = _khoa(text)
+    if not t:
+        return None
+
+    if la_dat_o(text):
+        return map_dat_o(text, dia_chi)
+
+    kh = ky_hieu_trong_text(text)
+    if kh and kh[0] in _THEO_KY_HIEU:
+        return _kq(kh[0], kh[1], 1.0)
+
+    if t in _THEO_TEN:
+        return _kq(_THEO_TEN[t], "ten_exact", 1.0)
+    if t in ALIAS:
+        return _kq(ALIAS[t], "alias", 0.95)
+    if t in KHONG_PHAI_MUC_DICH:
+        return _amb("khong_phai_muc_dich")
+    if t in NHAP_NHANG:
+        return _amb("nhap_nhang")
+    return _amb("chua_map")
 
 
 def _smoke() -> None:
@@ -353,7 +515,70 @@ def _smoke() -> None:
     assert r and r["id"] == 191 and r["method"] == "dia_chi_xa", \
         f"KILL [18] 'xã:' có dấu hai chấm vẫn phải bắt được: {r}"
 
-    print("mdsdd PURE: 18 nhóm ca ✓")
+    # ── 19. DANH MỤC: bất biến cấu trúc ───────────────────────────────────
+    kys = [m["ky_hieu_muc_dich"] for m in LOAI_MDSDD]
+    assert len(kys) == len(set(kys)), "KILL [19] ký hiệu trùng trong LOAI_MDSDD"
+    for m in LOAI_MDSDD:
+        assert m["ky_hieu_muc_dich"].isupper() and m["ten_muc_dich"], f"KILL [19b] {m}"
+    tens = [chuan_hoa(m["ten_muc_dich"]) for m in LOAI_MDSDD]
+    assert len(tens) == len(set(tens)), "KILL [19c] tên chuẩn trùng nhau sau bỏ dấu"
+    # alias phải trỏ vào mã CÓ THẬT, và không được đè lên tên chuẩn
+    for k, v in ALIAS.items():
+        assert v in _THEO_KY_HIEU, f"KILL [19d] alias {k!r} trỏ mã không có: {v}"
+        assert k == chuan_hoa(k), f"KILL [19e] khóa alias chưa chuẩn hóa: {k!r}"
+    # ba tập lý do phải RỜI NHAU — một chuỗi rơi vào 2 tập thì kết quả tùy thứ tự code
+    assert not (NHAP_NHANG & KHONG_PHAI_MUC_DICH), "KILL [19f] hai tập giao nhau"
+    assert not (set(ALIAS) & NHAP_NHANG), "KILL [19g] alias vừa map vừa nhập nhằng"
+
+    # ── 20. map_muc_dich trên chuỗi THẬT của audit 0.3 ────────────────────
+    ra_ma = [
+        ("Đất trồng cây lâu năm", "CLN"), ("đất trồng cây lâu năm", "CLN"),
+        ("CLN", "CLN"), ("Đất giao thông", "DGT"),
+        ("Đất nuôi trồng thủy sản", "NTS"), ("Đất rừng sản xuất", "RSX"),
+        ("Đất trồng cây hàng năm khác", "BHK"), ("Đất chợ", "DCH"),
+        ("005-Đất trồng cây lâu năm", "CLN"),   # tiền tố mã số hệ cũ
+    ]
+    for txt, ky in ra_ma:
+        r = map_muc_dich(txt, "")
+        assert r and r["ky_hieu"] == ky, f"KILL [20] {txt!r} phải ra {ky}: {r}"
+
+    # NHẬP NHẰNG THẬT — không được chọn bừa một mã
+    for txt in ("đất vườn", "Vườn", "Đất Ao", "Ao", "Lúa", "Rừng",
+                "Đất nông nghiệp", "Đất trồng cây", "Đất khác"):
+        r = map_muc_dich(txt, "xã Phù Lỗ, huyện Sóc Sơn")
+        assert r["ambiguous"] and r["ly_do"] == "nhap_nhang", \
+            f"KILL [20b] {txt!r} phải là nhập nhằng, không được đoán mã: {r}"
+
+    # LẪN CỘT — phải tách khỏi "chưa map" để biết đường sửa prompt extract
+    for txt in ("Sử dụng chung", "Sử dụng riêng", "Riêng", "Chung", "10%", "Lâu dài"):
+        r = map_muc_dich(txt, "")
+        assert r["ambiguous"] and r["ly_do"] == "khong_phai_muc_dich", \
+            f"KILL [20c] {txt!r} phải bị đánh dấu là LẪN CỘT: {r}"
+
+    # chuỗi lạ hoàn toàn → chua_map, không phải nhap_nhang
+    r = map_muc_dich("Đất abc xyz không có thật", "")
+    assert r["ambiguous"] and r["ly_do"] == "chua_map", f"KILL [20d] {r}"
+
+    # ── 21. map_muc_dich KHÔNG được phá nhánh đất ở ───────────────────────
+    r = map_muc_dich("Đất ở", "Thắng Lợi, Phú Minh, Sóc Sơn, Hà Nội")
+    assert r and r["id"] == 191, f"KILL [21] đất ở phải đi nhánh map_dat_o: {r}"
+    r = map_muc_dich("Thổ cư", "phường Nghĩa Tân, quận Cầu Giấy")
+    assert r and r["id"] == 192, f"KILL [21b] {r}"
+    assert map_muc_dich("", "xã X") is None, "KILL [21c] chuỗi rỗng phải trả None"
+
+    # ── 22. mọi kết quả phải ĐÚNG MỘT DẠNG: có mã, hoặc ambiguous có lý do ─
+    moi_chuoi = (list(ALIAS) + list(NHAP_NHANG) + list(KHONG_PHAI_MUC_DICH)
+                 + [m["ten_muc_dich"] for m in LOAI_MDSDD] + ["Đất ở", "xyz"])
+    for txt in moi_chuoi:
+        r = map_muc_dich(txt, "xã Phù Lỗ")
+        assert r is not None, f"KILL [22] {txt!r} → None ngoài dự kiến"
+        if r["ambiguous"]:
+            assert r["ky_hieu"] is None and r["ly_do"] in LY_DO, f"KILL [22b] {txt!r}: {r}"
+        else:
+            assert r["ky_hieu"] in _THEO_KY_HIEU and r["method"] in METHODS, \
+                f"KILL [22c] {txt!r}: {r}"
+
+    print("mdsdd PURE: 22 nhóm ca ✓")
 
 
 if __name__ == "__main__":
