@@ -28,6 +28,7 @@ Chạy TRONG CONTAINER:
 import argparse
 import asyncio
 import re
+import time
 from collections import Counter
 
 from pymongo import UpdateOne
@@ -76,6 +77,25 @@ def _clip(s, n=150):
     return re.sub(r"\s+", " ", str(s)).strip()[:n]
 
 
+PROGRESS_SEC = 10.0  # nhịp in tiến trình (theo THỜI GIAN, hợp cả pha regex nhanh
+                     # lẫn pha LLM chậm — không phụ thuộc số doc như trước)
+
+
+def _hms(sec: float) -> str:
+    sec = max(0, int(sec))
+    return f"{sec // 3600:d}:{(sec % 3600) // 60:02d}:{sec % 60:02d}"
+
+
+def _progress(n_doc: int, total: int, t0: float, st: Counter) -> None:
+    el = time.perf_counter() - t0
+    rate = n_doc / el if el > 0 else 0.0
+    pct = (n_doc / total * 100) if total else 0.0
+    eta = ((total - n_doc) / rate) if (rate > 0 and total) else 0
+    tail = f" · LLM cứu {st['llm_recover']:,}" if st["llm_recover"] else ""
+    print(f"  [{pct:5.1f}%] {n_doc:,}/{total:,} · {rate:.1f} doc/s{tail}"
+          f" · đã {_hms(el)} · còn ~{_hms(eta)}", flush=True)
+
+
 def _tally(ccs: list[dict], st: Counter) -> None:
     for cc in ccs:
         st["entry"] += 1
@@ -106,6 +126,14 @@ async def run(limit, batch_id, dry_run, use_llm, vlm, show, only_canh_bao) -> No
     ops: list[UpdateOne] = []
     n_doc = n_written = 0
 
+    # Đếm trước để có % + ETA (cần cho pha LLM chạy hàng giờ — không thì như treo).
+    print("  đang đếm tổng số hồ sơ cần xử lý…", flush=True)
+    total = await gcns().count_documents(q)
+    if limit:
+        total = min(total, limit)
+    print(f"  tổng: {total:,} hồ sơ\n", flush=True)
+    t0 = last = time.perf_counter()
+
     cur = gcns().find(q, {"extractions": 1, "filename": 1}).batch_size(BULK)
     if limit:
         cur = cur.limit(limit)
@@ -127,13 +155,16 @@ async def run(limit, batch_id, dry_run, use_llm, vlm, show, only_canh_bao) -> No
                 res = await gcns().bulk_write(ops, ordered=False)
                 n_written += res.modified_count
                 ops.clear()
-        if n_doc % 2000 == 0:
-            print(f"  ... {n_doc:,} doc (ghi {n_written:,})")
+        now = time.perf_counter()
+        if now - last >= PROGRESS_SEC:
+            _progress(n_doc, total, t0, st)
+            last = now
 
     if ops and not dry_run:
         res = await gcns().bulk_write(ops, ordered=False)
         n_written += res.modified_count
 
+    _progress(n_doc, total, t0, st)
     _report(n_doc, n_written, st, dry_run)
 
 
