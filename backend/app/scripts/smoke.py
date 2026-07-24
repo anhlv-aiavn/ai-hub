@@ -60,6 +60,7 @@ async def stage_chu_cuoi_real(limit: int) -> None:
     n_cc = n_entry = 0
     nguon = {"bien_dong": 0, "giay_goc": 0}
     conf = {"cao": 0, "thap": 0}
+    id_la_giay_goc = 0  # Số giấy tờ giấy-gốc lệch 9/12 (chất lượng OCR, KHÔNG kill)
     thap_samples: list[str] = []
 
     for doc in docs:
@@ -78,11 +79,18 @@ async def stage_chu_cuoi_real(limit: int) -> None:
                 conf[cc["confidence"]] = conf.get(cc["confidence"], 0) + 1
                 if cc["nguon"] == "bien_dong":
                     n_cc += 1
-                # Bất biến: Số giấy tờ (nếu có) phải đúng 9 hoặc 12 chữ số
+                # Bất biến: Số giấy tờ mình TỰ BÓC từ biến động phải đúng 9/12 chữ
+                # số (RE_CCCD đảm bảo) — sai = bắt nhầm số hồ sơ. Số bê nguyên từ
+                # giấy gốc là do VLM/OCR, lệch thì đếm để biết, KHÔNG kill.
                 for c in cc["chu"]:
                     sg = c.get("Số giấy tờ") or ""
-                    if sg and not (sg.isdigit() and len(sg) in (9, 12)):
-                        raise Kill(f"doc {gid}: Số giấy tờ sai định dạng: {sg!r}")
+                    if not sg:
+                        continue
+                    ok = sg.isdigit() and len(sg) in (9, 12)
+                    if cc["nguon"] == "bien_dong" and not ok:
+                        raise Kill(f"doc {gid}: Số giấy tờ bóc từ biến động sai định dạng: {sg!r}")
+                    if cc["nguon"] == "giay_goc" and not ok:
+                        id_la_giay_goc += 1
                 # Bất biến: có chủ gốc mà chu rỗng ở nhánh giay_goc = mất người
                 if cc["nguon"] == "giay_goc" and not cc["chu"]:
                     goc = [c for c in (entry.get("Chủ sử dụng") or [])
@@ -99,6 +107,8 @@ async def stage_chu_cuoi_real(limit: int) -> None:
           f"  ·  giay_goc {nguon['giay_goc']} ({nguon['giay_goc']/tot*100:.1f}%)")
     print(f"  độ tin  : cao {conf['cao']} ({conf['cao']/tot*100:.1f}%)"
           f"  ·  THAP {conf['thap']} ({conf['thap']/tot*100:.1f}%)  ← khối lượng cần LLM")
+    if id_la_giay_goc:
+        print(f"  ghi chú : {id_la_giay_goc} Số giấy tờ giấy-gốc lệch 9/12 (OCR, không kill)")
     if thap_samples:
         print("  mẫu 'thap' từ biến động (ca regex chưa chắc — đầu vào luyện prompt LLM):")
         for s in thap_samples:
