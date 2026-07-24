@@ -37,6 +37,8 @@ from src.extentions.multimodal.make import (
 )
 from src.extentions.multimodal.chu_cuoi import ALGO_VERSION as CHU_CUOI_VERSION
 from src.extentions.multimodal.chu_cuoi import chu_cuoi_for_entry
+from src.extentions.multimodal.mdsdd import ALGO_VERSION as MDSDD_VERSION
+from src.extentions.multimodal.mdsdd import gan_mdsdd
 from src.extentions.multimodal.normalize_dang_ky import normalize_extractions
 
 log = logging.getLogger(__name__)
@@ -326,6 +328,11 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
     # "transient", cho phép "retry hàng loạt" thử lại (§Quy mô cực lớn 6).
     error_kind = "transient" if status == "error" else None
 
+    # Gắn Mã MĐSD THẲNG vào từng mục đích trong `records` — SỬA TẠI CHỖ, nên
+    # phải chạy TRƯỚC khi dựng `update` (mà "extractions" trỏ vào chính records).
+    # Thuần chuỗi, không thêm call model nào vào hot path GPU-bound.
+    tt_mdsdd = gan_mdsdd(records)
+
     update = {
         "status": status, "error": err, "error_kind": error_kind, "extractions": records,
         "page_count": page_count, "skip_reason": skip_reason,
@@ -338,6 +345,9 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
         # để backfill LLM định kỳ quét sau, không chặn ingest.
         "chu_cuoi": _chu_cuoi_records(records),
         "chu_cuoi_version": CHU_CUOI_VERSION,
+        "mdsdd_version": MDSDD_VERSION,
+        "mdsdd_can_ra_tay": tt_mdsdd["can_ra_tay"],
+        "mdsdd_ly_do": tt_mdsdd["ly_do"],
         "finished_at": datetime.now(timezone.utc),
     }
     await mongo.update_one(config.COLL_GCN, {"_id": gcn_id}, {"$set": update})

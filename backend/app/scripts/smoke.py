@@ -228,6 +228,76 @@ async def stage_mdsdd_real(limit: int) -> None:
             print(f"    · {_clip(text, 40):<42} | {_clip(dc, 90)}")
 
 
+async def stage_mdsdd_backfill(limit: int) -> None:
+    """Backfill MĐSD trên doc THẬT — KHÔNG ghi DB. Canh 2 thứ chết người:
+
+    1. PATH GHI có trỏ đúng ô không. Backfill $set theo path dựng bằng tay
+       ("extractions.0.result.Đăng ký.0.Thửa đất.1.Mục đích sử dụng.0.Mã MĐSD");
+       sai một chỉ số là ghi mã của thửa này sang thửa khác, âm thầm, và nhìn
+       từ Mongo vẫn thấy "có mã" nên không ai phát hiện.
+    2. IDEMPOTENT — chạy 2 lần phải ra y hệt, nếu không thì backfill 600k mỗi
+       lần chạy lại cho một kết quả khác nhau.
+
+    docker compose exec api python -m app.scripts.smoke mdsdd_backfill
+    """
+    import copy
+
+    from app.scripts.backfill_mdsdd import _ops_cho_doc
+
+    docs = await _sample_docs(
+        {"extractions.result.Đăng ký.Thửa đất.Mục đích sử dụng.Loại mục đích":
+            {"$exists": True, "$ne": ""}},
+        limit)
+    if not docs:
+        raise Skip("không có doc nào có Mục đích sử dụng")
+
+    n_path = n_md = 0
+    for doc in docs:
+        gid = doc.get("_id", "?")
+        goc = copy.deepcopy(doc)
+        fields, tt = _ops_cho_doc(doc)
+        n_md += tt["n"]
+
+        for path, val in fields.items():
+            if not path.startswith("extractions."):
+                continue
+            n_path += 1
+            # đi theo ĐÚNG path đó trên bản GỐC (chưa gắn mã) để chắc nó tồn tại
+            # và trỏ tới một ô "Mục đích sử dụng" thật
+            cur = goc
+            for tok in path.split(".")[:-1]:
+                try:
+                    cur = cur[int(tok)] if tok.isdigit() else cur[tok]
+                except (KeyError, IndexError, TypeError) as e:
+                    raise Kill(f"doc {gid}: path ghi KHÔNG tồn tại — {path} ({e})") from e
+            if not isinstance(cur, dict) or "Loại mục đích" not in cur:
+                raise Kill(f"doc {gid}: path {path} không trỏ vào một mục đích: {cur!r}")
+            khoa = path.rsplit(".", 1)[-1]
+            if khoa not in ("Mã MĐSD", "MĐSD chuẩn"):
+                raise Kill(f"doc {gid}: path ghi vào key lạ {khoa!r}")
+            if val not in ("", None) and khoa == "Mã MĐSD":
+                # giá trị phải khớp với chính ô đó khi tính lại riêng lẻ
+                from src.extentions.multimodal.mdsdd import _hien_thi, map_muc_dich
+                # địa chỉ của THỬA chứa ô này = cur nằm trong "Mục đích sử dụng"
+                # của thửa; lấy lại từ path để so cho chắc
+                p_thua = path.split(".Mục đích sử dụng.")[0]
+                t = goc
+                for tok in p_thua.split("."):
+                    t = t[int(tok)] if tok.isdigit() else t[tok]
+                r = map_muc_dich(cur.get("Loại mục đích"), t.get("Địa chỉ") or "")
+                if _hien_thi(r)[0] != val:
+                    raise Kill(f"doc {gid}: {path} ghi {val!r} nhưng tính lại ra "
+                               f"{_hien_thi(r)[0]!r} — path trỏ SAI Ô")
+
+        # idempotent: chạy lần 2 trên doc đã gắn mã phải ra đúng bộ field cũ
+        fields2, tt2 = _ops_cho_doc(doc)
+        if fields2 != fields or tt2 != tt:
+            raise Kill(f"doc {gid}: backfill KHÔNG idempotent")
+
+    print(f"\n  doc {len(docs)} · bản ghi mục đích {n_md} · path ghi đã kiểm {n_path}")
+    print("  path đúng ô ✓  ·  idempotent ✓  ·  KHÔNG ghi DB")
+
+
 async def stage_chu_cuoi_llm(limit: int) -> None:
     """LLM text-only trên ĐÚNG các ca regex bó tay (chu=[]) — đo recover thật.
 
@@ -409,6 +479,7 @@ _STAGES = {
     "requeue_guard": (stage_requeue_guard, "PURE — requeue không đụng hồ sơ đã hậu kiểm"),
     "chu_cuoi_real": (stage_chu_cuoi_real, "chu_cuoi trên doc có biến động thật"),
     "mdsdd_real": (stage_mdsdd_real, "ONT/ODT trên thửa đất thật"),
+    "mdsdd_backfill": (stage_mdsdd_backfill, "path ghi + idempotent của backfill MĐSD"),
     "chu_cuoi_llm": (stage_chu_cuoi_llm, "LLM text-only cứu ca regex bó tay (cần vLLM)"),
     "backfill_idem": (stage_backfill_idem, "regex tất định (idempotent) cho backfill"),
 }

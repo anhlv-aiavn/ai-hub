@@ -19,7 +19,7 @@ _TOKEN = re.compile(r"\[(\d+)\]|([^.\[\]]+)")
 COLUMNS = [
     "Tệp cắt", "Tệp gốc", "Vùng trang gốc",
     "Số phát hành", "Số hiệu tờ bản đồ", "Số thứ tự thửa",
-    "Diện tích", "Địa chỉ thửa", "Mục đích sử dụng",
+    "Diện tích", "Địa chỉ thửa", "Mục đích sử dụng", "Mã MĐSD", "MĐSD chuẩn",
     "Số vào sổ", "Ngày cấp", "Mã vạch",
     "Chủ sử dụng", "Số chủ",
     "Chủ cuối", "Số chủ cuối", "Nguồn chủ cuối", "Cảnh báo",
@@ -77,6 +77,14 @@ def effective_extractions(extractions: list, overrides: dict | None,
 
 def _join(vals: list) -> str:
     return " ; ".join(str(v).strip() for v in vals if v not in (None, "", []))
+
+
+def _join_giu_o(vals: list) -> str:
+    """Như _join nhưng GIỮ ô trống để cột song song không lệch vị trí.
+    Toàn rỗng → "" (không trả về chuỗi toàn dấu chấm phẩy)."""
+    if not any(v not in (None, "", []) for v in vals):
+        return ""
+    return " ; ".join("" if v in (None, "", []) else str(v).strip() for v in vals)
 
 
 def _entries(extractions: list) -> list[dict]:
@@ -170,15 +178,24 @@ def flatten_doc(doc: dict) -> list[dict]:
                 rows.append({**{c: "" for c in COLUMNS}, **common})
                 continue
             for t in thua:
-                muc_dich = [m.get("Loại mục đích") for m in (t.get("Mục đích sử dụng") or [])
-                            if isinstance(m, dict) and m.get("Loại mục đích")]
+                mds = [m for m in (t.get("Mục đích sử dụng") or [])
+                       if isinstance(m, dict) and m.get("Loại mục đích")]
+                # Mã lấy từ chính extractions nên ĐÃ QUA apply_overrides: chuyên
+                # viên sửa mã trong form hậu kiểm là CSV đúng ngay, không phải
+                # chờ backfill chạy lại. Ô trống = nhập nhằng, chờ người quyết.
                 rows.append({
                     **common,
                     "Số thứ tự thửa": t.get("Số thứ tự thửa", ""),
                     "Số hiệu tờ bản đồ": t.get("Số hiệu tờ bản đồ", ""),
                     "Diện tích": t.get("Diện tích", ""),
                     "Địa chỉ thửa": t.get("Địa chỉ", ""),
-                    "Mục đích sử dụng": _join(muc_dich),
+                    "Mục đích sử dụng": _join([m.get("Loại mục đích") for m in mds]),
+                    # _join GIỮ Ô TRỐNG ở đây (khác các cột trên): một thửa có
+                    # thể vừa có mục đích ra mã vừa có mục đích nhập nhằng, bỏ ô
+                    # trống đi thì mã tụt vị trí và người đọc gán nhầm mã sang
+                    # mục đích bên cạnh.
+                    "Mã MĐSD": _join_giu_o([m.get("Mã MĐSD") for m in mds]),
+                    "MĐSD chuẩn": _join_giu_o([m.get("MĐSD chuẩn") for m in mds]),
                 })
 
     if not rows:

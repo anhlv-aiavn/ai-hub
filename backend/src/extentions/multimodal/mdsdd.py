@@ -426,6 +426,83 @@ def map_muc_dich(text, dia_chi: str = "") -> dict | None:
     return _amb("chua_map")
 
 
+# ── GẮN MÃ VÀO extractions ──────────────────────────────────────────────────
+# Đặt THẲNG vào từng mục đích trong `extractions` (không phải mảng song song),
+# vì grain khớp đúng chỗ và vì như vậy hai cột xuất ra tự động đi qua
+# `apply_overrides`: chuyên viên sửa mã trong form hậu kiểm là CSV đúng ngay,
+# không phải chờ backfill chạy lại. Thêm KEY anh em không dịch index nào nên
+# mọi path trong `review.overrides` vẫn trỏ đúng chỗ cũ.
+ALGO_VERSION = 1
+KEY_MA = "Mã MĐSD"
+KEY_TEN = "MĐSD chuẩn"
+
+
+def _hien_thi(r: dict) -> tuple:
+    """(giá trị cột Mã, giá trị cột MĐSD chuẩn) cho 1 kết quả map.
+
+    Mã = KÝ HIỆU (ONT/CLN/DGT…), không phải số id. Hai lý do:
+      · id hiện chỉ có cho ONT/ODT (chưa có file danh mục 80 mã) → cột số sẽ
+        trống ~96%, vô dụng;
+      · trộn "191" với "CLN" trong cùng một cột là cột hai kiểu dữ liệu, đẩy
+        sang FME là vỡ.
+    Ký hiệu vốn là mã người ta đọc trên giấy, và có id thì suy ngược ra được
+    qua LOAI_MDSDD — không mất gì. Khi có file danh mục thì THÊM cột số, không
+    phải sửa cột này.
+    """
+    if r.get("ambiguous") or not r.get("ky_hieu"):
+        return "", ""
+    return r["ky_hieu"], r["ten"]
+
+
+def duyet_muc_dich(records):
+    """Duyệt mọi mục đích trong `extractions`, trả (ri, ei, ti, mi, md, địa chỉ thửa).
+
+    Một giấy có nhiều thửa, mỗi thửa nhiều mục đích → phải đủ 4 chỉ số mới định
+    vị được một ô. Địa chỉ lấy ở tầng THỬA vì luật ONT/ODT suy từ đó.
+    """
+    for ri, rec in enumerate(records or []):
+        if not isinstance(rec, dict) or not isinstance(rec.get("result"), dict):
+            continue
+        for ei, entry in enumerate(rec["result"].get("Đăng ký") or []):
+            if not isinstance(entry, dict):
+                continue
+            for ti, thua in enumerate(entry.get("Thửa đất") or []):
+                if not isinstance(thua, dict):
+                    continue
+                dia_chi = thua.get("Địa chỉ") or ""
+                for mi, md in enumerate(thua.get("Mục đích sử dụng") or []):
+                    if isinstance(md, dict):
+                        yield ri, ei, ti, mi, md, dia_chi
+
+
+def gan_mdsdd(records) -> dict:
+    """Gắn KEY_MA/KEY_TEN vào từng mục đích (SỬA TẠI CHỖ). → tóm tắt để lưu top-level.
+
+    Tóm tắt phẳng (`can_ra_tay`, `ly_do`) là để TRUY VẤN: lọc hàng đợi rà tay
+    trên 600k bằng path multikey sâu 6 tầng thì phải đánh index, bằng cờ phẳng
+    thì không.
+
+    Luôn ghi cả hai key kể cả khi rỗng — có key với giá trị "" thì form hậu kiểm
+    hiện ra ô trống cho chuyên viên điền; thiếu key thì không có ô nào để điền.
+    """
+    n = n_ra_ma = 0
+    ly_do: set[str] = set()
+    for _, _, _, _, md, dia_chi in duyet_muc_dich(records):
+        r = map_muc_dich(md.get("Loại mục đích"), dia_chi)
+        if r is None:      # chuỗi rỗng — không bịa ô mã cho trường VLM bỏ trống
+            md.pop(KEY_MA, None)
+            md.pop(KEY_TEN, None)
+            continue
+        n += 1
+        md[KEY_MA], md[KEY_TEN] = _hien_thi(r)
+        if r.get("ambiguous"):
+            ly_do.add(r.get("ly_do") or "chua_map")
+        else:
+            n_ra_ma += 1
+    return {"n": n, "n_ra_ma": n_ra_ma,
+            "can_ra_tay": bool(ly_do), "ly_do": sorted(ly_do)}
+
+
 def _smoke() -> None:
     """Tầng PURE — stdlib, không Mongo, không GPU. KILL đỏ ⇒ dừng, sửa GỐC."""
     # 1. ký hiệu trong ngoặc quyết định, bất kể địa chỉ nói gì
@@ -644,7 +721,50 @@ def _smoke() -> None:
             assert r["ky_hieu"] in _THEO_KY_HIEU and r["method"] in METHODS, \
                 f"KILL [22c] {txt!r}: {r}"
 
-    print("mdsdd PURE: 22 nhóm ca ✓")
+    # ── 23. gan_mdsdd trên cây extractions nhiều thửa / nhiều mục đích ────
+    def _cay():
+        return [{"result": {"Đăng ký": [{"Thửa đất": [
+            {"Địa chỉ": "Thôn Cam, xã Cổ Bi, huyện Gia Lâm",
+             "Mục đích sử dụng": [{"Loại mục đích": "Đất ở"},
+                                  {"Loại mục đích": "Đất trồng cây lâu năm"}]},
+            {"Địa chỉ": "Tổ 10, phường Phúc Đồng, quận Long Biên",
+             "Mục đích sử dụng": [{"Loại mục đích": "Đất ở"},
+                                  {"Loại mục đích": "đất vườn"},
+                                  {"Loại mục đích": ""}]},
+        ]}]}}]
+
+    recs = _cay()
+    tt = gan_mdsdd(recs)
+    thuas = recs[0]["result"]["Đăng ký"][0]["Thửa đất"]
+    assert tt["n"] == 4 and tt["n_ra_ma"] == 3, f"KILL [23] đếm sai: {tt}"
+    assert tt["can_ra_tay"] and tt["ly_do"] == ["nhap_nhang"], f"KILL [23b] {tt}"
+    # mỗi thửa dùng ĐỊA CHỈ CỦA CHÍNH NÓ — hai thửa cùng giấy ra hai mã khác nhau
+    assert thuas[0]["Mục đích sử dụng"][0][KEY_MA] == "ONT", "KILL [23c] thửa 1 phải ONT"
+    assert thuas[1]["Mục đích sử dụng"][0][KEY_MA] == "ODT", "KILL [23d] thửa 2 phải ODT"
+    assert thuas[0]["Mục đích sử dụng"][1][KEY_MA] == "CLN", "KILL [23e]"
+    # cột Mã chỉ một kiểu dữ liệu — không trộn số id với ký hiệu chữ
+    for _, _, _, _, md, _ in duyet_muc_dich(recs):
+        assert isinstance(md.get(KEY_MA, ""), str), f"KILL [23i] cột Mã lẫn kiểu: {md}"
+    # nhập nhằng: CÓ key nhưng rỗng — form hậu kiểm cần ô trống để chuyên viên điền
+    assert thuas[1]["Mục đích sử dụng"][1][KEY_MA] == "", "KILL [23f] nhập nhằng phải để trống"
+    # mục đích rỗng: KHÔNG bịa ra ô mã
+    assert KEY_MA not in thuas[1]["Mục đích sử dụng"][2], "KILL [23g] chuỗi rỗng không được có ô mã"
+    # KHÔNG đụng dữ liệu raw
+    assert thuas[0]["Mục đích sử dụng"][0]["Loại mục đích"] == "Đất ở", "KILL [23h] sửa raw"
+
+    # ── 24. IDEMPOTENT: chạy 2 lần cho kết quả y hệt (điều kiện của backfill) ─
+    import copy
+    a = _cay()
+    gan_mdsdd(a)
+    b = copy.deepcopy(a)
+    tt2 = gan_mdsdd(b)
+    assert a == b and tt2 == tt, "KILL [24] gan_mdsdd KHÔNG idempotent"
+
+    # cây rỗng/rác không được nổ
+    for xau in (None, [], [{}], [{"result": None}], [{"result": {"Đăng ký": [None]}}]):
+        assert gan_mdsdd(xau)["n"] == 0, f"KILL [24b] vỡ trên đầu vào rác: {xau!r}"
+
+    print("mdsdd PURE: 24 nhóm ca ✓")
 
 
 if __name__ == "__main__":
