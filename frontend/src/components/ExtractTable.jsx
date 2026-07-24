@@ -263,7 +263,7 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
             <tr>
               <th className="et-stt">STT</th>
               <th>Tên / Tệp</th><th>Trạng thái</th><th>Số phát hành</th><th>Số tờ</th>
-              <th>Số thửa</th><th>Ngày cấp</th><th>Chủ sử dụng</th><th>Số vào sổ</th>
+              <th>Số thửa</th><th>Ngày cấp</th><th>Chủ sử dụng</th><th>Chủ cuối</th><th>Số vào sổ</th>
               <th>Hậu kiểm</th>
             </tr>
           </thead>
@@ -275,7 +275,7 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
                 <React.Fragment key={f.gcn_id}>
                   <tr className="group-head">
                     <td className="et-stt">{sttOffset + gi + 1}</td>
-                    <td colSpan={9}>
+                    <td colSpan={10}>
                       <Icon name="layers" size={13} /> {f.display_name || f.filename}
                       <span className="gh-count">{multi ? `${items.length} giấy chứng nhận` : "1 giấy chứng nhận"}</span>
                       {f.dup_suspect && (
@@ -317,6 +317,23 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
                         <td>{(s.so_thua || []).join(", ") || "—"}</td>
                         <td>{s.ngay_cap || "—"}</td>
                         <td className="et-chu">{(s.chu_su_dung || []).join(", ") || "—"}</td>
+                        <td className="et-chu">{(() => {
+                          const cc = s.chu_cuoi;
+                          if (!cc) return "—";
+                          if (cc.canh_bao) return (
+                            <span className="cc-warn" title="Có chuyển nhượng nhưng chưa rõ chủ — cần xác minh">
+                              <Icon name="alertTriangle" size={12} /> Chưa rõ chủ
+                            </span>
+                          );
+                          const names = (cc.chu || []).filter(Boolean).join(", ");
+                          if (!names) return "—";
+                          return (
+                            <span title={cc.nguon === "bien_dong" ? `Từ biến động${cc.thoi_gian ? " " + cc.thoi_gian : ""}` : "Chủ trên giấy gốc"}>
+                              {names}
+                              {cc.nguon === "bien_dong" && <span className="cc-tag"> ↻</span>}
+                            </span>
+                          );
+                        })()}</td>
                         <td>{s.so_vao_so || "—"}</td>
                         <td><span className={`badge rv-${r.review_status}`}>{REVIEW_LABEL[r.review_status] || r.review_status}</span></td>
                       </tr>
@@ -326,7 +343,7 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
               );
             })}
             {!rows.length && (
-              <tr><td colSpan={10} className="muted center">
+              <tr><td colSpan={11} className="muted center">
                 {loading ? "Đang tải…" : "Chưa có hồ sơ. Vào mục Số hóa để bắt đầu."}
               </td></tr>
             )}

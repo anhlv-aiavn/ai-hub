@@ -1390,3 +1390,13 @@ label.file-row { width: 100%; }
   background: rgba(96,165,250,.16); color: var(--info); border-radius: 999px; font-size: 11px; font-weight: 600; }
 .gh-del { width: 24px; height: 24px; margin-left: 8px; vertical-align: -6px; color: var(--text-3); }
 .gh-del:hover { background: #fdf3f2; color: var(--err); }
+
+/* Chủ cuối (bảng trích xuất + đối soát) */
+.cc-tag { color: var(--brand); font-weight: 700; }
+.cc-warn { display: inline-flex; align-items: center; gap: 3px; color: var(--warn); font-weight: 600; }
+.cc-warn .ico { vertical-align: -1px; }
+.rc-cc { display: inline-flex; align-items: center; gap: 4px; margin-left: 12px; padding: 1px 9px;
+  background: rgba(52,211,153,.16); color: #0f766e; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.rc-cc-src { color: var(--text-3); font-weight: 500; }
+.rc-cc-warn { background: rgba(245,158,11,.16); color: #b45309; }
+.rc-cc-warn .ico { vertical-align: -2px; }

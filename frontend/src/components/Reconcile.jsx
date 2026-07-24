@@ -206,6 +206,13 @@ export default function Reconcile({ user, gcnId, onBack, onOpen }) {
     return out;
   }, [work, deleted]);
 
+  // Chủ cuối theo (rec_index, entry_index) — tra nhanh khi render từng giấy.
+  const ccMap = useMemo(() => {
+    const m = {};
+    (doc?.chu_cuoi || []).forEach((cc) => { m[`${cc.rec_index}-${cc.entry_index}`] = cc; });
+    return m;
+  }, [doc]);
+
   // Render một khối của entry. Chủ sử dụng: đảo cột ưu tiên. Thửa đất: tách từng
   // thửa (trường chính + bảng Mục đích riêng). Còn lại: cây mặc định.
   function renderBlock(block, val, ri, ei) {
@@ -359,6 +366,23 @@ export default function Reconcile({ user, gcnId, onBack, onOpen }) {
               <div className="rc-entry-head">
                 <Icon name="fileText" size={15} />
                 Số phát hành: <b>{entry?.["Giấy chứng nhận"]?.["Số phát hành"] || "—"}</b>
+                {(() => {
+                  const cc = ccMap[`${ri}-${ei}`];
+                  if (!cc) return null;
+                  if (cc.canh_bao) return (
+                    <span className="rc-cc rc-cc-warn" title="Có chuyển nhượng nhưng chưa rõ chủ — cần xác minh">
+                      <Icon name="alertTriangle" size={13} /> Chủ cuối: chưa rõ (có chuyển nhượng)
+                    </span>
+                  );
+                  const names = (cc.chu || []).map((c) => c["Tên chủ"]).filter(Boolean).join(", ");
+                  if (!names) return null;
+                  return (
+                    <span className="rc-cc" title={cc.nguon === "bien_dong" ? `Suy từ biến động${cc.thoi_gian ? " " + cc.thoi_gian : ""}` : "Chủ trên giấy gốc"}>
+                      Chủ cuối: <b>{names}</b>
+                      {cc.nguon === "bien_dong" && <span className="rc-cc-src"> (biến động)</span>}
+                    </span>
+                  );
+                })()}
                 {range && (
                   <button type="button" className="rc-range" title="Tới trang gốc đầu của giấy này"
                     onClick={() => { setPdfOpen(true); setPage(firstPage); }}>

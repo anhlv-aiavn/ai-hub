@@ -22,6 +22,7 @@ COLUMNS = [
     "Diện tích", "Địa chỉ thửa", "Mục đích sử dụng",
     "Số vào sổ", "Ngày cấp", "Mã vạch",
     "Chủ sử dụng", "Số chủ",
+    "Chủ cuối", "Số chủ cuối", "Nguồn chủ cuối", "Cảnh báo",
     "Thông tin nhà ở", "Biến động gần nhất", "Số biến động",
     "Tên hiển thị", "Trạng thái", "Hậu kiểm",
     "Số trang", "gcn_id",
@@ -91,12 +92,32 @@ def _entries(extractions: list) -> list[dict]:
     return out
 
 
+_CANH_BAO_LABEL = {"co_chuyen_nhuong_chua_ro_chu": "Có chuyển nhượng — chưa rõ chủ"}
+
+
+def _chu_cuoi_cols(cc: dict | None) -> dict:
+    """4 cột chủ cuối cho 1 entry. cc=None (chưa backfill) → để trống."""
+    if not isinstance(cc, dict):
+        return {"Chủ cuối": "", "Số chủ cuối": "", "Nguồn chủ cuối": "", "Cảnh báo": ""}
+    chu = [c.get("Tên chủ", "") for c in (cc.get("chu") or []) if isinstance(c, dict)]
+    nguon = {"bien_dong": "Biến động", "giay_goc": "Giấy gốc"}.get(cc.get("nguon"), "")
+    return {
+        "Chủ cuối": _join(chu),
+        "Số chủ cuối": len(chu),
+        "Nguồn chủ cuối": nguon,
+        "Cảnh báo": _CANH_BAO_LABEL.get(cc.get("canh_bao") or "", ""),
+    }
+
+
 def flatten_doc(doc: dict) -> list[dict]:
     """1 mongo gcn doc → list hàng (1/thửa). Mỗi hàng kèm File gốc + File cắt (nếu có).
     Helper field `_gcn_id` / `_cut_index` (gạch dưới) chỉ dùng để UI preview — không vào CSV."""
     review = doc.get("review") or {}
     ext = effective_extractions(doc.get("extractions"), review.get("overrides"), review.get("deleted"))
     cuts = {c.get("index"): c for c in (doc.get("cuts") or []) if isinstance(c, dict)}
+    # Chủ cuối theo (rec_index, entry_index) — bền với override/xoá (vị trí giữ nguyên).
+    cc_map = {(cc.get("rec_index"), cc.get("entry_index")): cc
+              for cc in (doc.get("chu_cuoi") or []) if isinstance(cc, dict)}
     gcn_id = doc.get("_id") or ""
 
     base = {
@@ -123,7 +144,7 @@ def flatten_doc(doc: dict) -> list[dict]:
             "Vùng trang gốc": format_page_range(page_idx),
             "_cut_index": ri if cut else None,
         }
-        for e in entries:
+        for ei, e in enumerate(entries):
             if not isinstance(e, dict):
                 continue
             gcn = e.get("Giấy chứng nhận") or {}
@@ -140,6 +161,7 @@ def flatten_doc(doc: dict) -> list[dict]:
                 "Ngày cấp": gcn.get("Ngày cấp", ""),
                 "Chủ sử dụng": _join([c.get("Tên chủ") for c in chu]),
                 "Số chủ": len(chu),
+                **_chu_cuoi_cols(cc_map.get((ri, ei))),
                 "Thông tin nhà ở": _join([n.get("Loại tài sản gắn liền với đất") for n in nha]),
                 "Biến động gần nhất": (bd[-1].get("Nội dung biến động", "") if bd else ""),
                 "Số biến động": len(bd),

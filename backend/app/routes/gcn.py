@@ -737,10 +737,18 @@ def _expand(doc: dict) -> list[dict]:
 
     cuts = {c.get("index"): c for c in (doc.get("cuts") or []) if isinstance(c, dict)}
     total = len(gcn_rows)
+    # Chủ cuối gắn theo VỊ TRÍ (gcn_rows và chu_cuoi cùng sinh từ 1 lần duyệt entry
+    # nên đồng thứ tự/độ dài). Lệch độ dài (hiếm, sau khi xoá 1 GCN) → bỏ, không
+    # hiện dữ liệu SAI.
+    ccs = doc.get("chu_cuoi") or []
+    aligned = len(ccs) == total
     out = []
     for i, g in enumerate(gcn_rows):
         sph = g.get("so_phat_hanh") or ""
         cut_name = (cuts.get(g.get("cut_index")) or {}).get("name")
+        summary = {**g, "gcn_count": total, "gcn_pos": i + 1}
+        if aligned and isinstance(ccs[i], dict):
+            summary["chu_cuoi"] = _cc_view(ccs[i])
         out.append({
             **base,
             "row_id": f"{doc['_id']}#{i}",
@@ -748,9 +756,20 @@ def _expand(doc: dict) -> list[dict]:
             "cut_name": cut_name,  # "<Số phát hành>-GCN.pdf" (bám SPH đã hậu kiểm)
             "page_count": g.get("page_count", 0),
             "group_key": sph or None,
-            "summary": {**g, "gcn_count": total, "gcn_pos": i + 1},
+            "summary": summary,
         })
     return out
+
+
+def _cc_view(cc: dict) -> dict:
+    """Gọn chu_cuoi cho UI (bảng + overview): tên chủ + nguồn + cờ cảnh báo."""
+    return {
+        "chu": [c.get("Tên chủ", "") for c in (cc.get("chu") or []) if isinstance(c, dict)],
+        "nguon": cc.get("nguon"),
+        "confidence": cc.get("confidence"),
+        "canh_bao": cc.get("canh_bao") or "",
+        "thoi_gian": cc.get("thoi_gian") or "",
+    }
 
 
 async def _enrich_dup_candidates(items: list[dict]) -> None:
@@ -788,6 +807,7 @@ def _detail(doc: dict) -> dict:
         "extracted_so_phat_hanhs": doc.get("extracted_so_phat_hanhs", []),
         "extractions": doc.get("extractions", []),
         "summary": doc.get("summary", {}),
+        "chu_cuoi": doc.get("chu_cuoi", []),  # [{rec_index, entry_index, chu, nguon, canh_bao...}]
         "review": doc.get("review", {}),
         "cuts": doc.get("cuts", []),
         "created_at": doc.get("created_at"),
