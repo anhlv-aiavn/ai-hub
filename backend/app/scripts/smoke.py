@@ -61,7 +61,9 @@ async def stage_chu_cuoi_real(limit: int) -> None:
     nguon = {"bien_dong": 0, "giay_goc": 0}
     conf = {"cao": 0, "thap": 0}
     id_la_giay_goc = 0  # Số giấy tờ giấy-gốc lệch 9/12 (chất lượng OCR, KHÔNG kill)
-    thap_samples: list[str] = []
+    thap_no_chu = 0     # chuyển chủ nhưng regex KHÔNG bóc được chủ nào → cần LLM
+    thap_no_date = 0    # bóc được chủ nhưng thiếu ngày (nhẹ, chủ vẫn dùng được)
+    fail_texts: list[str] = []  # Nội dung biến động của ca chu=[] — đầu vào luyện LLM
 
     for doc in docs:
         gid = doc.get("_id", "?")
@@ -97,22 +99,37 @@ async def stage_chu_cuoi_real(limit: int) -> None:
                            if isinstance(c, dict) and (c.get("Tên chủ") or "").strip()]
                     if goc:
                         raise Kill(f"doc {gid}: giay_goc mất chủ (gốc có {len(goc)}, chu cuối 0)")
-                if cc["confidence"] == "thap" and cc["nguon"] == "bien_dong" and len(thap_samples) < 15:
-                    thap_samples.append(
-                        f"{gid} · {cc['thoi_gian']} · chu={[c['Tên chủ'] for c in cc['chu']]}")
+                if cc["confidence"] == "thap" and cc["nguon"] == "bien_dong":
+                    if not cc["chu"]:
+                        thap_no_chu += 1
+                        idx = cc["bien_dong_index"]
+                        bds = entry.get("Biến động") or []
+                        if isinstance(idx, int) and 0 <= idx < len(bds) and len(fail_texts) < 25:
+                            fail_texts.append(bds[idx].get("Nội dung biến động") or "")
+                    else:
+                        thap_no_date += 1
 
     print(f"\n  doc {len(docs)} · entry {n_entry} · từ biến động {n_cc} · từ giấy gốc {nguon['giay_goc']}")
     tot = max(n_entry, 1)
     print(f"  nguồn   : bien_dong {nguon['bien_dong']} ({nguon['bien_dong']/tot*100:.1f}%)"
           f"  ·  giay_goc {nguon['giay_goc']} ({nguon['giay_goc']/tot*100:.1f}%)")
     print(f"  độ tin  : cao {conf['cao']} ({conf['cao']/tot*100:.1f}%)"
-          f"  ·  THAP {conf['thap']} ({conf['thap']/tot*100:.1f}%)  ← khối lượng cần LLM")
+          f"  ·  THAP {conf['thap']} ({conf['thap']/tot*100:.1f}%)")
+    ccb = max(n_cc, 1)
+    print(f"  trong THAP: chu=[] {thap_no_chu} ({thap_no_chu/ccb*100:.1f}% giao dịch)"
+          f" ← CẦN LLM  ·  thiếu-ngày {thap_no_date} (chủ vẫn ok)")
     if id_la_giay_goc:
         print(f"  ghi chú : {id_la_giay_goc} Số giấy tờ giấy-gốc lệch 9/12 (OCR, không kill)")
-    if thap_samples:
-        print("  mẫu 'thap' từ biến động (ca regex chưa chắc — đầu vào luyện prompt LLM):")
-        for s in thap_samples:
-            print(f"    · {s}")
+    if fail_texts:
+        print(f"\n  TEXT ca chu=[] ({len(fail_texts)}) — regex bóc chủ HỤT, đầu vào luyện LLM:")
+        for t in fail_texts:
+            print(f"    · {_clip(t)}")
+
+
+def _clip(s: str, n: int = 320) -> str:
+    import re
+    s = re.sub(r"\s+", " ", str(s)).strip()
+    return s if len(s) <= n else s[:n] + " …"
 
 
 # đăng ký stage: tên → (hàm, mô tả)
