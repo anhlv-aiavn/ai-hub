@@ -95,7 +95,7 @@ async def run(limit, batch_id, dry_run, show, lam_lai) -> None:
     n_doc = n_written = 0
     t0 = last = time.perf_counter()
 
-    cur = gcns().find(q, {"extractions": 1, "filename": 1}).batch_size(BULK)
+    cur = gcns().find(q, {"extractions": 1, "filename": 1, "finished_at": 1}).batch_size(BULK)
     if limit:
         cur = cur.limit(limit)
 
@@ -114,10 +114,21 @@ async def run(limit, batch_id, dry_run, show, lam_lai) -> None:
             _print_doc(doc)
 
         if not dry_run:
-            ops.append(UpdateOne({"_id": doc["_id"]}, {"$set": fields}))
+            # CHỐNG ĐUA VỚI WORKER: path ghi bám theo CHỈ SỐ thửa/mục đích đọc
+            # được lúc nãy. Nếu giữa lúc đọc và lúc ghi, worker cắt lại hồ sơ và
+            # thay `extractions` bằng cây có số thửa khác, thì $set theo chỉ số
+            # cũ sẽ đặt mã vào ô của THỬA KHÁC — sai âm thầm.
+            # `finished_at` đổi mỗi lần run_job ghi xong, nên đưa vào bộ lọc là
+            # có khoá lạc quan: doc đã bị worker sửa thì update KHÔNG khớp, bỏ
+            # qua, lần backfill sau nhặt lại (version vẫn cũ).
+            ops.append(UpdateOne(
+                {"_id": doc["_id"], "finished_at": doc.get("finished_at")},
+                {"$set": fields},
+            ))
             if len(ops) >= BULK:
                 res = await gcns().bulk_write(ops, ordered=False)
                 n_written += res.modified_count
+                st["bo_qua_dang_chay"] += len(ops) - res.matched_count
                 ops.clear()
 
         now = time.perf_counter()
@@ -128,6 +139,7 @@ async def run(limit, batch_id, dry_run, show, lam_lai) -> None:
     if ops and not dry_run:
         res = await gcns().bulk_write(ops, ordered=False)
         n_written += res.modified_count
+        st["bo_qua_dang_chay"] += len(ops) - res.matched_count
 
     _tong_ket(n_doc, n_written, st, dry_run, t0)
 
@@ -156,6 +168,9 @@ def _tong_ket(n_doc, n_written, st, dry_run, t0) -> None:
             print(f"     · {ld:<22}: {st[f'ly_do_{ld}']:,} hồ sơ")
     if st["doc_khong_co_muc_dich"]:
         print(f"   hồ sơ không có mục đích nào: {st['doc_khong_co_muc_dich']:,}")
+    if st["bo_qua_dang_chay"]:
+        print(f"   bỏ qua vì worker vừa sửa : {st['bo_qua_dang_chay']:,}"
+              "   ← chạy lại lệnh này là nhặt nốt")
     print(f"   thời gian: {(time.perf_counter() - t0) / 60:.1f} phút")
     if dry_run:
         print("\n  DRY-RUN: chưa đổi 1 doc nào. Bỏ --dry-run để chạy thật.")
