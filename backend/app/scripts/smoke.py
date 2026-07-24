@@ -200,8 +200,64 @@ async def stage_backfill_idem(limit: int) -> None:
     print(f"  {len(docs)} doc · regex tất định (2 lần == nhau) ✓")
 
 
+async def stage_cut_diagnose(limit: int) -> None:
+    """PURE — chẩn đoán cắt sai từ chuỗi nhãn (không Mongo, không GPU).
+
+    Ca chuẩn lấy từ hồ sơ thật D 0161849 (6 trang: bìa · chứng nhận · trích lục ·
+    biến động · CCCD trước · CCCD sau) — đúng dạng file mà pipeline đang cắt hỏng.
+
+    docker compose exec api python -m app.scripts.smoke cut_diagnose
+    """
+    from app.scripts.audit_cut_vlm import _diagnose
+    from app.scripts.bench_pipeline import _groups_from_roles
+
+    def chan(roles):
+        g = _groups_from_roles(roles)
+        return g, " ‖ ".join(_diagnose(roles, g))
+
+    dung = ["cover", "content", "content", "content", "other", "other"]
+    g, d = chan(dung)
+    if g != [[0, 1, 2, 3]]:
+        raise Kill(f"[1] nhãn ĐÚNG phải ra 1 nhóm 4 trang, ra {g}")
+    if "LỖI" in d or "XEM LẠI" in d:
+        raise Kill(f"[2] nhãn ĐÚNG (CCCD ở cuối bị loại là hợp lệ) mà vẫn báo lỗi: {d}")
+
+    # Nghi phạm A — CCCD bị đọc thành bìa → đẻ ra GCN giả ở cuối file.
+    a = ["cover", "content", "content", "content", "cover", "content"]
+    g, d = chan(a)
+    if len(g) != 2:
+        raise Kill(f"[3] CCCD-thành-bìa phải ra 2 nhóm, ra {g}")
+    if "XEM LẠI" not in d:
+        raise Kill(f"[4] không nêu nghi vấn nhóm ngắn bám đuôi file: {d}")
+
+    # Nghi phạm B — trích lục xoay ngang bị gán 'other' → NUỐT trang biến động.
+    b = ["cover", "content", "other", "content", "other", "other"]
+    g, d = chan(b)
+    if 3 in {i for gg in g for i in gg}:
+        raise Kill(f"[5] trang biến động (tr.4) đáng lẽ bị rớt, nhóm ra {g}")
+    if "LỖI 1" not in d:
+        raise Kill(f"[6] không nhận ra 'other' đóng nhóm nuốt trang sau: {d}")
+
+    # Lỗi 2 — content lạc trước khi có bìa nào → bỏ im lặng.
+    c = ["content", "content", "cover", "content"]
+    g, d = chan(c)
+    if g != [[2, 3]]:
+        raise Kill(f"[7] content lạc phải bị bỏ, nhóm ra {g}")
+    if "LỖI 2" not in d:
+        raise Kill(f"[8] không nhận ra content lạc không bìa: {d}")
+
+    # Không được báo bừa: 'other' ở CUỐI file là bình thường (giấy tờ kèm).
+    e = ["cover", "content", "other", "other"]
+    _, d = chan(e)
+    if "LỖI 1" in d:
+        raise Kill(f"[9] báo nhầm: 'other' ở cuối file là hợp lệ, không nuốt gì: {d}")
+
+    print("  5 ca chẩn đoán (đúng · bìa giả · nuốt biến động · content lạc · other cuối) ✓")
+
+
 # đăng ký stage: tên → (hàm, mô tả)
 _STAGES = {
+    "cut_diagnose": (stage_cut_diagnose, "PURE — chẩn đoán cắt sai từ chuỗi nhãn"),
     "chu_cuoi_real": (stage_chu_cuoi_real, "chu_cuoi trên doc có biến động thật"),
     "chu_cuoi_llm": (stage_chu_cuoi_llm, "LLM text-only cứu ca regex bó tay (cần vLLM)"),
     "backfill_idem": (stage_backfill_idem, "regex tất định (idempotent) cho backfill"),
