@@ -35,6 +35,8 @@ from src.extentions.multimodal.make import (
     count_pdf_pages_from_bytes,
     pdf_to_corrected_images,
 )
+from src.extentions.multimodal.chu_cuoi import ALGO_VERSION as CHU_CUOI_VERSION
+from src.extentions.multimodal.chu_cuoi import chu_cuoi_for_entry
 from src.extentions.multimodal.normalize_dang_ky import normalize_extractions
 
 log = logging.getLogger(__name__)
@@ -244,6 +246,25 @@ async def _refresh_dup_group(mongo: AsyncMongo, gcn_id: str, sph_list: list[str]
 
 # ── Orchestration cho 1 doc đã được worker claim ────────────────────────────
 
+def _chu_cuoi_records(records: list) -> list[dict]:
+    """Danh sách chu_cuoi (1/entry Đăng ký) — REGEX-only, cùng định dạng backfill."""
+    out: list[dict] = []
+    for ri, rec in enumerate(records or []):
+        if not isinstance(rec, dict):
+            continue
+        res = rec.get("result")
+        if not isinstance(res, dict):
+            continue
+        for ei, e in enumerate(res.get("Đăng ký") or []):
+            if not isinstance(e, dict):
+                continue
+            gcn = e.get("Giấy chứng nhận")
+            sph = str(gcn.get("Số phát hành", "")) if isinstance(gcn, dict) else ""
+            out.append({"rec_index": ri, "entry_index": ei, "so_phat_hanh": sph,
+                        **chu_cuoi_for_entry(e)})
+    return out
+
+
 async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
     """Xử lý 1 gcn doc (đã set processing bởi worker). Dùng chung mongo client."""
     gcn_id = doc["_id"]
@@ -336,6 +357,11 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
         "extracted_so_phat_hanhs": sph_list,
         "summary": summarize(records),
         "gcn_rows": per_gcn(records, cuts), "cuts": cuts,
+        # Chủ cuối suy ngay trong pipeline (REGEX-only — thuần, không thêm call LLM
+        # vào hot path GPU-bound). Ca canh_bao (có chuyển nhượng nhưng chưa rõ chủ)
+        # để backfill LLM định kỳ quét sau, không chặn ingest.
+        "chu_cuoi": _chu_cuoi_records(records),
+        "chu_cuoi_version": CHU_CUOI_VERSION,
         "finished_at": datetime.now(timezone.utc),
     }
     await mongo.update_one(config.COLL_GCN, {"_id": gcn_id}, {"$set": update})

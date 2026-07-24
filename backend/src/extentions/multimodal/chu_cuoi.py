@@ -31,7 +31,7 @@ import re
 import unicodedata
 from typing import Any
 
-ALGO_VERSION = 1
+ALGO_VERSION = 2  # v2: thêm cờ canh_bao + fallback LLM (v1 chạy thiếu 2 cái này)
 
 # ── Phân loại biến động (khớp trên text ĐÃ BỎ DẤU + lower) ───────────────────
 # PHỦ ĐỊNH kiểm TRƯỚC: một biến động vừa "chuyển nhượng" vừa "xóa thế chấp"
