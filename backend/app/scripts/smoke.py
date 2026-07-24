@@ -242,10 +242,21 @@ async def stage_cut_diagnose(limit: int) -> None:
     if g != [[0, 1], [2, 3]]:
         raise Kill(f"[6] 2 bìa phải ra 2 nhóm tách đúng, ra {g}")
 
-    # 2 bìa + content xếp ngược ở đầu → gắn vào nhóm bìa ĐẦU TIÊN, không vứt.
+    # ── HƯỚNG XẾP "nội dung → bìa": nội dung thuộc bìa ĐỨNG SAU ──
+    # Không nhận hướng thì chuỗi xen kẽ lệch đúng một nhịp.
+    g = groups_from_roles([N, C, N, C, N, C, N, C])
+    if g != [[0, 1], [2, 3], [4, 5], [6, 7]]:
+        raise Kill(f"[7] xếp ngược xen kẽ phải ra 4 cặp (nội,bìa), ra {g}")
+
+    # Nội dung thừa ở cuối (hết bìa phía sau) → gắn nhóm cuối, không vứt.
     g = groups_from_roles([N, C, N, C, N])
-    if g != [[0, 1, 2], [3, 4]]:
-        raise Kill(f"[7] content trước bìa đầu phải gắn vào nhóm 1, ra {g}")
+    if g != [[0, 1], [2, 3, 4]]:
+        raise Kill(f"[7b] nội dung thừa cuối file phải gắn nhóm cuối, ra {g}")
+
+    # 2 bìa liền nhau trong file xếp ngược (A854780 A854779 — tên file có 2 SPH).
+    g = groups_from_roles([N, C, C, N, K, K])
+    if g != [[0, 1], [2, 3]]:
+        raise Kill(f"[7c] 2 bìa liền kề xếp ngược phải ra 2 cặp, ra {g}")
 
     # ── Không bìa nào: vẫn bỏ, KHÔNG chế GCN giả từ trang phụ trợ ──
     g, d = chan([N, N, K])
@@ -259,7 +270,7 @@ async def stage_cut_diagnose(limit: int) -> None:
     if "LỖI" in d:
         raise Kill(f"[10] báo nhầm: 'other' cuối file là hợp lệ: {d}")
 
-    print("  8 ca (luật 1 bìa: đầu/giữa/cuối/rải · 2 bìa · xếp ngược · mất bìa · ca lành) ✓")
+    print("  10 ca (1 bìa: đầu/giữa/cuối/rải · 2 bìa xuôi · xếp ngược ×3 · mất bìa · ca lành) ✓")
 
 
 async def stage_requeue_guard(limit: int) -> None:

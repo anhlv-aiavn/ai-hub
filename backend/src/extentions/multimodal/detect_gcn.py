@@ -15,6 +15,26 @@ from src.extentions.multimodal.vlm_client import chat_json
 _ROLES = ("cover", "content", "other")
 
 
+def _gom_nguoc(roles: list[str]) -> list[list[int]]:
+    """Gom cho hồ sơ xếp kiểu "nội dung → bìa": nội dung thuộc bìa ĐỨNG SAU.
+
+    Đối xứng với nhánh xuôi. Nội dung thừa ở CUỐI (không còn bìa nào phía sau) gắn
+    vào nhóm cuối cùng — gương của luật "nội dung đầu file gắn vào bìa đầu tiên";
+    cả hai đều theo nguyên tắc thà gom dư còn hơn vứt trang.
+    """
+    groups: list[list[int]] = []
+    cho: list[int] = []
+    for i, role in enumerate(roles):
+        if role == "content":
+            cho.append(i)
+        elif role == "cover":
+            groups.append([*cho, i])
+            cho = []
+    if cho and groups:
+        groups[-1].extend(cho)
+    return [g for g in groups if g]
+
+
 def groups_from_roles(roles: list[str]) -> list[list[int]]:
     """Suy nhóm GCN tuyến tính từ nhãn vai trò từng trang (cover/content/other).
 
@@ -45,6 +65,15 @@ def groups_from_roles(roles: list[str]) -> list[list[int]]:
     """
     if sum(1 for r in roles if r == "cover") == 1:
         return [[i for i, r in enumerate(roles) if r in ("cover", "content")]]
+
+    # HƯỚNG XẾP: một hồ sơ được scan nhất quán theo MỘT chiều. Nếu trang đầu tiên
+    # (bỏ qua 'other') là nội dung thì cả file theo kiểu "nội dung → bìa", và mỗi
+    # trang nội dung thuộc về bìa ĐỨNG SAU nó, không phải bìa đứng trước.
+    # Thiếu bước này thì chuỗi [nội,bìa,nội,bìa,…] bị lệch đúng một nhịp:
+    # ra [1,2,3] | [4,5] | [6,7] | [8] thay vì [1,2] | [3,4] | [5,6] | [7,8].
+    dau_tien = next((r for r in roles if r in ("cover", "content")), None)
+    if dau_tien == "content":
+        return _gom_nguoc(roles)
 
     groups: list[list[int]] = []
     cur: list[int] | None = None
