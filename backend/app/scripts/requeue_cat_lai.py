@@ -91,7 +91,12 @@ async def run(limit, batch_id, dry_run, chi_nghi, ke_ca_da_doi_soat) -> None:
         delta[(doc.get("batch_id"), cu)] += 1
         ops.append(UpdateOne(
             {"_id": doc["_id"]},
-            {"$set": {"status": "queued", "error": None, "error_kind": None}},
+            # Xoá cờ chu_cuoi_llm_done: nó đánh dấu "đã thử LLM cho ca cảnh báo,
+            # khỏi gọi lại". Cắt lại sinh extractions MỚI (chính những hồ sơ trước
+            # đây mất trang biến động) → phải cho LLM thử lại trên nội dung mới,
+            # không thì hồ sơ vừa lấy lại được trang biến động vẫn kẹt cảnh báo.
+            {"$set": {"status": "queued", "error": None, "error_kind": None},
+             "$unset": {"chu_cuoi_llm_done": ""}},
         ))
         if len(ops) >= BULK:
             await _flush()
