@@ -5,10 +5,13 @@ backfill dùng chung MỘT nguồn luật, không chép ra nhiều nơi (bài h�
 `groups_from_roles` từng bị chép 3 chỗ rồi sửa lệch nhau → công cụ đo báo sai
 về chính production).
 
-TRỌNG TÂM: ONT (191) vs ODT (192). Đo trên kho thật, "đất ở" chiếm áp đảo số
-bản ghi mục đích, và đây cũng là chỗ DUY NHẤT text trên giấy KHÔNG đủ để quyết —
-phải suy từ địa chỉ thửa. Các mã còn lại của danh mục 80 mã bổ sung ở Phase 1,
-DỰNG TỪ SỐ LIỆU THẬT của `app.scripts.audit_mdsdd`, không đoán.
+TRỌNG TÂM: ONT (191) vs ODT (192). Đo trên kho thật, "đất ở" chiếm 87.9% số bản
+ghi mục đích, và đây cũng là chỗ DUY NHẤT text trên giấy KHÔNG đủ để quyết —
+phải suy từ địa chỉ thửa.
+
+Danh mục 82 mã lấy từ file của bên nghiệp vụ. Bảng alias/nhập nhằng bên dưới
+dựng TỪ SỐ LIỆU THẬT của `app.scripts.audit_mdsdd`, không đoán: chuỗi nào danh
+mục không có mã đúng (vườn, ao) thì trả ambiguous cho chuyên viên quyết.
 
 Smoke PURE (không cần Mongo/GPU):
     docker compose exec api python -m src.extentions.multimodal.mdsdd
@@ -18,75 +21,99 @@ import re
 
 from app.vn_text import strip_diacritics
 
-# ── DANH MỤC LOẠI ĐẤT ────────────────────────────────────────────────────────
-# ky_hieu + ten là ký hiệu loại đất chuẩn dùng trên GCN và bản đồ địa chính.
+# ── DANH MỤC LOẠI ĐẤT — 82 mã, NGUỒN: file danh mục của bên nghiệp vụ ────────
+# Nhúng nguyên văn (sinh từ file, không chép tay). Tên giữ đúng bản gốc kể cả
+# chỗ có hai dấu cách ("Đất cơ sở  tôn giáo") — chuan_hoa gộp khoảng trắng nên
+# so khớp không ảnh hưởng, còn sửa "cho đẹp" là làm lệch với nguồn.
 #
-# `id`: CHỈ ONT/ODT có số đã chốt (191/192). Các mã khác để None vì số id thuộc
-# danh mục 80 mã của hệ thống bên nghiệp vụ — CHƯA CÓ FILE, và bịa số id là kiểu
-# sai tệ nhất: trông như dữ liệu thật, không ai phát hiện. Có file thì chỉ việc
-# điền cột id, toàn bộ luật map bên dưới không phải sửa (khoá chính là ky_hieu).
+# Danh mục này TRẢ LỜI ba câu hỏi treo của Phase 1:
+#   · LUA (154) "Đất trồng lúa" CÓ THẬT → "Lúa" trần hết nhập nhằng.
+#   · SXN (152) "Đất sản xuất nông nghiệp" CÓ THẬT → "sx nông nghiệp" ra mã.
+#   · KHÔNG có mã nào cho "vườn" và "ao" → hai họ này buộc phải để chuyên viên
+#     quyết, đúng như đã chốt. Không được tự chọn CLN/NTS thay họ.
 LOAI_MDSDD: list[dict] = [
-    # nhóm nông nghiệp
-    {"id": None, "ky_hieu_muc_dich": "LUC", "ten_muc_dich": "Đất chuyên trồng lúa nước"},
-    {"id": None, "ky_hieu_muc_dich": "LUK", "ten_muc_dich": "Đất trồng lúa nước còn lại"},
-    {"id": None, "ky_hieu_muc_dich": "LUN", "ten_muc_dich": "Đất trồng lúa nương"},
-    {"id": None, "ky_hieu_muc_dich": "BHK", "ten_muc_dich": "Đất bằng trồng cây hàng năm khác"},
-    {"id": None, "ky_hieu_muc_dich": "NHK", "ten_muc_dich": "Đất nương rẫy trồng cây hàng năm khác"},
-    {"id": None, "ky_hieu_muc_dich": "CLN", "ten_muc_dich": "Đất trồng cây lâu năm"},
-    {"id": None, "ky_hieu_muc_dich": "RSX", "ten_muc_dich": "Đất rừng sản xuất"},
-    {"id": None, "ky_hieu_muc_dich": "RPH", "ten_muc_dich": "Đất rừng phòng hộ"},
-    {"id": None, "ky_hieu_muc_dich": "RDD", "ten_muc_dich": "Đất rừng đặc dụng"},
-    {"id": None, "ky_hieu_muc_dich": "NTS", "ten_muc_dich": "Đất nuôi trồng thủy sản"},
-    {"id": None, "ky_hieu_muc_dich": "LMU", "ten_muc_dich": "Đất làm muối"},
-    {"id": None, "ky_hieu_muc_dich": "NKH", "ten_muc_dich": "Đất nông nghiệp khác"},
-    # nhóm đất ở
+    {"id": 152, "ky_hieu_muc_dich": "SXN", "ten_muc_dich": "Đất sản xuất nông nghiệp"},
+    {"id": 154, "ky_hieu_muc_dich": "LUA", "ten_muc_dich": "Đất trồng lúa"},
+    {"id": 155, "ky_hieu_muc_dich": "LUC", "ten_muc_dich": "Đất chuyên trồng lúa"},
+    {"id": 156, "ky_hieu_muc_dich": "LUK", "ten_muc_dich": "Đất trồng lúa còn lại"},
+    {"id": 157, "ky_hieu_muc_dich": "LUN", "ten_muc_dich": "Đất trồng lúa nương"},
+    {"id": 161, "ky_hieu_muc_dich": "HNK", "ten_muc_dich": "Đất trồng cây hằng năm khác"},
+    {"id": 162, "ky_hieu_muc_dich": "BHK", "ten_muc_dich": "Đất bằng trồng cây hàng năm khác"},
+    {"id": 163, "ky_hieu_muc_dich": "NHK", "ten_muc_dich": "Đất nương rẫy trồng cây hàng năm khác"},
+    {"id": 164, "ky_hieu_muc_dich": "CLN", "ten_muc_dich": "Đất trồng cây lâu năm"},
+    {"id": 165, "ky_hieu_muc_dich": "LNC", "ten_muc_dich": "Đất trồng cây công nghiệp lâu năm"},
+    {"id": 166, "ky_hieu_muc_dich": "LNQ", "ten_muc_dich": "Đất trồng cây ăn quả lâu năm"},
+    {"id": 167, "ky_hieu_muc_dich": "LNK", "ten_muc_dich": "Đất trồng cây lâu năm khác"},
+    {"id": 169, "ky_hieu_muc_dich": "RSX", "ten_muc_dich": "Đất rừng sản xuất"},
+    {"id": 170, "ky_hieu_muc_dich": "RSN", "ten_muc_dich": "Trong đó: Đất rừng sản xuất là rừng tự nhiên"},
+    {"id": 171, "ky_hieu_muc_dich": "RST", "ten_muc_dich": "Đất có rừng trồng sản xuất"},
+    {"id": 172, "ky_hieu_muc_dich": "RSK", "ten_muc_dich": "Đất khoanh nuôi phục hồi rừng sản xuất"},
+    {"id": 173, "ky_hieu_muc_dich": "RSM", "ten_muc_dich": "Đất trồng rừng sản xuất"},
+    {"id": 174, "ky_hieu_muc_dich": "RPH", "ten_muc_dich": "Đất rừng phòng hộ"},
+    {"id": 175, "ky_hieu_muc_dich": "RPN", "ten_muc_dich": "Đất có rừng tự nhiên phòng hộ"},
+    {"id": 176, "ky_hieu_muc_dich": "RPT", "ten_muc_dich": "Đất có rừng trồng phòng hộ"},
+    {"id": 177, "ky_hieu_muc_dich": "RPK", "ten_muc_dich": "Đất khoanh nuôi phục hồi rừng phòng hộ"},
+    {"id": 178, "ky_hieu_muc_dich": "RPM", "ten_muc_dich": "Đất trồng rừng phòng hộ"},
+    {"id": 179, "ky_hieu_muc_dich": "RDD", "ten_muc_dich": "Đất rừng đặc dụng"},
+    {"id": 180, "ky_hieu_muc_dich": "RDN", "ten_muc_dich": "Đất có rừng tự nhiên đặc dụng"},
+    {"id": 181, "ky_hieu_muc_dich": "RDT", "ten_muc_dich": "Đất có rừng trồng đặc dụng"},
+    {"id": 182, "ky_hieu_muc_dich": "RDK", "ten_muc_dich": "Đất khoanh nuôi phục hồi rừng đặc dụng"},
+    {"id": 183, "ky_hieu_muc_dich": "RDM", "ten_muc_dich": "Đất trồng rừng đặc dụng"},
+    {"id": 184, "ky_hieu_muc_dich": "NTS", "ten_muc_dich": "Đất nuôi trồng thuỷ sản"},
+    {"id": 185, "ky_hieu_muc_dich": "TSL", "ten_muc_dich": "Đất nuôi trồng thuỷ sản nước lợ, mặn"},
+    {"id": 186, "ky_hieu_muc_dich": "TSN", "ten_muc_dich": "Đất nuôi trồng thuỷ sản nước ngọt"},
+    {"id": 187, "ky_hieu_muc_dich": "LMU", "ten_muc_dich": "Đất làm muối"},
+    {"id": 188, "ky_hieu_muc_dich": "NKH", "ten_muc_dich": "Đất nông nghiệp khác"},
     {"id": 191, "ky_hieu_muc_dich": "ONT", "ten_muc_dich": "Đất ở tại nông thôn"},
     {"id": 192, "ky_hieu_muc_dich": "ODT", "ten_muc_dich": "Đất ở tại đô thị"},
-    # trụ sở, sự nghiệp
-    {"id": None, "ky_hieu_muc_dich": "TSC", "ten_muc_dich": "Đất xây dựng trụ sở cơ quan"},
-    {"id": None, "ky_hieu_muc_dich": "DTS", "ten_muc_dich": "Đất xây dựng trụ sở của tổ chức sự nghiệp"},
-    {"id": None, "ky_hieu_muc_dich": "DVH", "ten_muc_dich": "Đất xây dựng cơ sở văn hóa"},
-    {"id": None, "ky_hieu_muc_dich": "DYT", "ten_muc_dich": "Đất xây dựng cơ sở y tế"},
-    {"id": None, "ky_hieu_muc_dich": "DGD", "ten_muc_dich": "Đất xây dựng cơ sở giáo dục và đào tạo"},
-    {"id": None, "ky_hieu_muc_dich": "DTT", "ten_muc_dich": "Đất xây dựng cơ sở thể dục thể thao"},
-    {"id": None, "ky_hieu_muc_dich": "DKH", "ten_muc_dich": "Đất xây dựng cơ sở khoa học và công nghệ"},
-    {"id": None, "ky_hieu_muc_dich": "DXH", "ten_muc_dich": "Đất xây dựng cơ sở dịch vụ xã hội"},
-    {"id": None, "ky_hieu_muc_dich": "DNG", "ten_muc_dich": "Đất xây dựng cơ sở ngoại giao"},
-    {"id": None, "ky_hieu_muc_dich": "DSK", "ten_muc_dich": "Đất xây dựng công trình sự nghiệp khác"},
-    # quốc phòng, an ninh
-    {"id": None, "ky_hieu_muc_dich": "CQP", "ten_muc_dich": "Đất quốc phòng"},
-    {"id": None, "ky_hieu_muc_dich": "CAN", "ten_muc_dich": "Đất an ninh"},
-    # sản xuất, kinh doanh
-    {"id": None, "ky_hieu_muc_dich": "SKK", "ten_muc_dich": "Đất khu công nghiệp"},
-    {"id": None, "ky_hieu_muc_dich": "SKN", "ten_muc_dich": "Đất cụm công nghiệp"},
-    {"id": None, "ky_hieu_muc_dich": "SKT", "ten_muc_dich": "Đất khu chế xuất"},
-    {"id": None, "ky_hieu_muc_dich": "TMD", "ten_muc_dich": "Đất thương mại, dịch vụ"},
-    {"id": None, "ky_hieu_muc_dich": "SKC", "ten_muc_dich": "Đất cơ sở sản xuất phi nông nghiệp"},
-    {"id": None, "ky_hieu_muc_dich": "SKS", "ten_muc_dich": "Đất sử dụng cho hoạt động khoáng sản"},
-    {"id": None, "ky_hieu_muc_dich": "SKX", "ten_muc_dich": "Đất sản xuất vật liệu xây dựng, làm đồ gốm"},
-    # công cộng
-    {"id": None, "ky_hieu_muc_dich": "DGT", "ten_muc_dich": "Đất giao thông"},
-    {"id": None, "ky_hieu_muc_dich": "DTL", "ten_muc_dich": "Đất thủy lợi"},
-    {"id": None, "ky_hieu_muc_dich": "DNL", "ten_muc_dich": "Đất công trình năng lượng"},
-    {"id": None, "ky_hieu_muc_dich": "DBV", "ten_muc_dich": "Đất công trình bưu chính, viễn thông"},
-    {"id": None, "ky_hieu_muc_dich": "DSH", "ten_muc_dich": "Đất sinh hoạt cộng đồng"},
-    {"id": None, "ky_hieu_muc_dich": "DKV", "ten_muc_dich": "Đất khu vui chơi, giải trí công cộng"},
-    {"id": None, "ky_hieu_muc_dich": "DCH", "ten_muc_dich": "Đất chợ"},
-    {"id": None, "ky_hieu_muc_dich": "DDT", "ten_muc_dich": "Đất có di tích lịch sử - văn hóa"},
-    {"id": None, "ky_hieu_muc_dich": "DDL", "ten_muc_dich": "Đất danh lam thắng cảnh"},
-    {"id": None, "ky_hieu_muc_dich": "DRA", "ten_muc_dich": "Đất bãi thải, xử lý chất thải"},
-    {"id": None, "ky_hieu_muc_dich": "DCK", "ten_muc_dich": "Đất công trình công cộng khác"},
-    # tôn giáo, tín ngưỡng, nghĩa trang
-    {"id": None, "ky_hieu_muc_dich": "TON", "ten_muc_dich": "Đất cơ sở tôn giáo"},
-    {"id": None, "ky_hieu_muc_dich": "TIN", "ten_muc_dich": "Đất cơ sở tín ngưỡng"},
-    {"id": None, "ky_hieu_muc_dich": "NTD", "ten_muc_dich": "Đất làm nghĩa trang, nghĩa địa"},
-    # sông nước, chưa sử dụng
-    {"id": None, "ky_hieu_muc_dich": "SON", "ten_muc_dich": "Đất sông, ngòi, kênh, rạch, suối"},
-    {"id": None, "ky_hieu_muc_dich": "MNC", "ten_muc_dich": "Đất có mặt nước chuyên dùng"},
-    {"id": None, "ky_hieu_muc_dich": "PNK", "ten_muc_dich": "Đất phi nông nghiệp khác"},
-    {"id": None, "ky_hieu_muc_dich": "BCS", "ten_muc_dich": "Đất bằng chưa sử dụng"},
-    {"id": None, "ky_hieu_muc_dich": "DCS", "ten_muc_dich": "Đất đồi núi chưa sử dụng"},
-    {"id": None, "ky_hieu_muc_dich": "NCS", "ten_muc_dich": "Núi đá không có rừng cây"},
+    {"id": 193, "ky_hieu_muc_dich": "CDG", "ten_muc_dich": "Đất chuyên dùng"},
+    {"id": 194, "ky_hieu_muc_dich": "CTS", "ten_muc_dich": "Đất trụ sở cơ quan, công trình sự nghiệp"},
+    {"id": 204, "ky_hieu_muc_dich": "TSC", "ten_muc_dich": "Đất xây dựng trụ sở cơ quan"},
+    {"id": 205, "ky_hieu_muc_dich": "TSK", "ten_muc_dich": "Đất trụ sở khác"},
+    {"id": 206, "ky_hieu_muc_dich": "CQP", "ten_muc_dich": "Đất quốc phòng"},
+    {"id": 207, "ky_hieu_muc_dich": "CAN", "ten_muc_dich": "Đất an ninh"},
+    {"id": 209, "ky_hieu_muc_dich": "SKK", "ten_muc_dich": "Đất khu công nghiệp"},
+    {"id": 210, "ky_hieu_muc_dich": "SKC", "ten_muc_dich": "Đất cơ sở sản xuất phi nông nghiệp"},
+    {"id": 213, "ky_hieu_muc_dich": "SKS", "ten_muc_dich": "Đất sử dụng cho hoạt động khoáng sản"},
+    {"id": 219, "ky_hieu_muc_dich": "SKX", "ten_muc_dich": "Đất sản xuất vật liệu xây dựng, làm đồ gốm"},
+    {"id": 225, "ky_hieu_muc_dich": "DGT", "ten_muc_dich": "Đất công trình giao thông"},
+    {"id": 228, "ky_hieu_muc_dich": "DTL", "ten_muc_dich": "Đất công trình thủy lợi"},
+    {"id": 231, "ky_hieu_muc_dich": "DNL", "ten_muc_dich": "Đất công trình năng lượng"},
+    {"id": 236, "ky_hieu_muc_dich": "DBV", "ten_muc_dich": "Đất công trình hạ tầng bưu chính, viễn thông, công nghệ thông tin"},
+    {"id": 237, "ky_hieu_muc_dich": "DVH", "ten_muc_dich": "Đất xây dựng cơ sở văn hóa"},
+    {"id": 238, "ky_hieu_muc_dich": "DYT", "ten_muc_dich": "Đất xây dựng cơ sở y tế"},
+    {"id": 239, "ky_hieu_muc_dich": "DGD", "ten_muc_dich": "Đất xây dựng cơ sở giáo dục và đào tạo"},
+    {"id": 240, "ky_hieu_muc_dich": "DTT", "ten_muc_dich": "Đất xây dựng cơ sở thể dục, thể thao"},
+    {"id": 241, "ky_hieu_muc_dich": "DKH", "ten_muc_dich": "Đất xây dựng cơ sở khoa học và công nghệ"},
+    {"id": 242, "ky_hieu_muc_dich": "DXH", "ten_muc_dich": "Đất xây dựng cơ sở dịch vụ xã hội"},
+    {"id": 243, "ky_hieu_muc_dich": "DCH", "ten_muc_dich": "Đất chợ dân sinh, chợ đầu mối"},
+    {"id": 247, "ky_hieu_muc_dich": "DDT", "ten_muc_dich": "Đất có di tích"},
+    {"id": 248, "ky_hieu_muc_dich": "DRA", "ten_muc_dich": "Đất bãi thải, xử lý chất thải"},
+    {"id": 250, "ky_hieu_muc_dich": "TON", "ten_muc_dich": "Đất cơ sở  tôn giáo"},
+    {"id": 251, "ky_hieu_muc_dich": "TIN", "ten_muc_dich": "Đất cơ sở  tín ngưỡng"},
+    {"id": 252, "ky_hieu_muc_dich": "NTD", "ten_muc_dich": "Đất nghĩa trang, nhà tang lễ, cơ sở hỏa táng; đất cơ sở lưu trữ tro cốt"},
+    {"id": 254, "ky_hieu_muc_dich": "SON", "ten_muc_dich": "Đất có mặt nước dạng sông, ngòi, kênh, rạch, suối"},
+    {"id": 270, "ky_hieu_muc_dich": "MNC", "ten_muc_dich": "Đất có mặt nước chuyên dùng"},
+    {"id": 271, "ky_hieu_muc_dich": "PNK", "ten_muc_dich": "Đất phi nông nghiệp khác"},
+    {"id": 273, "ky_hieu_muc_dich": "BCS", "ten_muc_dich": "Đất bằng chưa sử dụng"},
+    {"id": 274, "ky_hieu_muc_dich": "DCS", "ten_muc_dich": "Đất đồi núi chưa sử dụng"},
+    {"id": 275, "ky_hieu_muc_dich": "NCS", "ten_muc_dich": "Núi đá không có rừng cây"},
+    {"id": 276, "ky_hieu_muc_dich": "MVB", "ten_muc_dich": "Đất có mặt nước ven biển"},
+    {"id": 277, "ky_hieu_muc_dich": "MVT", "ten_muc_dich": "Đất mặt nước ven biển nuôi trồng thuỷ sản"},
+    {"id": 278, "ky_hieu_muc_dich": "MVR", "ten_muc_dich": "Đất mặt nước ven biển có rừng ngập mặn"},
+    {"id": 279, "ky_hieu_muc_dich": "MVK", "ten_muc_dich": "Đất mặt nước ven biển có mục đích khác"},
+    {"id": 281, "ky_hieu_muc_dich": "DTS", "ten_muc_dich": "Đất xây dựng trụ sở của tổ chức sự nghiệp"},
+    {"id": 282, "ky_hieu_muc_dich": "DNG", "ten_muc_dich": "Đất xây dựng cơ sở ngoại giao"},
+    {"id": 283, "ky_hieu_muc_dich": "DSK", "ten_muc_dich": "Đất xây dựng công trình sự nghiệp khác"},
+    {"id": 284, "ky_hieu_muc_dich": "SKN", "ten_muc_dich": "Đất cụm công nghiệp"},
+    {"id": 285, "ky_hieu_muc_dich": "SKT", "ten_muc_dich": "Đất khu chế xuất"},
+    {"id": 286, "ky_hieu_muc_dich": "TMD", "ten_muc_dich": "Đất thương mại, dịch vụ"},
+    {"id": 287, "ky_hieu_muc_dich": "DDL", "ten_muc_dich": "Đất có danh lam thắng cảnh"},
+    {"id": 288, "ky_hieu_muc_dich": "DSH", "ten_muc_dich": "Đất sinh hoạt cộng đồng"},
+    {"id": 289, "ky_hieu_muc_dich": "DKV", "ten_muc_dich": "Đất khu vui chơi, giải trí công cộng"},
+    {"id": 290, "ky_hieu_muc_dich": "DCK", "ten_muc_dich": "Đất công trình công cộng khác"},
+    {"id": 295, "ky_hieu_muc_dich": "KĐD", "ten_muc_dich": "Đất cơ sở bảo tồn đa dạng sinh học"},
+    {"id": 296, "ky_hieu_muc_dich": "CNC", "ten_muc_dich": "Đất khu công nghệ cao"},
 ]
 _THEO_KY_HIEU = {m["ky_hieu_muc_dich"]: m for m in LOAI_MDSDD}
 _MA_DAT_O = ("ONT", "ODT")
@@ -240,14 +267,18 @@ ALIAS: dict[str, str] = {
     "dat nuoi trong thuy san": "NTS", "nuoi trong thuy san": "NTS",
     "dat giao thong": "DGT",
     "dat thuy loi": "DTL",
-    "dat trong lua": "LUC", "dat chuyen trong lua nuoc": "LUC",
-    "dat trong cay hang nam khac": "BHK", "dat bang trong cay hang nam khac": "BHK",
-    "dat rung san xuat": "RSX", "dat rung phong ho": "RPH", "dat rung dac dung": "RDD",
+    # LUA là mã CHA của lúa. "Đất chuyên trồng lúa NƯỚC" là tên hệ cũ của LUC
+    # (danh mục hiện hành ghi "Đất chuyên trồng lúa") nên vẫn cần alias.
+    "dat chuyen trong lua nuoc": "LUC", "dat trong lua nuoc con lai": "LUK",
+    "dat san xuat nong nghiep": "SXN", "san xuat nong nghiep": "SXN",
+    "sx nong nghiep": "SXN", "dat trong nong nghiep": "SXN",
     "dat nghia trang": "NTD", "dat nghia trang, nghia dia": "NTD",
     "dat co so ton giao": "TON", "dat co so tin nguong": "TIN",
     "dat cho": "DCH",
     # viết tắt có thật trên giấy
-    "dat tcln": "CLN", "tcln": "CLN", "dat trong cay lau nam khac": "CLN",
+    # TCLN = viết tắt "trồng cây lâu năm". KHÔNG map "…lâu năm khác" về CLN:
+    # đó là LNK (167), một mã riêng trong danh mục.
+    "dat tcln": "CLN", "tcln": "CLN",
     "dat trong thuy san": "NTS",   # phủ cả "thuỷ" vì khóa đã bỏ dấu
 }
 
@@ -260,8 +291,8 @@ ALIAS: dict[str, str] = {
 #   · "đất nông nghiệp"/"sản xuất nông nghiệp" — tên NHÓM đất, không phải mã.
 NHAP_NHANG: set[str] = {
     "dat vuon", "vuon", "dat vuon, ao", "dat ao", "ao", "vuon, ao",
-    "lua", "lua trong", "lua nuoc 2 nam", "dat trong cay", "trong cay",
-    "rung", "dat nong nghiep", "san xuat nong nghiep", "sx nong nghiep",
+    "dat trong cay", "trong cay",
+    "rung", "dat nong nghiep",
     "dat khac", "khac", "dat", "dat khu vuc nong thon", "dat nong thon",
     "dat ven truc giao thong", "kinh te gia dinh", "dat lam kho",
 }
@@ -287,7 +318,15 @@ _RE_HO_LAN_COT = re.compile(
     r"\b(su dung (chung|rieng|khac|rong)|dien tich|duoc giao|thue dat"
     r"|khong duoc cap|lao dong)\b")
 _RE_HO_NHAP_NHANG = re.compile(
-    r"\b(vuon|ao|lua|rung|lam nghiep|nong nghiep|trong cay|trong rung)\b")
+    r"\b(vuon|ao|rung|lam nghiep|nong nghiep|trong cay|trong rung)\b")
+
+# HỌ RA MÃ — khác hai regex trên: đây là họ mà danh mục CÓ mã cha, nên gom được
+# mà không phải đoán. Cả đuôi dài "Lúa nước / Lúa lai / Lúa dài / Lúa đời /
+# Lúa nước 2 năm" đều là lúa, và LUA (154) chính là mã cha của LUC/LUK/LUN.
+# Chỉ chạy sau mọi khớp tuyệt đối, nên "Đất chuyên trồng lúa" vẫn ra LUC.
+_HO_RA_MA: tuple[tuple[re.Pattern, str], ...] = (
+    (re.compile(r"\blua\b"), "LUA"),
+)
 
 
 def ky_hieu_trong_text(text) -> tuple[str, str] | None:
@@ -421,6 +460,9 @@ def map_muc_dich(text, dia_chi: str = "") -> dict | None:
     # bắt theo HỌ — chỉ tới đây khi mọi khớp tuyệt đối đã trượt
     if _RE_HO_LAN_COT.search(t):
         return _amb("khong_phai_muc_dich")
+    for rx, ky in _HO_RA_MA:
+        if rx.search(t):
+            return _kq(ky, "alias", 0.85)
     if _RE_HO_NHAP_NHANG.search(t):
         return _amb("nhap_nhang")
     return _amb("chua_map")
@@ -432,7 +474,10 @@ def map_muc_dich(text, dia_chi: str = "") -> dict | None:
 # `apply_overrides`: chuyên viên sửa mã trong form hậu kiểm là CSV đúng ngay,
 # không phải chờ backfill chạy lại. Thêm KEY anh em không dịch index nào nên
 # mọi path trong `review.overrides` vẫn trỏ đúng chỗ cũ.
-ALGO_VERSION = 1
+# v2: nhúng danh mục 82 mã thật → cột Mã đổi từ ký hiệu sang SỐ ID, và nhiều
+# chuỗi trước đây nhập nhằng nay ra mã (LUA/SXN). Doc đã backfill ở v1 phải
+# tính lại — bump version là backfill tự nhặt đúng nhóm đó.
+ALGO_VERSION = 2
 KEY_MA = "Mã MĐSD"
 KEY_TEN = "MĐSD chuẩn"
 
@@ -440,18 +485,13 @@ KEY_TEN = "MĐSD chuẩn"
 def _hien_thi(r: dict) -> tuple:
     """(giá trị cột Mã, giá trị cột MĐSD chuẩn) cho 1 kết quả map.
 
-    Mã = KÝ HIỆU (ONT/CLN/DGT…), không phải số id. Hai lý do:
-      · id hiện chỉ có cho ONT/ODT (chưa có file danh mục 80 mã) → cột số sẽ
-        trống ~96%, vô dụng;
-      · trộn "191" với "CLN" trong cùng một cột là cột hai kiểu dữ liệu, đẩy
-        sang FME là vỡ.
-    Ký hiệu vốn là mã người ta đọc trên giấy, và có id thì suy ngược ra được
-    qua LOAI_MDSDD — không mất gì. Khi có file danh mục thì THÊM cột số, không
-    phải sửa cột này.
+    Mã = SỐ ID của danh mục (một kiểu dữ liệu, hợp cho FME). Ký hiệu không mất:
+    nó nằm ngay đầu cột "MĐSD chuẩn" ("ONT - Đất ở tại nông thôn"), là dạng
+    người đọc nhận ra ngay trên giấy.
     """
     if r.get("ambiguous") or not r.get("ky_hieu"):
         return "", ""
-    return r["ky_hieu"], r["ten"]
+    return r["id"], f"{r['ky_hieu']} - {r['ten']}"
 
 
 def duyet_muc_dich(records):
@@ -652,15 +692,24 @@ def _smoke() -> None:
         ("Đất trồng cây lâu năm", "CLN"), ("đất trồng cây lâu năm", "CLN"),
         ("CLN", "CLN"), ("Đất giao thông", "DGT"),
         ("Đất nuôi trồng thủy sản", "NTS"), ("Đất rừng sản xuất", "RSX"),
-        ("Đất trồng cây hàng năm khác", "BHK"), ("Đất chợ", "DCH"),
+        # HNK "Đất trồng cây hằng năm khác" — "hằng"/"hàng" bỏ dấu là một, còn
+        # BHK là "Đất BẰNG trồng cây hàng năm khác", khác mã.
+        ("Đất trồng cây hàng năm khác", "HNK"),
+        ("Đất bằng trồng cây hàng năm khác", "BHK"), ("Đất chợ", "DCH"),
         ("005-Đất trồng cây lâu năm", "CLN"),   # tiền tố mã số hệ cũ
+        # danh mục thật có mã CHA cho lúa và cho sản xuất nông nghiệp
+        ("Lúa", "LUA"), ("Lúa nước", "LUA"), ("Lúa lai", "LUA"),
+        ("Lúa nước 2 năm", "LUA"), ("Đất trồng lúa", "LUA"),
+        ("Đất chuyên trồng lúa", "LUC"), ("Đất trồng lúa nương", "LUN"),
+        ("sx nông nghiệp", "SXN"), ("Sản xuất nông nghiệp", "SXN"),
     ]
     for txt, ky in ra_ma:
         r = map_muc_dich(txt, "")
         assert r and r["ky_hieu"] == ky, f"KILL [20] {txt!r} phải ra {ky}: {r}"
 
     # NHẬP NHẰNG THẬT — không được chọn bừa một mã
-    for txt in ("đất vườn", "Vườn", "Đất Ao", "Ao", "Lúa", "Rừng",
+    # "vườn"/"ao" KHÔNG có mã trong danh mục 82 mã → không được tự chọn CLN/NTS.
+    for txt in ("đất vườn", "Vườn", "Đất Ao", "Ao", "Rừng",
                 "Đất nông nghiệp", "Đất trồng cây", "Đất khác"):
         r = map_muc_dich(txt, "xã Phù Lỗ, huyện Sóc Sơn")
         assert r["ambiguous"] and r["ly_do"] == "nhap_nhang", \
@@ -677,9 +726,8 @@ def _smoke() -> None:
     assert r["ambiguous"] and r["ly_do"] == "chua_map", f"KILL [20d] {r}"
 
     # ── 20e. ĐUÔI DÀI bắt theo HỌ (chuỗi thật từ danh sách "chưa map") ────
-    for txt in ("Lúa nước", "Lúa lai", "Lúa dài", "vườn liền kề", "Vườn ao",
-                "Đất vườn + Ao", "Đất trồng rừng", "Lâm nghiệp", "Nông nghiệp",
-                "Đất trồng nông nghiệp", "Đất trồng cây hàng năm"):
+    for txt in ("vườn liền kề", "Vườn ao", "Đất vườn + Ao", "Lâm nghiệp",
+                "Nông nghiệp", "Đất trồng cây hàng năm"):
         r = map_muc_dich(txt, "")
         assert r["ly_do"] == "nhap_nhang", f"KILL [20e] {txt!r} phải vào họ nhập nhằng: {r}"
     for txt in ("Đất sử dụng chung", "Diện tích sử dụng riêng", "Sử dụng rộng",
@@ -697,7 +745,7 @@ def _smoke() -> None:
     assert r["ky_hieu"] == "ONT", f"KILL [20i] bỏ ngoặc làm mất ký hiệu: {r}"
 
     # HỌ KHÔNG ĐƯỢC CƯỚP MÃ của chuỗi đã khớp tuyệt đối
-    for txt, ky in (("Đất trồng cây lâu năm khác", "CLN"), ("Đất TCLN", "CLN"),
+    for txt, ky in (("Đất trồng cây lâu năm khác", "LNK"), ("Đất TCLN", "CLN"),
                     ("Đất trồng cây lâu năm", "CLN"), ("Đất nuôi trồng thủy sản", "NTS")):
         r = map_muc_dich(txt, "")
         assert r["ky_hieu"] == ky, f"KILL [20g] họ cướp mã của {txt!r}: {r}"
@@ -739,12 +787,16 @@ def _smoke() -> None:
     assert tt["n"] == 4 and tt["n_ra_ma"] == 3, f"KILL [23] đếm sai: {tt}"
     assert tt["can_ra_tay"] and tt["ly_do"] == ["nhap_nhang"], f"KILL [23b] {tt}"
     # mỗi thửa dùng ĐỊA CHỈ CỦA CHÍNH NÓ — hai thửa cùng giấy ra hai mã khác nhau
-    assert thuas[0]["Mục đích sử dụng"][0][KEY_MA] == "ONT", "KILL [23c] thửa 1 phải ONT"
-    assert thuas[1]["Mục đích sử dụng"][0][KEY_MA] == "ODT", "KILL [23d] thửa 2 phải ODT"
-    assert thuas[0]["Mục đích sử dụng"][1][KEY_MA] == "CLN", "KILL [23e]"
-    # cột Mã chỉ một kiểu dữ liệu — không trộn số id với ký hiệu chữ
+    assert thuas[0]["Mục đích sử dụng"][0][KEY_MA] == 191, "KILL [23c] thửa 1 phải ONT"
+    assert thuas[1]["Mục đích sử dụng"][0][KEY_MA] == 192, "KILL [23d] thửa 2 phải ODT"
+    assert thuas[0]["Mục đích sử dụng"][1][KEY_MA] == 164, "KILL [23e] CLN"
+    # ký hiệu KHÔNG mất — nó nằm đầu cột "MĐSD chuẩn"
+    assert thuas[0]["Mục đích sử dụng"][1][KEY_TEN].startswith("CLN - "), "KILL [23e2]"
+    # cột Mã chỉ MỘT kiểu dữ liệu: số id, hoặc rỗng. Trộn số với chữ là đẩy
+    # sang FME thì vỡ.
     for _, _, _, _, md, _ in duyet_muc_dich(recs):
-        assert isinstance(md.get(KEY_MA, ""), str), f"KILL [23i] cột Mã lẫn kiểu: {md}"
+        v = md.get(KEY_MA, "")
+        assert v == "" or isinstance(v, int), f"KILL [23i] cột Mã lẫn kiểu: {md}"
     # nhập nhằng: CÓ key nhưng rỗng — form hậu kiểm cần ô trống để chuyên viên điền
     assert thuas[1]["Mục đích sử dụng"][1][KEY_MA] == "", "KILL [23f] nhập nhằng phải để trống"
     # mục đích rỗng: KHÔNG bịa ra ô mã
