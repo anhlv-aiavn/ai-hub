@@ -20,8 +20,9 @@ from src.extentions.multimodal.chu_cuoi import chu_cuoi_for_result
 
 
 def _print_chu_cuoi(doc: dict) -> None:
-    print(f"\n╭─ {doc.get('_id')}  ·  {doc.get('filename', '?')}")
-    print(f"│  trang {doc.get('page_count', '?')}  ·  s3_key {doc.get('s3_key', '?')}")
+    sph = ", ".join(doc.get("extracted_so_phat_hanhs") or []) or "(trống)"
+    print(f"\n╭─ SPH: {sph}   ·   {doc.get('filename', '?')}")
+    print(f"│  (dán SPH vào ô tìm trên UI)  ·  {doc.get('_id')}  ·  trang {doc.get('page_count', '?')}")
     idx = 0
     for rec in doc.get("extractions") or []:
         res = rec.get("result") if isinstance(rec, dict) else None
@@ -66,22 +67,49 @@ async def _pull_pdf(doc: dict, out_dir: str) -> None:
     print(f"   ↓ PDF gốc: {path}")
 
 
+_Q_CO_BD = {"extractions.result.Đăng ký.Biến động.Nội dung biến động":
+            {"$regex": "chuyển nhượng|tặng cho|thừa kế|chuyển quyền", "$options": "i"}}
+_Q_KHONG_BD = {"extractions.result.Đăng ký.Biến động": {"$size": 0}}
+
+
+async def _sample(match: dict, n: int) -> list[dict]:
+    cur = gcns().aggregate([{"$match": match}, {"$sample": {"size": n}}])
+    return [d async for d in cur]
+
+
 async def main() -> None:
-    p = argparse.ArgumentParser(description="Soi chu_cuoi + kéo PDF gốc để đối chiếu.")
-    p.add_argument("gcn_ids", nargs="+", help="Một hoặc nhiều _id hồ sơ gcn.")
+    p = argparse.ArgumentParser(description="Soi chu_cuoi (+ kéo PDF gốc) để đối chiếu.")
+    p.add_argument("gcn_ids", nargs="*", help="Các _id hồ sơ; bỏ trống → lấy mẫu ngẫu nhiên.")
+    p.add_argument("--mau", type=int, default=5,
+                   help="Chế độ mẫu (khi không truyền id): N ca CÓ chuyển chủ + N ca KHÔNG biến động.")
     p.add_argument("--out", default="/data/soi", help="Thư mục lưu PDF (trong container).")
-    p.add_argument("--no-pdf", action="store_true", help="Chỉ in chu_cuoi, không kéo PDF.")
+    p.add_argument("--pdf", action="store_true", help="Kéo cả PDF gốc (mặc định chỉ in chu_cuoi).")
     args = p.parse_args()
 
     print(f"DB: {config.MONGO_URI}/{config.MONGO_DB}")
-    for gid in args.gcn_ids:
-        doc = await gcns().find_one({"_id": gid})
-        if not doc:
-            print(f"\n⚠ Không tìm thấy hồ sơ {gid}")
-            continue
-        _print_chu_cuoi(doc)
-        if not args.no_pdf:
-            await _pull_pdf(doc, args.out)
+
+    if args.gcn_ids:
+        docs = []
+        for gid in args.gcn_ids:
+            d = await gcns().find_one({"_id": gid})
+            if d:
+                docs.append(d)
+            else:
+                print(f"\n⚠ Không tìm thấy hồ sơ {gid}")
+    else:
+        print(f"\n############ {args.mau} CA CÓ CHUYỂN CHỦ ############")
+        co = await _sample(_Q_CO_BD, args.mau)
+        for d in co:
+            _print_chu_cuoi(d)
+            if args.pdf:
+                await _pull_pdf(d, args.out)
+        print(f"\n############ {args.mau} CA KHÔNG BIẾN ĐỘNG ############")
+        docs = await _sample(_Q_KHONG_BD, args.mau)
+
+    for d in docs:
+        _print_chu_cuoi(d)
+        if args.pdf:
+            await _pull_pdf(d, args.out)
 
 
 if __name__ == "__main__":
