@@ -365,11 +365,22 @@ def map_dat_o(text, dia_chi: str = "") -> dict | None:
 _THEO_TEN = {chuan_hoa(m["ten_muc_dich"]): m["ky_hieu_muc_dich"] for m in LOAI_MDSDD}
 # tiền tố mã số của hệ cũ: "005-Đất khu vực nông thôn"
 _RE_TIEN_TO_SO = re.compile(r"^\d+\s*[-.]\s*")
+# chú thích trong ngoặc + đuôi diện tích — nhiễu quanh một mục đích ĐÚNG:
+# "Đất trồng cây lâu năm (sử dụng chung)" vẫn là CLN. Không bỏ thì chuỗi trượt
+# khớp tuyệt đối rồi rơi trúng regex họ, bị gán nhầm là "lẫn cột".
+_RE_NGOAC_CHU_THICH = re.compile(r"\s*\([^)]*\)\s*")
+_RE_DUOI_DIEN_TICH = re.compile(r"\s*:?\s*[\d.,]+\s*m2\s*$")
 
 
 def _khoa(text) -> str:
-    """Khóa tra bảng: chuẩn hóa + bỏ tiền tố mã số kiểu "005-"."""
-    return _RE_TIEN_TO_SO.sub("", chuan_hoa(text)).strip()
+    """Khóa tra bảng: chuẩn hóa + bỏ tiền tố mã số, chú thích ngoặc, đuôi diện tích.
+
+    An toàn với ký hiệu trong ngoặc "(ONT)" vì ky_hieu_trong_text đọc text GỐC
+    và chạy TRƯỚC mọi phép tra bảng.
+    """
+    t = _RE_TIEN_TO_SO.sub("", chuan_hoa(text))
+    t = _RE_NGOAC_CHU_THICH.sub(" ", t)
+    return _RE_DUOI_DIEN_TICH.sub("", t).strip()
 
 
 def _amb(ly_do: str) -> dict:
@@ -598,6 +609,16 @@ def _smoke() -> None:
                 "Sử dụng khác", "Thuế đất", "Đất không được cấp Giấy chứng nhận"):
         r = map_muc_dich(txt, "")
         assert r["ly_do"] == "khong_phai_muc_dich", f"KILL [20f] {txt!r}: {r}"
+    # nhiễu quanh một mục đích ĐÚNG không được làm mất mã (ca thật từ audit)
+    for txt, ky in (("Đất trồng cây lâu năm (sử dụng chung)", "CLN"),
+                    ("Đất giao thông (ngõ đi chung)", "DGT"),
+                    ("Đất trồng cây lâu năm: 300 m2", "CLN")):
+        r = map_muc_dich(txt, "")
+        assert r["ky_hieu"] == ky, f"KILL [20h] chú thích làm mất mã {txt!r}: {r}"
+    # nhưng ký hiệu trong ngoặc thì VẪN phải đọc được (đọc text gốc, trước khi tra bảng)
+    r = map_muc_dich("Đất ở tại nông thôn (ONT)", "")
+    assert r["ky_hieu"] == "ONT", f"KILL [20i] bỏ ngoặc làm mất ký hiệu: {r}"
+
     # HỌ KHÔNG ĐƯỢC CƯỚP MÃ của chuỗi đã khớp tuyệt đối
     for txt, ky in (("Đất trồng cây lâu năm khác", "CLN"), ("Đất TCLN", "CLN"),
                     ("Đất trồng cây lâu năm", "CLN"), ("Đất nuôi trồng thủy sản", "NTS")):
