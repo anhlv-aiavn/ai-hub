@@ -67,7 +67,12 @@ RE_DIA_CHI = re.compile(
     r"\s*[:.]?\s*(.+?)(?=(?:;|\.\s|\s+và\s+" + _HONORIFIC + r"\b|theo\s|$))",
     re.IGNORECASE,
 )
-RE_ANCHOR = re.compile(r"\b(" + _HONORIFIC + r")\s+", re.IGNORECASE)
+# Neo người: ông/bà/anh/chị + KHOẢNG TRẮNG hoặc DẤU HAI CHẤM ("Ông:" rất phổ biến).
+RE_ANCHOR = re.compile(r"\b(ông|bà|ong|ba|anh|chị|chi)[\s:]+", re.IGNORECASE)
+# Từ khóa ID/sinh — mốc để bóc tên KHÔNG có honorific (vd "Tặng cho Phạm Thị An, CMND…").
+RE_ID_KW = re.compile(
+    r"\b(?:sinh(?:\s*năm)?|năm\s*sinh|cccd|cmnd|cmt|căn\s*cước|chứng\s*minh)\b",
+    re.IGNORECASE)
 # Ngăn cách chủ trong chuỗi Tên chủ giấy gốc: "và (chồng/vợ) (là) (:)" hoặc ";".
 RE_SPLIT_NAME = re.compile(
     r"\s+và\s+(?:chồng|vợ)?\s*(?:là)?\s*:?\s*|\s*;\s*", re.IGNORECASE)
@@ -168,31 +173,117 @@ def _person_from_region(name: str, region: str) -> dict:
     }
 
 
-def extract_recipients(noi_dung: Any) -> list[dict]:
-    """Bóc (các) chủ NHẬN từ một text biến động chuyển chủ.
+def _looks_like_name(name: str) -> bool:
+    """Tên người VN: 2–5 token, token nào cũng hoa đầu, không chứa số."""
+    toks = name.split()
+    if not (2 <= len(toks) <= 5):
+        return False
+    return all(t[:1].isupper() and not any(ch.isdigit() for ch in t) for t in toks)
 
-    Neo theo 'Ông/Bà <tên>'; mỗi neo lấy vùng tới neo kế → parse trường. Chỉ GIỮ
-    neo có CCCD hoặc 'sinh năm' (lọc nhiễu như '...tài sản riêng của vợ chồng...').
-    Nếu chỉ có đúng một neo thì giữ dù thiếu trường (giao dịch 1 người tối giản).
+
+# Token acronym viết HOA nhưng KHÔNG phải tên — dừng gom tên khi gặp (vd
+# "Phương Văn Thao CCCD" không được nuốt "CCCD"). Không đưa "Nam"/"Năm" vào đây
+# vì là tên người phổ biến (Nguyễn Văn Nam).
+_STOP_TOK = {"cccd", "cmnd", "cmt", "qsdd", "qshn", "gcn", "tp", "tt"}
+
+
+def _lead_name(chunk: str) -> str:
+    """Giữ CÁC token hoa-đầu LIỀN ĐẦU của chunk làm tên; dừng ở token thường/số/acronym.
+
+    'Đặng Thị C theo hợp đồng' → 'Đặng Thị C'.  'Phạm Minh Hùng và Bà' → 'Phạm Minh Hùng'.
+    'Phương Văn Thao CCCD' → 'Phương Văn Thao'.
+    """
+    out: list[str] = []
+    for tok in chunk.split():
+        w = tok.strip(".,;:()")
+        if w and w[:1].isupper() and not any(ch.isdigit() for ch in w) and _norm(w) not in _STOP_TOK:
+            out.append(w)
+            if len(out) >= 5:
+                break
+        else:
+            break
+    while out and _norm(out[0]) in ("ong", "ba", "anh", "chi", "vo", "chong"):
+        out.pop(0)
+    return " ".join(out)
+
+
+def _name_before(text: str, pos: int) -> str:
+    """Lùi từ vị trí `pos` (mốc sinh/CCCD) gom các token HOA-đầu liền trước làm tên.
+
+    Bóc tên KHÔNG có 'Ông/Bà' — vd 'Tặng cho Phạm Thị An, CMND số…' → 'Phạm Thị An'.
+    Gặp token thường (cho, thửa, phường…) thì dừng, nên không nuốt nhầm chữ nền.
+    """
+    toks = text[:pos].rstrip(" ,;:.-").split()
+    out: list[str] = []
+    for tok in reversed(toks):
+        w = tok.strip(".,;:()")
+        if w and w[:1].isupper() and not any(ch.isdigit() for ch in w) and _norm(w) not in _STOP_TOK:
+            out.insert(0, w)
+            if len(out) >= 5:
+                break
+        else:
+            break
+    # bỏ tiền tố honorific nếu lọt vào (vd "Ông Lê Mai R" → "Lê Mai R") để trùng
+    # khớp với tên nhánh honorific khi dedup.
+    while out and _norm(out[0]) in ("ong", "ba", "anh", "chi", "vo", "chong"):
+        out.pop(0)
+    return " ".join(out) if 2 <= len(out) <= 5 else ""
+
+
+def _ends_after_cho(prefix: str) -> bool:
+    p = _norm(prefix).rstrip(" :")
+    return p.endswith("cho")
+
+
+def _ends_after_va(prefix: str) -> bool:
+    p = _norm(prefix).rstrip(" :")
+    return (p.endswith("va") or p.endswith("va vo") or p.endswith("va chong")
+            or p.endswith("vo") or p.endswith("chong") or prefix.rstrip().endswith(";"))
+
+
+def extract_recipients(noi_dung: Any) -> list[dict]:
+    """Bóc (các) chủ NHẬN từ một text biến động chuyển chủ. Hai chiến lược, gộp+dedup.
+
+    1. Neo 'Ông/Bà/Anh/Chị <tên>' (chịu cả 'Ông:'). Giữ neo khi: có CCCD/sinh, HOẶC
+       chỉ một neo, HOẶC đứng ngay sau 'cho', HOẶC sau 'và/;' mà neo trước đã giữ
+       (đồng chủ). Lọc nhiễu kiểu '…tài sản riêng của vợ chồng…'.
+    2. Tên KHÔNG honorific đứng ngay trước mốc 'sinh/CCCD' — vd 'Tặng cho Phạm Thị
+       An, CMND số…'. Chính xác vì bắt buộc kề mốc ID.
+
+    Chưa bọc: bên bán/bên mua lẫn lộn nhiều người KHÔNG ID (vd 'ông A chuyển cho
+    ông B') → trả rỗng, để tầng trên hạ confidence=thap và đẩy LLM/hậu kiểm.
     """
     text = _s(noi_dung)
     if not text:
         return []
-    anchors = list(RE_ANCHOR.finditer(text))
-    if not anchors:
-        return []
     persons: list[dict] = []
+
+    anchors = list(RE_ANCHOR.finditer(text))
+    prev_kept = False
     for k, a in enumerate(anchors):
         seg_start = a.end()
         seg_end = anchors[k + 1].start() if k + 1 < len(anchors) else len(text)
-        name = re.split(r"[,;]", text[seg_start:seg_end], maxsplit=1)[0].strip()
-        name = re.sub(r"\s+(sinh|cccd|cmnd|cmt|căn\s*cước|chứng\s*minh).*$", "",
-                      name, flags=re.IGNORECASE).strip()
+        # Tên = token hoa-đầu liền đầu, sau khi cắt ở dấu ngắt mệnh đề (,;.).
+        chunk = re.split(r"[,;.]", text[seg_start:seg_end], maxsplit=1)[0]
+        name = _lead_name(chunk)
         region = text[a.start():seg_end]
         has_signal = bool(RE_CCCD.search(region) or RE_NAM_SINH.search(region))
-        if has_signal or len(anchors) == 1:
-            if name:
-                persons.append(_person_from_region(name, region))
+        before = text[max(0, a.start() - 10):a.start()]
+        keep = (has_signal or len(anchors) == 1 or _ends_after_cho(before)
+                or (_ends_after_va(before) and prev_kept))
+        if keep and _looks_like_name(name):
+            persons.append(_person_from_region(name, region))
+            prev_kept = True
+        else:
+            prev_kept = False
+
+    for m in RE_ID_KW.finditer(text):
+        name = _name_before(text, m.start())
+        if name:
+            # vùng quanh mốc để nhặt CCCD/địa chỉ của chính người này
+            region = text[max(0, m.start() - len(name) - 4):m.start() + 200]
+            persons.append(_person_from_region(name, region))
+
     return _dedup_persons(persons)
 
 
@@ -382,6 +473,47 @@ def _smoke() -> None:
     assert r["nguon"] == "giay_goc", f"KILL [15] nghĩa vụ tài chính KHÔNG đổi chủ: {r}"
     assert [c["Tên chủ"] for c in r["chu"]] == ["Vũ Hữu S", "Đoàn Thị T"], f"KILL [16] {r['chu']}"
 
+    # A: honorific có DẤU HAI CHẤM "Ông:" / "Bà:"
+    r = extract_recipients("Chuyển nhượng cho Ông: Đỗ Văn Sơn, Sinh năm: 1988, "
+                           "CCCD số: 801088018893 và Vợ là bà: Phạm Thị Hà, Sinh năm: 1990, "
+                           "CCCD số: 017190063472. Cả hai cùng thường trú: Đội 1, xã X.")
+    got = [c["Tên chủ"] for c in r]
+    assert got == ["Đỗ Văn Sơn", "Phạm Thị Hà"], f"KILL [26] anchor dấu hai chấm: {got}"
+    assert r[0]["Số giấy tờ"] == "801088018893", f"KILL [27] {r}"
+
+    # B: tên KHÔNG honorific, ngay sau 'Tặng cho', có sinh+CMND
+    r = extract_recipients("Tặng cho Phạm Thị An, sinh năm 1970, CMND số 010121694, "
+                           "thường trú tại phường X, quận Y.")
+    assert [c["Tên chủ"] for c in r] == ["Phạm Thị An"], f"KILL [28] tên sau 'cho' không honorific: {r}"
+    assert r[0]["Số giấy tờ"] == "010121694", f"KILL [29] {r}"
+
+    # B: 'cho ... cho <Tên>, sinh năm' (nhiều 'cho', tên ở cụm cuối)
+    r = extract_recipients("Tặng cho toàn bộ thửa đất cho Đỗ Văn Tình, sinh năm 1966, "
+                           "CMND số 112521221, thường trú tại thôn X; theo hồ sơ số 190919-0017BĐ")
+    assert [c["Tên chủ"] for c in r] == ["Đỗ Văn Tình"], f"KILL [30]: {r}"
+
+    # C: 'cho Ông X và Bà Y' KHÔNG có ID — giữ nhờ đứng sau 'cho'/'và'
+    r = extract_recipients("Đã cho tặng một phần QSDĐ theo hợp đồng số 131 ngày 24/9/2007 "
+                           "cho Ông Phạm Minh Hùng và Bà Hoàng Thị Minh Thơm. Đất ở sử dụng riêng 42.5 m2.")
+    assert [c["Tên chủ"] for c in r] == ["Phạm Minh Hùng", "Hoàng Thị Minh Thơm"], f"KILL [31]: {r}"
+
+    # C: 'Cho ông X và vợ bà Y' — vợ đứng sau 'và vợ' vẫn được giữ (đồng chủ)
+    r = extract_recipients("Ông Trịnh Hòa A chuyển nhượng toàn bộ nhà ở Cho ông "
+                           "Nguyễn Bá B và vợ bà Đặng Thị C theo hợp đồng số 798.")
+    assert [c["Tên chủ"] for c in r] == ["Nguyễn Bá B", "Đặng Thị C"], f"KILL [33] và-vợ: {r}"
+
+    # KHÔNG bắt nhầm chữ nền thành tên (không có neo hợp lệ → rỗng)
+    r = extract_recipients("Đã chuyển quyền sử dụng đất theo hợp đồng số 3115.")
+    assert r == [], f"KILL [34] không được chế tên từ chữ nền: {r}"
+    # KHÔNG bắt tên tổ chức sau 'cho' (Văn phòng công chứng…) — precision
+    r = extract_recipients("Chuyển nhượng lập tại Văn phòng công chứng Thủ Đô số 12.")
+    assert r == [], f"KILL [35] không được coi tổ chức là chủ: {r}"
+
+    # 'Ông: Tên CCCD số:…' KHÔNG dấu phẩy — không được nuốt 'CCCD' vào tên
+    r = extract_recipients("cho chủ sử dụng: Ông: Phương Văn Thao CCCD số: 001058006269")
+    assert [c["Tên chủ"] for c in r] == ["Phương Văn Thao"], f"KILL [36] nuốt acronym: {r}"
+    assert r[0]["Số giấy tờ"] == "001058006269", f"KILL [37] {r}"
+
     # F3: các định dạng ngày phải parse & so sánh đúng
     assert parse_date("31/01/07") == (2007, 1, 31), "KILL [17]"
     assert parse_date("19.4.06") == (2006, 4, 19), "KILL [18]"
@@ -397,7 +529,7 @@ def _smoke() -> None:
     # phủ định TRƯỚC: vừa chuyển nhượng vừa xóa thế chấp → không đổi chủ
     assert classify_bien_dong("Xóa thế chấp do chuyển nhượng") == "khong_doi_chu", "KILL [25]"
 
-    print("PASS — chu_cuoi PURE: 25 KILL case xanh")
+    print("PASS — chu_cuoi PURE: 37 KILL case xanh")
 
 
 if __name__ == "__main__":
