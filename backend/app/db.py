@@ -56,6 +56,12 @@ async def ensure_indexes() -> None:
     await gcns().create_index("status")
     await gcns().create_index("branch")
     await gcns().create_index("extracted_so_phat_hanhs")
+    # Hàng đợi "cần xác minh chủ cuối" — partial index: chỉ ~1% hồ sơ có cảnh báo
+    # nên index gọn, lọc nhanh ở quy mô trăm nghìn (xem routes/gcn.py `canh_bao`).
+    await gcns().create_index(
+        "chu_cuoi.canh_bao", background=True, name="canh_bao_chu_cuoi",
+        partialFilterExpression={"chu_cuoi.canh_bao": {"$exists": True}},
+    )
     await batches().create_index("created_at")
     await batches().create_index("branch")
     await users().create_index("username", unique=True)

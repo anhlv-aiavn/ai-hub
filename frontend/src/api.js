@@ -302,13 +302,14 @@ export async function unassignBatchUser(batchId, username) {
 }
 
 // ── GCN / bảng trích xuất ────────────────────────────────────────────────────
-export async function listGcn({ batchId, status, review, reviewer, q, page = 1, pageSize = 50 } = {}) {
+export async function listGcn({ batchId, status, review, reviewer, q, canhBao, page = 1, pageSize = 50 } = {}) {
   const p = new URLSearchParams();
   if (batchId) p.set("batch_id", batchId);
   if (status) p.set("status", status);
   if (review) p.set("review", review);
   if (reviewer) p.set("reviewer", reviewer);
   if (q) p.set("q", q);
+  if (canhBao) p.set("canh_bao", canhBao === "co" ? "true" : "false");
   p.set("page", String(page));
   p.set("page_size", String(pageSize));
   return handle(await fetch(`/v1/gcn?${p.toString()}`, { headers: headers() }));

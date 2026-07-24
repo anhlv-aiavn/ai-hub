@@ -134,6 +134,7 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
   const [review, setReview] = useState("");
   const [reviewer, setReviewer] = useState("");
   const [reviewers, setReviewers] = useState([]);
+  const [canhBao, setCanhBao] = useState("");  // "" | "co" | "khong"
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
   const [hasPending, setHasPending] = useState(false);
@@ -148,6 +149,7 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
       const d = await listGcn({
         batchId, status: status || undefined,
         review: review || undefined, reviewer: reviewer || undefined,
+        canhBao: canhBao || undefined,
         q: q.trim() || undefined, page: p, pageSize: PAGE_SIZE,
       });
       const list = d.gcn || [];
@@ -177,7 +179,7 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
   // Đổi bộ lọc → về trang 1 (không dùng state `page` cũ để tránh closure lệch nhịp).
   // Đổi batchId (kể cả khi vừa tạo đợt mới ở "Số hóa") → cũng nạp lại danh sách đợt
   // để số lượng hồ sơ hiển thị đúng ngay, không cần tải lại trang.
-  useEffect(() => { setPage(1); refresh(1); refreshBatches(); /* eslint-disable-next-line */ }, [batchId, status, review, reviewer]);
+  useEffect(() => { setPage(1); refresh(1); refreshBatches(); /* eslint-disable-next-line */ }, [batchId, status, review, reviewer, canhBao]);
   // Danh sách tài khoản phụ thuộc đợt đang chọn — nạp lại khi đổi.
   useEffect(() => { refreshReviewers(); /* eslint-disable-next-line */ }, [batchId, canFilterReviewer]);
 
@@ -246,6 +248,12 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
               {reviewers.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           )}
+          <select value={canhBao} onChange={(e) => setCanhBao(e.target.value)}
+            title="Hồ sơ có chuyển nhượng nhưng không xác định được chủ mới — cần chuyên viên xác minh">
+            <option value="">Mọi cảnh báo</option>
+            <option value="co">⚠ Cần xác minh chủ cuối</option>
+            <option value="khong">Không có cảnh báo</option>
+          </select>
           <div className="search-box" title="Tìm theo số phát hành, số tờ, số thửa, số vào sổ, tên hồ sơ, tên file GCN, chủ sử dụng">
             <Icon name="search" size={15} />
             <input

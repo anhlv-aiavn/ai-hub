@@ -73,6 +73,9 @@ async def list_gcn(
     q: str | None = Query(default=None, description=(
         "Tìm theo Số phát hành, Số tờ, Số thửa, Số vào sổ, tên tệp/tên hồ sơ, "
         "tên file GCN (cắt) hoặc Chủ sử dụng")),
+    canh_bao: bool | None = Query(default=None, description=(
+        "true → CHỈ hồ sơ có cảnh báo 'có chuyển nhượng nhưng chưa rõ chủ' (cần "
+        "chuyên viên xác minh); false → chỉ hồ sơ KHÔNG có cảnh báo")),
     page: int = 1,
     page_size: int = 50,
     user: dict = Depends(current_user),
@@ -95,6 +98,11 @@ async def list_gcn(
         flt["review.status"] = review
     if reviewer:
         flt["review.reviewer"] = reviewer
+    if canh_bao is not None:
+        # Hàng đợi "cần xác minh": có chuyển nhượng nhưng không moi được chủ mới
+        # (tên không nằm trong dữ liệu) — xem chu_cuoi.canh_bao.
+        flt["chu_cuoi.canh_bao"] = (
+            "co_chuyen_nhuong_chua_ro_chu" if canh_bao else {"$ne": "co_chuyen_nhuong_chua_ro_chu"})
     # $or dùng cho 2 mục đích độc lập (giới hạn hiển thị của viewer, và tìm theo
     # `q`) — gộp bằng $and thay vì gán thẳng flt["$or"] 2 lần (dict Python chỉ giữ
     # được 1 khóa "$or", lần gán sau sẽ ghi đè mất lần trước).
