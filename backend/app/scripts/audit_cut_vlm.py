@@ -14,7 +14,9 @@ Chạy TRONG CONTAINER:
     docker compose cp ./0161849.pdf api:/tmp/x.pdf
     docker compose exec api python -m app.scripts.audit_cut_vlm --file /tmp/x.pdf
 
-    # soi hồ sơ đã xử lý, kéo PDF gốc từ MinIO + so nhãn với nhóm ĐÃ LƯU
+    # soi hồ sơ ĐÃ XỬ LÝ — kéo PDF gốc từ MinIO, so nhãn với nhóm ĐÃ LƯU.
+    # Cách tiện nhất: tra bằng Số phát hành in trên bìa, khỏi copy file, khỏi biết id.
+    docker compose exec api python -m app.scripts.audit_cut_vlm --sph "D 0161849"
     docker compose exec api python -m app.scripts.audit_cut_vlm --gcn-id <id>
 
     # soi cả danh sách nghi ngờ (mỗi dòng 1 gcn_id, do audit_cut_offline xuất)
@@ -173,19 +175,27 @@ async def main() -> None:
     p = argparse.ArgumentParser(description="Phase 0.1b — soi chuỗi nhãn classify_page.")
     p.add_argument("--file", default=None, help="PDF local trong container.")
     p.add_argument("--gcn-id", action="append", default=[], help="Hồ sơ trong Mongo (lặp được).")
+    p.add_argument("--sph", action="append", default=[],
+                   help="Tra theo Số phát hành in trên bìa (lặp được) — khỏi cần biết id.")
     p.add_argument("--ids-file", default=None, help="Tệp mỗi dòng 1 gcn_id.")
     p.add_argument("--limit", type=int, default=0, help="Trần số hồ sơ từ --ids-file.")
     p.add_argument("--vlm", type=int, default=8, help="Trần call classify_page đồng thời.")
     args = p.parse_args()
 
     ids = list(args.gcn_id)
+    for sph in args.sph:
+        # `extracted_so_phat_hanhs` đã được index sẵn (db.py) → tra nhanh, không quét.
+        found = await gcns().find({"extracted_so_phat_hanhs": sph}, {"_id": 1}).to_list(20)
+        if not found:
+            print(f"  không thấy hồ sơ nào có Số phát hành {sph!r}")
+        ids += [d["_id"] for d in found]
     if args.ids_file:
         with open(args.ids_file) as f:
             ids += [ln.strip() for ln in f if ln.strip()]
     if args.limit:
         ids = ids[: args.limit]
-    if not args.file and not ids:
-        p.error("cần --file hoặc --gcn-id/--ids-file")
+    if not args.file and not ids and not args.sph:
+        p.error("cần --file hoặc --sph/--gcn-id/--ids-file")
 
     print(f"render dpi={RENDER_DPI} max={RENDER_MAX_SIZE} (ĐÚNG production) · "
           f"DETECT_MIN_PAGES={DETECT_MIN_PAGES} · ≤{args.vlm} call đồng thời")
