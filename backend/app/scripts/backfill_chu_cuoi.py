@@ -138,27 +138,42 @@ async def run(limit, batch_id, dry_run, use_llm, vlm, show, only_canh_bao) -> No
     if limit:
         cur = cur.limit(limit)
 
-    async for doc in cur:
-        n_doc += 1
-        ccs = await _compute_doc(doc, sem, use_llm)
-        _tally(ccs, st)
+    # Xử lý theo LÔ SONG SONG: nếu await từng doc một thì semaphore --vlm vô nghĩa
+    # (chỉ 1 call LLM bay cùng lúc → nâng --vlm không nhanh hơn). Giữ `chunk` doc
+    # cùng chạy để lấp đủ trần đồng thời.
+    chunk = max(1, vlm) * 2
+    buf: list[dict] = []
 
-        if show and n_doc <= show:
-            _print_doc(doc, ccs)
-
-        if not dry_run:
-            fields = {"chu_cuoi": ccs, "chu_cuoi_version": ALGO_VERSION}
-            if only_canh_bao:
-                fields["chu_cuoi_llm_done"] = True  # đã thử LLM, khỏi gọi lại
-            ops.append(UpdateOne({"_id": doc["_id"]}, {"$set": fields}))
-            if len(ops) >= BULK:
-                res = await gcns().bulk_write(ops, ordered=False)
-                n_written += res.modified_count
-                ops.clear()
+    async def _flush() -> None:
+        nonlocal n_doc, n_written, last
+        if not buf:
+            return
+        results = await asyncio.gather(*(_compute_doc(d, sem, use_llm) for d in buf))
+        for d, ccs in zip(buf, results):
+            n_doc += 1
+            _tally(ccs, st)
+            if show and n_doc <= show:
+                _print_doc(d, ccs)
+            if not dry_run:
+                fields = {"chu_cuoi": ccs, "chu_cuoi_version": ALGO_VERSION}
+                if only_canh_bao:
+                    fields["chu_cuoi_llm_done"] = True  # đã thử LLM, khỏi gọi lại
+                ops.append(UpdateOne({"_id": d["_id"]}, {"$set": fields}))
+        buf.clear()
+        if ops and not dry_run and len(ops) >= BULK:
+            res = await gcns().bulk_write(ops, ordered=False)
+            n_written += res.modified_count
+            ops.clear()
         now = time.perf_counter()
         if now - last >= PROGRESS_SEC:
             _progress(n_doc, total, t0, st)
             last = now
+
+    async for doc in cur:
+        buf.append(doc)
+        if len(buf) >= chunk:
+            await _flush()
+    await _flush()
 
     if ops and not dry_run:
         res = await gcns().bulk_write(ops, ordered=False)
