@@ -87,12 +87,17 @@ def _tally(ccs: list[dict], st: Counter) -> None:
             st["llm_recover"] += 1
 
 
-async def run(limit, batch_id, dry_run, use_llm, vlm, show) -> None:
-    q: dict = {
-        "extractions": {"$exists": True, "$ne": []},
-        "$or": [{"chu_cuoi_version": {"$exists": False}},
-                {"chu_cuoi_version": {"$lt": ALGO_VERSION}}],
-    }
+async def run(limit, batch_id, dry_run, use_llm, vlm, show, only_canh_bao) -> None:
+    if only_canh_bao:
+        # PHA LLM riêng: chỉ đụng ca 'có chuyển nhượng chưa rõ chủ' mà CHƯA thử LLM
+        # (đánh dấu chu_cuoi_llm_done để chạy lại không gọi LLM lặp cho ca vẫn rỗng).
+        q = {"chu_cuoi.canh_bao": "co_chuyen_nhuong_chua_ro_chu",
+             "chu_cuoi_llm_done": {"$ne": True}}
+        use_llm = True
+    else:
+        q = {"extractions": {"$exists": True, "$ne": []},
+             "$or": [{"chu_cuoi_version": {"$exists": False}},
+                     {"chu_cuoi_version": {"$lt": ALGO_VERSION}}]}
     if batch_id:
         q["batch_id"] = batch_id
 
@@ -114,9 +119,10 @@ async def run(limit, batch_id, dry_run, use_llm, vlm, show) -> None:
             _print_doc(doc, ccs)
 
         if not dry_run:
-            ops.append(UpdateOne(
-                {"_id": doc["_id"]},
-                {"$set": {"chu_cuoi": ccs, "chu_cuoi_version": ALGO_VERSION}}))
+            fields = {"chu_cuoi": ccs, "chu_cuoi_version": ALGO_VERSION}
+            if only_canh_bao:
+                fields["chu_cuoi_llm_done"] = True  # đã thử LLM, khỏi gọi lại
+            ops.append(UpdateOne({"_id": doc["_id"]}, {"$set": fields}))
             if len(ops) >= BULK:
                 res = await gcns().bulk_write(ops, ordered=False)
                 n_written += res.modified_count
@@ -167,11 +173,16 @@ async def main() -> None:
     p.add_argument("--no-llm", action="store_true", help="Bỏ LLM (regex-only, nhanh).")
     p.add_argument("--vlm", type=int, default=6, help="Trần call LLM đồng thời (mặc định 6).")
     p.add_argument("--show", type=int, default=0, help="In chi tiết N doc đầu để soi.")
+    p.add_argument("--only-canh-bao", action="store_true",
+                   help="PHA LLM riêng: chỉ chạy ca canh_bao chưa thử LLM (ép LLM bật).")
     args = p.parse_args()
 
-    print(f"DB: {config.MONGO_URI}/{config.MONGO_DB}  ·  algo v{ALGO_VERSION}"
-          f"  ·  LLM {'TẮT' if args.no_llm else f'BẬT (≤{args.vlm} đồng thời)'}")
-    await run(args.limit, args.batch_id, args.dry_run, not args.no_llm, args.vlm, args.show)
+    use_llm = (not args.no_llm) or args.only_canh_bao
+    mode = "CHỈ CA CẢNH BÁO" if args.only_canh_bao else "toàn kho"
+    print(f"DB: {config.MONGO_URI}/{config.MONGO_DB}  ·  algo v{ALGO_VERSION}  ·  {mode}"
+          f"  ·  LLM {'BẬT' if use_llm else 'TẮT'} (≤{args.vlm} đồng thời)")
+    await run(args.limit, args.batch_id, args.dry_run, use_llm, args.vlm, args.show,
+              args.only_canh_bao)
 
 
 if __name__ == "__main__":
