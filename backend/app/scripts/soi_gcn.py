@@ -77,18 +77,33 @@ async def _sample(match: dict, n: int) -> list[dict]:
     return [d async for d in cur]
 
 
+async def _recent(match: dict, n: int) -> list[dict]:
+    """N doc MỚI XỬ LÝ nhất khớp `match` (theo finished_at, fallback created_at)."""
+    cur = gcns().find(match).sort("finished_at", -1).limit(n)
+    docs = [d async for d in cur]
+    if not docs:  # doc cũ có thể thiếu finished_at → thử theo created_at
+        cur = gcns().find(match).sort("created_at", -1).limit(n)
+        docs = [d async for d in cur]
+    return docs
+
+
 async def main() -> None:
     p = argparse.ArgumentParser(description="Soi chu_cuoi (+ kéo PDF gốc) để đối chiếu.")
     p.add_argument("gcn_ids", nargs="*", help="Các _id hồ sơ; bỏ trống → lấy mẫu ngẫu nhiên.")
     p.add_argument("--mau", type=int, default=5,
                    help="Chế độ mẫu (khi không truyền id): N ca CÓ chuyển chủ + N ca KHÔNG biến động.")
+    p.add_argument("--moi", type=int, default=0,
+                   help="Lấy N ca CÓ chuyển chủ MỚI XỬ LÝ NHẤT (bỏ qua nhóm không biến động).")
     p.add_argument("--out", default="/data/soi", help="Thư mục lưu PDF (trong container).")
     p.add_argument("--pdf", action="store_true", help="Kéo cả PDF gốc (mặc định chỉ in chu_cuoi).")
     args = p.parse_args()
 
     print(f"DB: {config.MONGO_URI}/{config.MONGO_DB}")
 
-    if args.gcn_ids:
+    if args.moi:
+        print(f"\n############ {args.moi} CA CÓ CHUYỂN CHỦ — MỚI XỬ LÝ NHẤT ############")
+        docs = await _recent(_Q_CO_BD, args.moi)
+    elif args.gcn_ids:
         docs = []
         for gid in args.gcn_ids:
             d = await gcns().find_one({"_id": gid})
