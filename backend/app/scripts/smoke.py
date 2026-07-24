@@ -181,10 +181,30 @@ async def stage_chu_cuoi_llm(limit: int) -> None:
           f"({recovered/len(hard)*100:.0f}%) · còn lại {len(hard)-recovered} → hậu kiểm")
 
 
+async def stage_backfill_idem(limit: int) -> None:
+    """Backfill idempotent: regex chạy 2 lần cho CÙNG kết quả (không LLM cho tất định).
+
+    docker compose exec api python -m app.scripts.smoke backfill_idem --limit 100
+    """
+    from src.extentions.multimodal.chu_cuoi import chu_cuoi_for_result
+
+    docs = await _sample_docs({"extractions": {"$exists": True, "$ne": []}}, limit)
+    if not docs:
+        raise Skip("không có doc nào")
+    for doc in docs:
+        for result in _entries(doc):
+            a = chu_cuoi_for_result(result)
+            b = chu_cuoi_for_result(result)
+            if a != b:
+                raise Kill(f"doc {doc.get('_id')}: regex KHÔNG tất định (2 lần khác nhau)")
+    print(f"  {len(docs)} doc · regex tất định (2 lần == nhau) ✓")
+
+
 # đăng ký stage: tên → (hàm, mô tả)
 _STAGES = {
     "chu_cuoi_real": (stage_chu_cuoi_real, "chu_cuoi trên doc có biến động thật"),
     "chu_cuoi_llm": (stage_chu_cuoi_llm, "LLM text-only cứu ca regex bó tay (cần vLLM)"),
+    "backfill_idem": (stage_backfill_idem, "regex tất định (idempotent) cho backfill"),
 }
 
 
