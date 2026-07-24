@@ -117,5 +117,5 @@ async def refine_chu_cuoi(cc: dict, entry: dict) -> dict:
         return cc
     chu = await extract_recipients_llm(bds[idx].get("Nội dung biến động"))
     if not chu:
-        return cc
-    return {**cc, "chu": chu, "confidence": "cao", "method": "llm"}
+        return cc  # LLM cũng chịu → giữ cờ canh_bao cho hậu kiểm
+    return {**cc, "chu": chu, "confidence": "cao", "method": "llm", "canh_bao": ""}

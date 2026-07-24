@@ -364,11 +364,15 @@ def chu_cuoi_for_entry(entry: dict) -> dict:
         chu = extract_recipients(b.get("Nội dung biến động"))
         co_ngay = parse_date(b.get("Thời gian")) is not None
         conf = "cao" if (chu and co_ngay) else "thap"
+        # CỜ CẢNH BÁO: có chuyển nhượng THẬT nhưng không moi được chủ nào — thông
+        # tin không nằm trong dữ liệu (tên rớt từ khâu extract) → cần chuyên viên
+        # xác minh, KHÔNG được coi chủ giấy gốc là chủ hiện tại (đã bị chuyển đi).
         return {
             "algo_version": ALGO_VERSION, "nguon": "bien_dong",
             "bien_dong_index": idx, "thoi_gian": _s(b.get("Thời gian")),
             "loai": _loai_slug(b.get("Nội dung biến động")),
             "chu": chu, "confidence": conf,
+            "canh_bao": "" if chu else "co_chuyen_nhuong_chua_ro_chu",
         }
 
     # Không có chuyển chủ → chủ giấy gốc.
@@ -377,6 +381,7 @@ def chu_cuoi_for_entry(entry: dict) -> dict:
         "algo_version": ALGO_VERSION, "nguon": "giay_goc",
         "bien_dong_index": None, "thoi_gian": "", "loai": "",
         "chu": chu, "confidence": "cao" if chu else "thap",
+        "canh_bao": "",
     }
 
 
@@ -465,6 +470,14 @@ def _smoke() -> None:
     # F7: result rỗng → chu rỗng, thap, KHÔNG crash
     r = chu_cuoi_for_entry({"Chủ sử dụng": [], "Biến động": []})
     assert r["nguon"] == "giay_goc" and r["chu"] == [] and r["confidence"] == "thap", f"KILL [14] {r}"
+    assert r["canh_bao"] == "", f"KILL [14b] giấy gốc không cảnh báo: {r}"
+
+    # CỜ CẢNH BÁO: có chuyển nhượng thật nhưng text không có tên → canh_bao bật
+    r = chu_cuoi_for_entry({"Chủ sử dụng": [{"Tên chủ": "Cũ X"}],
+        "Biến động": [{"Thời gian": "10/5/2015",
+                       "Nội dung biến động": "Nhận chuyển nhượng từ GCN số A0 706713 do UBND cấp."}]})
+    assert r["nguon"] == "bien_dong" and r["chu"] == [], f"KILL [14c] {r}"
+    assert r["canh_bao"] == "co_chuyen_nhuong_chua_ro_chu", f"KILL [14d] phải bật cờ cảnh báo: {r}"
 
     # Chỉ nghĩa vụ tài chính → không đổi chủ
     e5 = {"Chủ sử dụng": [{"Tên chủ": "Vũ Hữu S và Đoàn Thị T"}],
@@ -529,7 +542,7 @@ def _smoke() -> None:
     # phủ định TRƯỚC: vừa chuyển nhượng vừa xóa thế chấp → không đổi chủ
     assert classify_bien_dong("Xóa thế chấp do chuyển nhượng") == "khong_doi_chu", "KILL [25]"
 
-    print("PASS — chu_cuoi PURE: 37 KILL case xanh")
+    print("PASS — chu_cuoi PURE: 39 KILL case xanh")
 
 
 if __name__ == "__main__":
