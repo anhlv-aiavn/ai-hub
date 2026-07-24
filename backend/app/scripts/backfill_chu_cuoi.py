@@ -53,6 +53,11 @@ def _iter_entries(doc: dict):
                 yield ri, ei, e
 
 
+def _sph_of(entry: dict) -> str:
+    gcn = entry.get("Giấy chứng nhận") if isinstance(entry, dict) else None
+    return str(gcn.get("Số phát hành", "")) if isinstance(gcn, dict) else ""
+
+
 async def _compute_doc(doc: dict, sem, use_llm: bool) -> list[dict]:
     """Tính danh sách chu_cuoi cho 1 doc (regex + LLM cho ca canh_bao)."""
     out: list[dict] = []
@@ -61,7 +66,9 @@ async def _compute_doc(doc: dict, sem, use_llm: bool) -> list[dict]:
         if use_llm and cc.get("canh_bao"):
             async with sem:
                 cc = await refine_chu_cuoi(cc, entry)
-        out.append({"rec_index": ri, "entry_index": ei, **cc})
+        # so_phat_hanh = khóa nghiệp vụ để map chu_cuoi ↔ GCN (Phase 4) và để soi
+        # trên UI (ô tìm kiếm khớp Số phát hành).
+        out.append({"rec_index": ri, "entry_index": ei, "so_phat_hanh": _sph_of(entry), **cc})
     return out
 
 
@@ -94,7 +101,7 @@ async def run(limit, batch_id, dry_run, use_llm, vlm, show) -> None:
     ops: list[UpdateOne] = []
     n_doc = n_written = 0
 
-    cur = gcns().find(q, {"extractions": 1}).batch_size(BULK)
+    cur = gcns().find(q, {"extractions": 1, "filename": 1}).batch_size(BULK)
     if limit:
         cur = cur.limit(limit)
 
@@ -125,12 +132,14 @@ async def run(limit, batch_id, dry_run, use_llm, vlm, show) -> None:
 
 
 def _print_doc(doc, ccs) -> None:
-    print(f"\n  ── {doc.get('_id')} ──")
+    # In tên tệp để tra nhanh; Số phát hành để DÁN VÀO Ô TÌM KIẾM trên UI đối soát.
+    print(f"\n  ── {doc.get('filename') or doc.get('_id')} ──")
     for cc in ccs:
         names = " + ".join(c["Tên chủ"] for c in cc["chu"]) or "(chưa rõ)"
         flag = "  ⚠ CẦN XÁC MINH" if cc.get("canh_bao") else ""
         via = f" [{cc.get('method', 'regex')}]"
-        print(f"     {cc['nguon']:9} {cc['confidence']:4}{via}  {names}{flag}")
+        sph = cc.get("so_phat_hanh") or "—"
+        print(f"     SPH {sph:<14} {cc['nguon']:9} {cc['confidence']:4}{via}  {names}{flag}")
 
 
 def _report(n_doc, n_written, st, dry_run) -> None:
