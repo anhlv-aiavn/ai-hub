@@ -132,9 +132,59 @@ def _clip(s: str, n: int = 320) -> str:
     return s if len(s) <= n else s[:n] + " …"
 
 
+async def stage_chu_cuoi_llm(limit: int) -> None:
+    """LLM text-only trên ĐÚNG các ca regex bó tay (chu=[]) — đo recover thật.
+
+    Cần vLLM endpoint (VLLM_BASE_URL). KHÔNG ghi DB.
+    docker compose exec api python -m app.scripts.smoke chu_cuoi_llm --limit 40
+    """
+    from src.extentions.multimodal.chu_cuoi import chu_cuoi_for_entry
+    from src.extentions.multimodal.chu_cuoi_llm import refine_chu_cuoi
+
+    docs = await _sample_docs(
+        {"extractions.result.Đăng ký.Biến động.Nội dung biến động": {"$exists": True, "$ne": ""}},
+        limit)
+    if not docs:
+        raise Skip("không có doc nào có biến động")
+
+    hard: list[tuple[dict, dict]] = []  # (cc, entry) các ca chu=[] cần LLM
+    for doc in docs:
+        for result in _entries(doc):
+            for entry in result.get("Đăng ký") or []:
+                if not isinstance(entry, dict):
+                    continue
+                cc = chu_cuoi_for_entry(entry)
+                if cc["nguon"] == "bien_dong" and cc["confidence"] == "thap" and not cc["chu"]:
+                    hard.append((cc, entry))
+
+    if not hard:
+        print("  không có ca chu=[] trong mẫu (regex đã phủ hết) — tăng --limit")
+        return
+
+    recovered = 0
+    for cc, entry in hard:
+        idx = cc["bien_dong_index"]
+        text = (entry.get("Biến động") or [])[idx].get("Nội dung biến động", "")
+        new = await refine_chu_cuoi(cc, entry)
+        if new.get("chu"):
+            recovered += 1
+            names = [c["Tên chủ"] for c in new["chu"]]
+            # Bất biến cấu trúc LLM: tên không rỗng, Số giấy tờ (nếu có) 9/12 hoặc Hộ chiếu
+            for c in new["chu"]:
+                if not (c.get("Tên chủ") or "").strip():
+                    raise Kill(f"LLM trả chủ rỗng tên: {new}")
+            print(f"  ✓ {names}\n      ← {_clip(text, 160)}")
+        else:
+            print(f"  · (LLM cũng chịu) {_clip(text, 160)}")
+
+    print(f"\n  ca chu=[] {len(hard)} · LLM recover {recovered} "
+          f"({recovered/len(hard)*100:.0f}%) · còn lại {len(hard)-recovered} → hậu kiểm")
+
+
 # đăng ký stage: tên → (hàm, mô tả)
 _STAGES = {
     "chu_cuoi_real": (stage_chu_cuoi_real, "chu_cuoi trên doc có biến động thật"),
+    "chu_cuoi_llm": (stage_chu_cuoi_llm, "LLM text-only cứu ca regex bó tay (cần vLLM)"),
 }
 
 
