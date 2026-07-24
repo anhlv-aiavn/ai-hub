@@ -327,10 +327,14 @@ Hồ sơ có HAI KIỂU mẫu Giấy chứng nhận, phải phân biệt vì bì
 
 - "other": trang CHẮC CHẮN không thuộc Giấy chứng nhận nào — CMND/CCCD/hộ chiếu, sổ hộ khẩu, hợp đồng công chứng, tờ khai thuế, đơn từ, công văn, biên bản, ảnh chụp người/vật — hoặc trang trắng hoàn toàn.
 
+ẢNH XOAY VÀ TỜ GẤP ĐÔI (đọc kỹ, đây là chỗ hay sai nhất):
+  • Ảnh xoay 90°: dòng tiêu đề "GIẤY CHỨNG NHẬN…" sẽ nằm DỌC theo cạnh trang, phải nghiêng đầu mới đọc được. Nó VẪN LÀ TIÊU ĐỀ → vẫn "cover". Đừng vì chữ nằm dọc mà bỏ qua.
+  • Tờ gấp đôi (hai nửa trên/dưới hoặc trái/phải): chỉ cần MỘT trong hai nửa có tiêu đề "GIẤY CHỨNG NHẬN … QUYỀN SỬ DỤNG ĐẤT" thì cả trang là "cover" — KỂ CẢ khi nửa còn lại trống trơn, hoặc là bảng "Nội dung thay đổi và cơ sở pháp lý" / "Xác nhận của cơ quan có thẩm quyền" chưa ghi gì, hoặc là phần chữ nhỏ "Người được cấp Giấy chứng nhận cần chú ý". Những nửa trống đó KHÔNG hạ trang xuống "content".
+
 QUY TẮC AN TOÀN (quan trọng): nếu phân vân giữa "content" và "other", hãy chọn "content". Chỉ chọn "other" khi nhận ra RÕ RÀNG đó là loại tài liệu khác. Trang nào mang dấu hiệu địa chính — số tờ bản đồ, số thửa, diện tích m², mục đích sử dụng, sơ đồ thửa, dấu UBND xã/huyện, bảng biến động — thì luôn là "content", KHÔNG phải "other".
 
-Thứ tự quyết định: (1) có tiêu đề lớn "GIẤY CHỨNG NHẬN … QUYỀN SỬ DỤNG ĐẤT" → "cover". (2) không có, nhưng là tài liệu khác loại/trang trắng rõ ràng → "other". (3) còn lại → "content".
+Thứ tự quyết định: (1) có tiêu đề lớn "GIẤY CHỨNG NHẬN … QUYỀN SỬ DỤNG ĐẤT" ở BẤT KỲ hướng nào, BẤT KỲ nửa nào của tờ → "cover". (2) không có, nhưng là tài liệu khác loại/trang trắng rõ ràng → "other". (3) còn lại → "content".
 
 Chỉ trả JSON: {"role": "cover" | "content" | "other"}"""
 
-classify_page_user_prompt = """Xác định vai trò trang này. "cover" CHỈ KHI có dòng tiêu đề lớn "GIẤY CHỨNG NHẬN … QUYỀN SỬ DỤNG ĐẤT" (riêng một dãy số, hay chữ "CHỨNG NHẬN" đứng một mình, KHÔNG đủ). "other" chỉ khi rõ ràng là tài liệu khác loại (CCCD, hợp đồng, tờ khai…) hoặc trang trắng. Còn lại — kể cả trích lục bản đồ xoay ngang, bảng biến động, tờ ruột mẫu cũ — là "content". Chỉ trả JSON {"role": "..."}."""
+classify_page_user_prompt = """Xác định vai trò trang này. "cover" CHỈ KHI có dòng tiêu đề lớn "GIẤY CHỨNG NHẬN … QUYỀN SỬ DỤNG ĐẤT" — kể cả khi chữ nằm DỌC vì ảnh xoay, hoặc chỉ xuất hiện ở MỘT nửa của tờ gấp đôi (nửa kia trống vẫn là cover); riêng một dãy số, hay chữ "CHỨNG NHẬN" đứng một mình, KHÔNG đủ. "other" chỉ khi rõ ràng là tài liệu khác loại (CCCD, hợp đồng, tờ khai…) hoặc trang trắng. Còn lại — kể cả trích lục bản đồ xoay ngang, bảng biến động, tờ ruột mẫu cũ — là "content". Chỉ trả JSON {"role": "..."}."""

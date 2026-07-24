@@ -1,6 +1,6 @@
 """Phase 0.1b — soi CHUỖI NHÃN từng trang để biết vì sao file bị cắt sai.
 
-`_groups_from_roles` chỉ là hệ quả; nguyên nhân nằm ở nhãn `classify_page` trả về
+`groups_from_roles` chỉ là hệ quả; nguyên nhân nằm ở nhãn `classify_page` trả về
 cho từng trang. Script này in ra chuỗi nhãn ĐẦY ĐỦ + nhóm suy ra + trang bị rớt,
 rồi CHẨN ĐOÁN nguyên nhân — thứ mà nhìn kết quả trong Mongo không thấy được.
 
@@ -41,8 +41,7 @@ from collections import Counter
 
 from app import config, storage
 from app.db import gcns
-from app.scripts.bench_pipeline import _groups_from_roles
-from src.extentions.multimodal.detect_gcn import classify_page
+from src.extentions.multimodal.detect_gcn import classify_page, groups_from_roles
 from src.extentions.multimodal.make import pdf_to_corrected_images
 
 DETECT_MIN_PAGES = int(os.getenv("DETECT_MIN_PAGES", "5"))
@@ -88,21 +87,17 @@ def _diagnose(roles: list[str], groups: list[list[int]]) -> list[str]:
                 out.append(f"LỖI 1 — trang {i+1} bị gán 'other' ĐÓNG NHÓM, "
                            f"kéo theo trang {[j+1 for j in sau]} (nội dung thật) bị VỨT")
 
-    # Cờ MỀM — nhóm ngắn bám đuôi file. Có thể là CCCD/CMND kèm theo bị đọc thành
-    # bìa (tie-break "có Số phát hành" quá lỏng), NHƯNG cũng có thể là GCN thứ 2
-    # hợp lệ. Chuỗi nhãn không phân biệt được → chỉ nêu để người soi, không kết luận.
-    if len(groups) > 1:
-        cuoi = groups[-1]
-        if len(cuoi) <= 2 and cuoi[-1] == n - 1:
-            out.append(f"XEM LẠI — nhóm cuối chỉ {len(cuoi)} trang {[i+1 for i in cuoi]} bám "
-                       f"đuôi file: là GCN thứ 2 thật, hay CCCD/giấy tờ kèm bị đọc thành bìa?")
+    # (Đã bỏ cờ "nhóm ngắn bám đuôi = nghi CCCD-thành-bìa": nó báo động giả trên
+    # mọi hồ sơ 2 GCN hợp lệ, còn nguyên nhân thật đã chặn ở prompt classify_page.)
 
-    # Lỗi 2: content lạc trước khi có bìa nào.
-    truoc = [i for i in dropped if roles[i] == "content" and not any(
-        roles[j] == "cover" for j in range(i))]
-    if truoc:
-        out.append(f"LỖI 2 — trang {[i+1 for i in truoc]} là 'content' nhưng CHƯA có bìa nào "
-                   f"đứng trước → bị bỏ IM LẶNG")
+    # Lỗi 2: KHÔNG có bìa nào trong cả file → mọi trang nội dung bị bỏ. Từ khi
+    # groups_from_roles gắn content-đứng-trước-bìa vào nhóm bìa đầu, đây là ca
+    # DUY NHẤT còn rơi vào nhánh bỏ — và gần như luôn nghĩa là NHÃN BÌA BỊ SAI
+    # (bìa thật bị hạ thành content/other), chứ không phải file thiếu bìa.
+    if not any(r == "cover" for r in roles) and any(r == "content" for r in roles):
+        out.append("LỖI 2 — CẢ FILE không có trang nào được nhận là bìa → bỏ hết "
+                   f"{len([r for r in roles if r == 'content'])} trang nội dung. "
+                   "Nhiều khả năng bìa thật bị gán nhầm content/other")
 
     if dropped and not out:
         out.append(f"Trang rớt {[i+1 for i in dropped]} — chưa khớp mẫu lỗi nào, xem tay")
@@ -113,7 +108,7 @@ def _diagnose(roles: list[str], groups: list[list[int]]) -> list[str]:
 
 def _print_one(nhan: str, roles: list[str], saved: list[list[int]] | None) -> Counter:
     n = len(roles)
-    groups = _groups_from_roles(roles)
+    groups = groups_from_roles(roles)
     covered = {i for g in groups for i in g}
     dropped = _dropped(roles, groups)
 
@@ -197,11 +192,16 @@ def _nghi_ngo(doc: dict) -> str:
         return ""
     phu = {i for g in groups for i in g}
     ly_do = []
-    # Trang không thuộc nhóm nào. Trang 'other' hợp lệ cũng rơi vào đây nên đơn lẻ
-    # nó CHƯA phải bằng chứng — nhưng là tín hiệu nhắm mẫu đủ tốt.
-    if len(phu) < pc:
-        ly_do.append(f"thiếu {pc - len(phu)}/{pc} trang")
-    # Bìa đứng lẻ giữa file dài = chữ ký của 'other' đóng nhóm HOẶC bìa giả.
+    # Trang thiếu Ở ĐUÔI file là BÌNH THƯỜNG — gần như hồ sơ nào cũng đính CCCD/
+    # tờ khai phía sau. Chỉ trang thiếu nằm TRƯỚC hoặc XEN GIỮA vùng đã gom mới là
+    # dấu hiệu bị vứt oan (xếp ngược / 'other' cắt nhóm). Tiêu chí cũ "thiếu bất kỳ
+    # trang nào" gắn cờ gần như toàn bộ file → lấy mẫu vô dụng (quét 32 ra 30 nghi).
+    dau, cuoi = min(phu), max(phu)
+    ho = [i for i in range(dau, cuoi) if i not in phu]
+    if dau > 0:
+        ly_do.append(f"{dau} trang trước bìa bị bỏ")
+    if ho:
+        ly_do.append(f"{len(ho)} trang hở giữa")
     le = sum(1 for g in groups if len(g) == 1)
     if le and len(groups) > 1:
         ly_do.append(f"{le} nhóm chỉ 1 trang")

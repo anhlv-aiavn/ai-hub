@@ -45,7 +45,7 @@ import time
 from dataclasses import dataclass, field
 
 from app import config
-from src.extentions.multimodal.detect_gcn import classify_page
+from src.extentions.multimodal.detect_gcn import classify_page, groups_from_roles
 from src.extentions.multimodal.extract_gcn import extract
 from src.extentions.multimodal.make import (
     count_pdf_pages_from_bytes,
@@ -113,21 +113,9 @@ class FileRun:
     skipped: str | None = None
 
 
-def _groups_from_roles(roles: list[str]) -> list[list[int]]:
-    """Copy nguyên logic run_job._groups_from_roles (giữ bench khỏi phụ thuộc
-    module worker/storage). cover mở nhóm mới; content nối nhóm đang mở; other
-    (hoặc content lạc không bìa) đóng nhóm."""
-    groups: list[list[int]] = []
-    cur: list[int] | None = None
-    for i, role in enumerate(roles):
-        if role == "cover":
-            cur = [i]
-            groups.append(cur)
-        elif role == "content" and cur is not None:
-            cur.append(i)
-        else:
-            cur = None
-    return [g for g in groups if g]
+# Luật gom nhóm dùng NGUỒN DUY NHẤT (detect_gcn.groups_from_roles) — trước đây
+# bench chép lại logic, lệch với worker thì bench đo sai chính production.
+_groups_from_roles = groups_from_roles
 
 
 async def run_one(path: str, pdf_bytes: bytes, meter: VlmMeter) -> FileRun:

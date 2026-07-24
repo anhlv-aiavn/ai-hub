@@ -209,50 +209,57 @@ async def stage_cut_diagnose(limit: int) -> None:
     docker compose exec api python -m app.scripts.smoke cut_diagnose
     """
     from app.scripts.audit_cut_vlm import _diagnose
-    from app.scripts.bench_pipeline import _groups_from_roles
+    from src.extentions.multimodal.detect_gcn import groups_from_roles
 
     def chan(roles):
-        g = _groups_from_roles(roles)
+        g = groups_from_roles(roles)
         return g, " ‖ ".join(_diagnose(roles, g))
 
-    dung = ["cover", "content", "content", "content", "other", "other"]
-    g, d = chan(dung)
+    C, N, K = "cover", "content", "other"
+
+    # ── LUẬT MỘT BÌA: 1 bìa ⇒ gom hết cover+content, BẤT KỂ thứ tự ──
+    # D 0161849 — bìa đầu, CCCD kèm ở cuối.
+    g, d = chan([C, N, N, N, K, K])
     if g != [[0, 1, 2, 3]]:
-        raise Kill(f"[1] nhãn ĐÚNG phải ra 1 nhóm 4 trang, ra {g}")
+        raise Kill(f"[1] bìa đầu + CCCD cuối phải ra 1 nhóm [1-4], ra {g}")
     if "LỖI" in d or "XEM LẠI" in d:
-        raise Kill(f"[2] nhãn ĐÚNG (CCCD ở cuối bị loại là hợp lệ) mà vẫn báo lỗi: {d}")
+        raise Kill(f"[2] nhãn ĐÚNG (CCCD cuối bị loại là hợp lệ) mà vẫn báo lỗi: {d}")
 
-    # Nghi phạm A — CCCD bị đọc thành bìa → đẻ ra GCN giả ở cuối file.
-    a = ["cover", "content", "content", "content", "cover", "content"]
-    g, d = chan(a)
-    if len(g) != 2:
-        raise Kill(f"[3] CCCD-thành-bìa phải ra 2 nhóm, ra {g}")
-    if "XEM LẠI" not in d:
-        raise Kill(f"[4] không nêu nghi vấn nhóm ngắn bám đuôi file: {d}")
+    # BP 680351 — bìa ở GIỮA (tr.4), nội dung cả trước lẫn sau.
+    if groups_from_roles([N, N, N, C, N, N]) != [[0, 1, 2, 3, 4, 5]]:
+        raise Kill("[3] bìa ở giữa: phải gom cả 6 trang, không được vứt tr.1-3")
 
-    # Nghi phạm B — trích lục xoay ngang bị gán 'other' → NUỐT trang biến động.
-    b = ["cover", "content", "other", "content", "other", "other"]
-    g, d = chan(b)
-    if 3 in {i for gg in g for i in gg}:
-        raise Kill(f"[5] trang biến động (tr.4) đáng lẽ bị rớt, nhóm ra {g}")
-    if "LỖI 1" not in d:
-        raise Kill(f"[6] không nhận ra 'other' đóng nhóm nuốt trang sau: {d}")
+    # AN 077157 — bìa ở CUỐI, có 'other' chen giữa.
+    if groups_from_roles([K, K, N, N, N, C]) != [[2, 3, 4, 5]]:
+        raise Kill("[4] bìa ở cuối: phải gom tr.3-6, 'other' đầu file bị loại")
 
-    # Lỗi 2 — content lạc trước khi có bìa nào → bỏ im lặng.
-    c = ["content", "content", "cover", "content"]
-    g, d = chan(c)
-    if g != [[2, 3]]:
-        raise Kill(f"[7] content lạc phải bị bỏ, nhóm ra {g}")
+    # 10103092758 — nội dung nằm RẢI, 'other' xen kẽ (luật cũ vứt tr.4 và tr.6).
+    if groups_from_roles([K, C, K, N, K, N]) != [[1, 3, 5]]:
+        raise Kill("[5] nội dung rải rác: 'other' xen giữa KHÔNG được cắt nhóm")
+
+    # ── ≥2 bìa: quay về suy tuyến tính ──
+    g = groups_from_roles([C, N, C, N])
+    if g != [[0, 1], [2, 3]]:
+        raise Kill(f"[6] 2 bìa phải ra 2 nhóm tách đúng, ra {g}")
+
+    # 2 bìa + content xếp ngược ở đầu → gắn vào nhóm bìa ĐẦU TIÊN, không vứt.
+    g = groups_from_roles([N, C, N, C, N])
+    if g != [[0, 1, 2], [3, 4]]:
+        raise Kill(f"[7] content trước bìa đầu phải gắn vào nhóm 1, ra {g}")
+
+    # ── Không bìa nào: vẫn bỏ, KHÔNG chế GCN giả từ trang phụ trợ ──
+    g, d = chan([N, N, K])
+    if g != []:
+        raise Kill(f"[8] cả file không có bìa → phải bỏ, không chế nhóm, ra {g}")
     if "LỖI 2" not in d:
-        raise Kill(f"[8] không nhận ra content lạc không bìa: {d}")
+        raise Kill(f"[9] không cảnh báo file mất hẳn bìa: {d}")
 
-    # Không được báo bừa: 'other' ở CUỐI file là bình thường (giấy tờ kèm).
-    e = ["cover", "content", "other", "other"]
-    _, d = chan(e)
-    if "LỖI 1" in d:
-        raise Kill(f"[9] báo nhầm: 'other' ở cuối file là hợp lệ, không nuốt gì: {d}")
+    # ── Không được báo bừa trên ca lành ──
+    _, d = chan([C, N, K, K])
+    if "LỖI" in d:
+        raise Kill(f"[10] báo nhầm: 'other' cuối file là hợp lệ: {d}")
 
-    print("  5 ca chẩn đoán (đúng · bìa giả · nuốt biến động · content lạc · other cuối) ✓")
+    print("  8 ca (luật 1 bìa: đầu/giữa/cuối/rải · 2 bìa · xếp ngược · mất bìa · ca lành) ✓")
 
 
 # đăng ký stage: tên → (hàm, mô tả)

@@ -29,7 +29,7 @@ from app.bus import publish_sync
 from app.storage import DestinationNotConfigured, SourceObjectUnavailable
 from app.summary import collect_so_phat_hanhs, group_key_of, per_gcn, summarize
 from src.extentions.mongo_helper import AsyncMongo
-from src.extentions.multimodal.detect_gcn import classify_page
+from src.extentions.multimodal.detect_gcn import classify_page, groups_from_roles
 from src.extentions.multimodal.extract_gcn import extract
 from src.extentions.multimodal.make import (
     count_pdf_pages_from_bytes,
@@ -81,30 +81,6 @@ def _friendly_vlm_error(e: Exception) -> str:
 
 # ── Pipeline ────────────────────────────────────────────────────────────────
 
-def _groups_from_roles(roles: list[str]) -> list[list[int]]:
-    """Suy nhóm GCN tuyến tính từ nhãn vai trò từng trang (cover/content/other).
-
-    - "cover"  → mở một nhóm MỚI (GCN được ĐỊNH DANH bởi bìa: Số phát hành nằm
-      trên bìa, không bìa thì không phải GCN dùng được).
-    - "content"→ nối vào nhóm đang mở; nếu CHƯA có bìa nào mở thì BỎ (content lạc
-      không bìa = không phải GCN → tránh chế ra giấy giả từ trang phụ trợ).
-    - "other"  → loại + đóng nhóm hiện tại.
-
-    Đảm bảo: mỗi nhóm luôn bắt đầu bằng một bìa và liên tiếp tới trang phụ trợ.
-    """
-    groups: list[list[int]] = []
-    cur: list[int] | None = None
-    for i, role in enumerate(roles):
-        if role == "cover":
-            cur = [i]
-            groups.append(cur)
-        elif role == "content" and cur is not None:
-            cur.append(i)
-        else:  # "other", hoặc content lạc không có bìa mở → bỏ + đóng nhóm
-            cur = None
-    return [g for g in groups if g]
-
-
 async def _detect_groups(images: list[str]) -> list[list[int]]:
     """Detect = phân loại biên TỪNG TRANG rồi suy nhóm tuyến tính.
 
@@ -126,7 +102,7 @@ async def _detect_groups(images: list[str]) -> list[list[int]]:
                 return "content"  # fail-safe: giữ trang, không cắt nhầm
 
     roles = await asyncio.gather(*(_cls(i) for i in range(n)))
-    return _groups_from_roles(list(roles))
+    return groups_from_roles(list(roles))
 
 
 async def _pipeline(pdf_buf: io.BytesIO) -> tuple[list[dict], list[str]]:
