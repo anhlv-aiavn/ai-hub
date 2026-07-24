@@ -221,6 +221,7 @@ def _report(docs, n_thua, n_md, n_rong, phan_nhom, cach_quyet, ra_ma, dvhc,
         "dia_chi_xa": "SUY · cấp xã   phường/thị trấn/xã",
         "dia_chi_huyen": "SUY · cấp huyện  quận→ODT huyện→ONT",
         "dia_chi_thon": "SUY · điểm dân cư  thôn/xóm→ONT",
+        "dia_chi_ten_huyen": "SUY · tên huyện trần  (Sóc Sơn…)",
         "KHÔNG QUYẾT ĐƯỢC": "KHÔNG QUYẾT ĐƯỢC → rà tay",
     }
     for k, nhan in nhan_pp.items():
@@ -241,7 +242,8 @@ def _report(docs, n_thua, n_md, n_rong, phan_nhom, cach_quyet, ra_ma, dvhc,
     if dvhc:
         print("\n ĐƠN VỊ HÀNH CHÍNH BẮT ĐƯỢC TỪ ĐỊA CHỈ (nhánh suy dẫn)")
         tong_dv = sum(dvhc.values())
-        for k in ("phuong", "thi_tran", "xa", "quan", "huyen", "to_dan_pho", "thon"):
+        for k in ("phuong", "thi_tran", "xa", "quan", "huyen", "to_dan_pho",
+                  "thon", "ten_quan", "ten_huyen"):
             print(_line(f"{k}  → {_DVHC_MA.get(k, '?')}", dvhc.get(k, 0), tong_dv))
 
     if ly_do:

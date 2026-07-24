@@ -26,7 +26,7 @@ LOAI_MDSDD: list[dict] = [
 _THEO_KY_HIEU = {m["ky_hieu_muc_dich"]: m for m in LOAI_MDSDD}
 
 METHODS = ("ky_hieu_ngoac", "ky_hieu_token", "ten_exact",
-           "dia_chi_xa", "dia_chi_huyen", "dia_chi_thon")
+           "dia_chi_xa", "dia_chi_huyen", "dia_chi_thon", "dia_chi_ten_huyen")
 
 # Ký hiệu trong ngoặc: "Đất ở tại nông thôn (ONT)" — dạng chính xác nhất.
 _RE_NGOAC = re.compile(r"\(\s*([A-Za-z]{2,4})\s*\)")
@@ -43,7 +43,8 @@ _RE_TOKEN_HOA = re.compile(r"(?<![A-Za-z])([A-Z]{3})(?![A-Za-z])")
 #   · "thôn Phượng" chứa "phuong"→ ra nhầm PHƯỜNG → ODT
 #   · "thị xã"      chứa "xa"    → ra nhầm XÃ → ONT (thị xã là cấp HUYỆN)
 # Ràng buộc đầu-đoạn loại sạch cả ba lớp lỗi này mà không cần lookbehind chắp vá.
-_TACH_DOAN = re.compile(r"[,;/()\-–—]+")
+# ":" là dấu phân cách thật trong dữ liệu: "Thôn: Nguyệt, xã: Ứng Hòa, huyện: Ứng Hòa"
+_TACH_DOAN = re.compile(r"[,;:/()\-–—]+")
 
 # BẬC 1 — CẤP XÃ, đơn vị TRỰC TIẾP của thửa. Chắc nhất.
 #   Viết tắt lấy từ dữ liệu thật: "X. Mai Đình", "TT Trâu Quỳ" (KHÔNG có dấu
@@ -70,10 +71,35 @@ _RE_DIEM_DAN_CU = re.compile(
     r"^(?:(?P<to_dan_pho>to dan pho|khu pho|tdp(?=\s|$))"
     r"|(?P<thon>(?:thon|xom|ap|buon)(?=\s|$)))")
 
+# BẬC 4 — TÊN ĐƠN VỊ CẤP HUYỆN VIẾT TRẦN (không kèm chữ "huyện"/"quận").
+#   Chiếm gần hết phần "không quyết được" còn lại của audit 0.3: "Thắng Lợi,
+#   Phú Minh, Sóc Sơn, Hà Nội" — Sóc Sơn là HUYỆN, chỉ là không ai ghi chữ
+#   "huyện". Danh mục dưới đây là ĐỊA BÀN THẬT của kho này (VPĐK Hà Nội), không
+#   phải suy đoán; triển khai tỉnh khác thì thay danh mục, luật giữ nguyên.
+#
+#   QUÉT TỪ CUỐI ĐỊA CHỈ NGƯỢC LÊN, vì tên cấp huyện đứng sát tên tỉnh. Bắt
+#   buộc phải vậy do TRÙNG TÊN có thật giữa các cấp: "Kim Anh, Thanh Xuân, Sóc
+#   Sơn, Hà Nội" — Thanh Xuân ở đây là XÃ của huyện Sóc Sơn, không phải quận
+#   Thanh Xuân. Quét xuôi sẽ ra ODT sai; quét ngược gặp "Sóc Sơn" trước → ONT.
+#
+#   CỐ Ý BỎ RA: Từ Liêm (huyện → 2 quận năm 2013), Sơn Tây, Hà Đông (thị xã →
+#   quận). Giấy cũ và địa giới nay khác nhau ⇒ để ambiguous cho người quyết,
+#   đúng nguyên tắc thà rà tay còn hơn gán sai mã pháp lý.
+_HUYEN = {
+    "soc son", "dong anh", "gia lam", "thanh tri", "ba vi", "chuong my",
+    "dan phuong", "hoai duc", "me linh", "my duc", "phu xuyen", "phuc tho",
+    "quoc oai", "thach that", "thanh oai", "thuong tin", "ung hoa",
+}
+_QUAN = {
+    "ba dinh", "hoan kiem", "tay ho", "long bien", "cau giay", "dong da",
+    "hai ba trung", "hoang mai", "thanh xuan", "nam tu liem", "bac tu liem",
+}
+
 _DVHC_MA = {
     "phuong": "ODT", "thi_tran": "ODT", "xa": "ONT",
     "quan": "ODT", "huyen": "ONT",
     "to_dan_pho": "ODT", "thon": "ONT",
+    "ten_quan": "ODT", "ten_huyen": "ONT",
 }
 _BAC = (
     (_RE_CAP_XA, "dia_chi_xa", 0.9),
@@ -125,6 +151,13 @@ def suy_tu_dia_chi(dia_chi) -> dict | None:
                 dv = m.lastgroup
                 return {"ky_hieu": _DVHC_MA[dv], "dvhc": dv,
                         "method": method, "score": score}
+
+    # Bậc 4 — tên cấp huyện viết trần. Quét NGƯỢC (xem chú thích _HUYEN).
+    for doan in reversed(doans):
+        dv = "ten_huyen" if doan in _HUYEN else "ten_quan" if doan in _QUAN else None
+        if dv:
+            return {"ky_hieu": _DVHC_MA[dv], "dvhc": dv,
+                    "method": "dia_chi_ten_huyen", "score": 0.7}
     return None
 
 
@@ -275,10 +308,12 @@ def _smoke() -> None:
     assert r and r["id"] == 191 and r["method"] == "dia_chi_thon", f"KILL [14] xóm ⇒ ONT: {r}"
     r = map_dat_o("Đất ở", "Số 3, Ngách 3, Ngõ Nông, thôn Trung Na")
     assert r and r["id"] == 191, f"KILL [14b] thôn ⇒ ONT: {r}"
-    # "phố" TRẦN không được coi là đô thị — đây là tên đường ở xã nông thôn
-    r = map_dat_o("Đất ở", "phố Thạch Lối, Thanh Xuân")
-    assert r is not None and r["ambiguous"], \
-        f"KILL [14c] 'phố' trần không được suy ra ODT (là tên đường): {r}"
+    # "phố" TRẦN không được coi là đô thị — đây là TÊN ĐƯỜNG ở xã nông thôn.
+    # Địa chỉ thật: bậc 4 gặp "Sóc Sơn" ⇒ ONT. Nếu bắt "phố" thì ra ODT sai.
+    r = map_dat_o("Đất ở", "phố Thạch Lối, Thanh Xuân, Sóc Sơn, Hà Nội")
+    assert r and r["id"] == 191, f"KILL [14c] 'phố' trần bị đọc thành đô thị: {r}"
+    r = map_dat_o("Đất ở", "phố Thạch Lối, Đốc Hậu")
+    assert r and r["ambiguous"], f"KILL [14d] 'phố' trần không được suy ra ODT: {r}"
 
     # ── 15. BẬC KHÔNG ĐƯỢC ĐÈ NHAU: có cấp xã thì bậc 1 thắng ─────────────
     r = map_dat_o("Đất ở", "Tổ dân phố An Đào, xã Kiêu Kỵ, huyện Gia Lâm")
@@ -293,7 +328,32 @@ def _smoke() -> None:
     for txt in ("Sử dụng chung", "Sử dụng riêng", "Riêng", "Chung", "10%", "Vườn"):
         assert map_dat_o(txt, "xã Phù Lỗ") is None, f"KILL [16b] nhận vơ chuỗi rác: {txt!r}"
 
-    print("mdsdd PURE: 16 nhóm ca ✓")
+    # ── 17. BẬC 4: tên cấp huyện viết TRẦN (mẫu thật từ audit 0.3) ────────
+    r = map_dat_o("Đất ở", "Thắng Lợi, Phú Minh, Sóc Sơn, Hà Nội")
+    assert r and r["id"] == 191 and r["method"] == "dia_chi_ten_huyen", \
+        f"KILL [17] tên huyện trần phải ra ONT: {r}"
+    r = map_dat_o("Đất ở", "Khu Tập Thể 230- Cổ Bi- Gia Lâm- Hà Nội")
+    assert r and r["id"] == 191, f"KILL [17b] {r}"
+
+    # BẪY TRÙNG TÊN: "Thanh Xuân" vừa là QUẬN Hà Nội vừa là XÃ của huyện Sóc
+    # Sơn. Quét ngược từ cuối phải gặp "Sóc Sơn" trước ⇒ ONT, không phải ODT.
+    r = map_dat_o("Đất ở", "Kim Anh, Thanh Xuân, Sóc Sơn, Hà Nội")
+    assert r and r["id"] == 191, f"KILL [17c] trùng tên xã/quận — phải quét ngược: {r}"
+    # còn khi Thanh Xuân đứng đúng vị trí cấp huyện thì vẫn ra ODT
+    r = map_dat_o("Đất ở", "Số 5 Nguyễn Trãi, Thanh Xuân, Hà Nội")
+    assert r and r["id"] == 192, f"KILL [17d] {r}"
+
+    # Địa bàn CỐ Ý bỏ ra khỏi danh mục (đổi cấp theo thời gian) → không được đoán
+    for dc in ("Tây Tựu, Từ Liêm, Hà Nội", "Khu 5, Sơn Tây, Hà Nội"):
+        r = map_dat_o("Đất ở", dc)
+        assert r and r["ambiguous"], f"KILL [17e] địa bàn đã đổi cấp không được đoán: {dc} → {r}"
+
+    # ── 18. Dấu hai chấm cũng là dấu phân cách ────────────────────────────
+    r = map_dat_o("Đất ở", "Thôn: Nguyệt, xã: Ứng Hòa, huyện: Ứng Hòa, tỉnh: Hà Tây")
+    assert r and r["id"] == 191 and r["method"] == "dia_chi_xa", \
+        f"KILL [18] 'xã:' có dấu hai chấm vẫn phải bắt được: {r}"
+
+    print("mdsdd PURE: 18 nhóm ca ✓")
 
 
 if __name__ == "__main__":
