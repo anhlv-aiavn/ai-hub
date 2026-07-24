@@ -304,15 +304,33 @@ verify_split_user_prompt = """Có {n_images} ảnh (index 0 đến {n_images_min
 # (cover/content/other) rồi suy nhóm tuyến tính — KHÔNG nhồi nhiều ảnh/call, KHÔNG
 # cửa sổ. Quyết định cục bộ từng trang nên không có lỗi mốc cửa sổ, không rớt trang.
 # ─────────────────────────────────────────────────────────────────────────────
-classify_page_system_prompt = """Bạn nhận MỘT ảnh là một trang trong hồ sơ đất đai Việt Nam (ảnh có thể bị xoay ngang, và có thể là một tờ gấp đôi gồm hai nửa). Hãy xác định VAI TRÒ của trang, trả đúng một trong ba nhãn:
+classify_page_system_prompt = """Bạn nhận MỘT ảnh là một trang trong hồ sơ đất đai Việt Nam. Ảnh CÓ THỂ BỊ XOAY NGANG 90° (hãy đọc cả khi xoay, đừng vì xoay mà cho là tài liệu khác loại), và có thể là một tờ gấp đôi gồm hai nửa. Xác định VAI TRÒ của trang, trả đúng một trong ba nhãn.
 
-- "cover": trang MỞ ĐẦU một Giấy chứng nhận mới. DẤU HIỆU QUYẾT ĐỊNH: có dòng TIÊU ĐỀ lớn "GIẤY CHỨNG NHẬN" đi kèm "QUYỀN SỬ DỤNG ĐẤT…" (thường có thêm quốc huy — kể cả in xám/nhạt — và một mã Số phát hành dạng vài chữ cái + dãy số, ví dụ ở góc trang).
-  QUAN TRỌNG: trang này VẪN là "cover" KỂ CẢ KHI cùng trang (hoặc cùng tờ gấp đôi) đã có sẵn thông tin người sử dụng, thửa đất, sơ đồ, chữ ký, con dấu — vì mẫu Giấy chứng nhận hiện hành gộp toàn bộ nội dung vào MỘT trang. Hễ thấy tiêu đề "GIẤY CHỨNG NHẬN … QUYỀN SỬ DỤNG ĐẤT" hoặc một Số phát hành rõ ràng → "cover".
+Hồ sơ có HAI KIỂU mẫu Giấy chứng nhận, phải phân biệt vì bìa nằm ở chỗ khác nhau:
+  • MẪU MỚI (bìa hồng/đỏ, gộp hết vào MỘT tờ): tiêu đề "GIẤY CHỨNG NHẬN QUYỀN SỬ DỤNG ĐẤT…" và toàn bộ nội dung (chủ sử dụng, thửa đất, sơ đồ, chữ ký) nằm CÙNG một trang → chính trang đó là "cover".
+  • MẪU CŨ (sổ bìa đỏ, nhiều tờ): tờ BÌA chỉ có quốc huy + dòng chữ lớn "GIẤY CHỨNG NHẬN QUYỀN SỬ DỤNG ĐẤT" + một Số phát hành, HẦU NHƯ KHÔNG có nội dung gì khác → tờ bìa đó là "cover"; MỌI TỜ BÊN TRONG (kể cả tờ ghi "CHỨNG NHẬN: Ông/Bà …") đều là "content".
 
-- "content": trang TIẾP NỐI của Giấy chứng nhận ngay trước, KHÔNG có dòng tiêu đề mở đầu nói trên. Gồm: "TRANG BỔ SUNG GIẤY CHỨNG NHẬN", bảng "Những thay đổi sau khi cấp" / ghi chú biến động đứng riêng, trang sơ đồ thửa, trang ký tiếp.
+- "cover": DẤU HIỆU DUY NHẤT ĐƯỢC CHẤP NHẬN là dòng TIÊU ĐỀ LỚN, in đậm, nằm ở vị trí tiêu đề của trang, ghi "GIẤY CHỨNG NHẬN" liền với "QUYỀN SỬ DỤNG ĐẤT" (có thể dài hơn: "… QUYỀN SỞ HỮU NHÀ Ở VÀ TÀI SẢN KHÁC GẮN LIỀN VỚI ĐẤT"). Thường kèm quốc huy (kể cả in xám/nhạt) và Số phát hành dạng vài chữ cái + dãy số ở góc.
+  Trang mẫu MỚI vẫn là "cover" kể cả khi đã có sẵn chủ sử dụng, thửa đất, sơ đồ, chữ ký, con dấu.
 
-- "other": trang KHÔNG thuộc Giấy chứng nhận nào — tài liệu khác loại (CMND/CCCD, hợp đồng, tờ khai thuế, công văn, biên bản…) hoặc trang trắng.
+  KHÔNG PHẢI "cover" (đây là các bẫy hay gặp — tất cả đều là "content"):
+  • Trang chỉ có chữ "CHỨNG NHẬN" đứng một mình làm tiêu đề (không có chữ "GIẤY" và không có "QUYỀN SỬ DỤNG ĐẤT" trên cùng dòng tiêu đề) — đây là tờ RUỘT của mẫu cũ, thường mở đầu bằng "CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM" rồi "ỦY BAN NHÂN DÂN huyện/tỉnh …".
+  • Trang có dòng "Vào sổ cấp giấy chứng nhận quyền sử dụng đất Số … QSDĐ" — đây là SỐ VÀO SỔ, KHÔNG phải Số phát hành, và KHÔNG làm cho trang thành bìa.
+  • Trang chỉ nhắc cụm "giấy chứng nhận" trong câu văn, trong bảng biến động, hoặc trong phần ghi chú/hướng dẫn.
+  • Bất kỳ dãy số nào (số vào sổ, số hồ sơ, số hợp đồng, số CCCD/CMND, số thửa) — CHỈ RIÊNG một dãy số KHÔNG BAO GIỜ đủ để kết luận "cover".
 
-Tie-break: nếu thấy tiêu đề "GIẤY CHỨNG NHẬN … QUYỀN SỬ DỤNG ĐẤT" hoặc một Số phát hành → ưu tiên "cover" (đừng vì trang có thửa đất/chữ ký mà hạ xuống "content"). Chỉ trả JSON: {"role": "cover" | "content" | "other"}"""
+- "content": trang TIẾP NỐI, thuộc về Giấy chứng nhận ngay trước, không có dòng tiêu đề mở đầu nói trên. Gồm:
+  • tờ ruột mẫu cũ ghi "CHỨNG NHẬN: Ông/Bà … được quyền sử dụng … m² đất tại xã/phường …" kèm bảng số tờ bản đồ / số thửa / diện tích / mục đích sử dụng;
+  • "TRÍCH LỤC BẢN ĐỒ" hoặc "TRÍCH LỤC BẢN ĐỒ ĐỊA CHÍNH", trang sơ đồ/hình thể thửa đất (RẤT HAY BỊ XOAY NGANG, có dấu UBND xã và Phòng nông nghiệp — vẫn là "content");
+  • "NHỮNG THAY ĐỔI SAU KHI CẤP GIẤY CHỨNG NHẬN" / bảng biến động / "TRANG BỔ SUNG GIẤY CHỨNG NHẬN";
+  • trang ký tiếp, trang ghi chú "NGƯỜI ĐƯỢC CẤP GIẤY CHỨNG NHẬN … CẦN CHÚ Ý".
 
-classify_page_user_prompt = """Xác định vai trò trang này: "cover" (có tiêu đề GIẤY CHỨNG NHẬN QUYỀN SỬ DỤNG ĐẤT hoặc Số phát hành — dù cùng trang có thửa đất/chữ ký), "content" (tiếp nối, không tiêu đề) hay "other" (không phải GCN). Chỉ trả JSON {"role": "..."}."""
+- "other": trang CHẮC CHẮN không thuộc Giấy chứng nhận nào — CMND/CCCD/hộ chiếu, sổ hộ khẩu, hợp đồng công chứng, tờ khai thuế, đơn từ, công văn, biên bản, ảnh chụp người/vật — hoặc trang trắng hoàn toàn.
+
+QUY TẮC AN TOÀN (quan trọng): nếu phân vân giữa "content" và "other", hãy chọn "content". Chỉ chọn "other" khi nhận ra RÕ RÀNG đó là loại tài liệu khác. Trang nào mang dấu hiệu địa chính — số tờ bản đồ, số thửa, diện tích m², mục đích sử dụng, sơ đồ thửa, dấu UBND xã/huyện, bảng biến động — thì luôn là "content", KHÔNG phải "other".
+
+Thứ tự quyết định: (1) có tiêu đề lớn "GIẤY CHỨNG NHẬN … QUYỀN SỬ DỤNG ĐẤT" → "cover". (2) không có, nhưng là tài liệu khác loại/trang trắng rõ ràng → "other". (3) còn lại → "content".
+
+Chỉ trả JSON: {"role": "cover" | "content" | "other"}"""
+
+classify_page_user_prompt = """Xác định vai trò trang này. "cover" CHỈ KHI có dòng tiêu đề lớn "GIẤY CHỨNG NHẬN … QUYỀN SỬ DỤNG ĐẤT" (riêng một dãy số, hay chữ "CHỨNG NHẬN" đứng một mình, KHÔNG đủ). "other" chỉ khi rõ ràng là tài liệu khác loại (CCCD, hợp đồng, tờ khai…) hoặc trang trắng. Còn lại — kể cả trích lục bản đồ xoay ngang, bảng biến động, tờ ruột mẫu cũ — là "content". Chỉ trả JSON {"role": "..."}."""

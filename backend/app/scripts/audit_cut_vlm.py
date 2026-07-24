@@ -22,6 +22,13 @@ Chạy TRONG CONTAINER:
 
     # soi cả danh sách nghi ngờ (mỗi dòng 1 gcn_id, do audit_cut_offline xuất)
     docker compose exec api python -m app.scripts.audit_cut_vlm --ids-file /tmp/nghi.txt --limit 100
+
+    # THỬ HÀNG LOẠT ca tương tự sau khi sửa prompt:
+    docker compose exec api python -m app.scripts.audit_cut_vlm --mau 30              # ca NGHI cắt sai
+    docker compose exec api python -m app.scripts.audit_cut_vlm --mau 30 --doi-chung  # ca đang ĐÚNG
+Đọc: cột "đã lưu trong Mongo … [LỆCH]" = prompt mới ĐỔI kết quả. Với --mau thì
+LỆCH là điều MONG ĐỢI (sửa được ca hỏng); với --doi-chung thì LỆCH là BÁO ĐỘNG
+(đang phá ca vốn đúng).
 """
 
 import argparse
@@ -120,10 +127,11 @@ def _print_one(nhan: str, roles: list[str], saved: list[list[int]] | None) -> Co
     print(f"│  → {len(groups)} nhóm: " + " | ".join(str([j + 1 for j in g]) for g in groups))
     if dropped:
         print(f"│  → RỚT {len(dropped)}/{n} trang: {[i+1 for i in dropped]}")
+    lech = saved is not None and saved != groups
     if saved is not None:
         cũ = " | ".join(str([j + 1 for j in g]) for g in saved) or "(không có)"
-        khớp = "KHỚP" if saved == groups else "*** LỆCH ***"
-        print(f"│  đã lưu trong Mongo: {cũ}   [{khớp} với chạy lại]")
+        print(f"│  đã lưu trong Mongo: {cũ}   "
+              f"[{'*** LỆCH ***' if lech else 'KHỚP'} với chạy lại]")
     for d in _diagnose(roles, groups):
         print(f"│  ⚠ {d}")
     print("╰─")
@@ -135,6 +143,8 @@ def _print_one(nhan: str, roles: list[str], saved: list[list[int]] | None) -> Co
         st["file_rot_trang"] += 1
     if len(groups) > 1:
         st["file_nhieu_nhom"] += 1
+    if lech:
+        st["lech_voi_da_luu"] += 1
     for d in _diagnose(roles, groups):
         st[d.split(" —")[0]] += 1
     return st
@@ -173,6 +183,53 @@ async def _from_mongo(gcn_id: str, vlm: int) -> Counter | None:
     return _print_one(f"{doc.get('filename', gcn_id)}  ({gcn_id})", roles, saved)
 
 
+def _nghi_ngo(doc: dict) -> str:
+    """Hồ sơ này CÓ DẤU HIỆU cắt sai không? — suy từ dữ liệu ĐÃ LƯU, không cần GPU.
+
+    Trả chuỗi lý do (rỗng = không nghi). Đây là cùng bộ tiêu chí của Phase 0.1a:
+    dùng ở đây để NHẮM MẪU vào ca bệnh thay vì sample mù.
+    """
+    pc = doc.get("page_count") or 0
+    recs = doc.get("extractions") or []
+    groups = [list(r.get("page_indices") or []) for r in recs if isinstance(r, dict)]
+    groups = [g for g in groups if g]
+    if pc <= DETECT_MIN_PAGES or not groups:
+        return ""
+    phu = {i for g in groups for i in g}
+    ly_do = []
+    # Trang không thuộc nhóm nào. Trang 'other' hợp lệ cũng rơi vào đây nên đơn lẻ
+    # nó CHƯA phải bằng chứng — nhưng là tín hiệu nhắm mẫu đủ tốt.
+    if len(phu) < pc:
+        ly_do.append(f"thiếu {pc - len(phu)}/{pc} trang")
+    # Bìa đứng lẻ giữa file dài = chữ ký của 'other' đóng nhóm HOẶC bìa giả.
+    le = sum(1 for g in groups if len(g) == 1)
+    if le and len(groups) > 1:
+        ly_do.append(f"{le} nhóm chỉ 1 trang")
+    return " · ".join(ly_do)
+
+
+async def _lay_mau(n: int, doi_chung: bool) -> list[str]:
+    """Lấy n hồ sơ >5 trang: nghi ngờ (mặc định) hoặc BÌNH THƯỜNG (đối chứng).
+
+    Đối chứng để chắc prompt mới không làm hỏng ca vốn đang đúng.
+    """
+    q = {"page_count": {"$gt": DETECT_MIN_PAGES}, "extractions": {"$exists": True, "$ne": []}}
+    cur = gcns().find(q, {"page_count": 1, "extractions.page_indices": 1}).batch_size(500)
+    ids, xet = [], 0
+    async for doc in cur:
+        xet += 1
+        co = bool(_nghi_ngo(doc))
+        if co != doi_chung:
+            ids.append(doc["_id"])
+            if len(ids) >= n:
+                break
+        if xet >= 20000:  # trần quét để không chờ mãi khi tỉ lệ hiếm
+            break
+    nhan = "BÌNH THƯỜNG (đối chứng)" if doi_chung else "NGHI cắt sai"
+    print(f"  lấy mẫu: {len(ids)} hồ sơ {nhan} (quét {xet:,} hồ sơ >{DETECT_MIN_PAGES} trang)")
+    return ids
+
+
 async def main() -> None:
     p = argparse.ArgumentParser(description="Phase 0.1b — soi chuỗi nhãn classify_page.")
     p.add_argument("--file", default=None, help="PDF local trong container.")
@@ -182,6 +239,10 @@ async def main() -> None:
     p.add_argument("--ten", action="append", default=[],
                    help="Tra theo TÊN TỆP gốc, khớp một phần (lặp được). VD: --ten 0161849")
     p.add_argument("--ids-file", default=None, help="Tệp mỗi dòng 1 gcn_id.")
+    p.add_argument("--mau", type=int, default=0,
+                   help="Lấy N hồ sơ >5 trang CÓ DẤU HIỆU cắt sai (nhắm ca bệnh).")
+    p.add_argument("--doi-chung", action="store_true",
+                   help="Đổi --mau sang hồ sơ BÌNH THƯỜNG — chắc prompt mới không phá ca đang đúng.")
     p.add_argument("--limit", type=int, default=0, help="Trần số hồ sơ từ --ids-file.")
     p.add_argument("--vlm", type=int, default=8, help="Trần call classify_page đồng thời.")
     args = p.parse_args()
@@ -211,13 +272,16 @@ async def main() -> None:
             ids += [ln.strip() for ln in f if ln.strip()]
     if args.limit:
         ids = ids[: args.limit]
-    if not args.file and not ids and not (args.sph or args.ten):
-        p.error("cần --file hoặc --ten/--sph/--gcn-id/--ids-file")
+    if not args.file and not ids and not (args.sph or args.ten or args.mau):
+        p.error("cần --file hoặc --ten/--sph/--gcn-id/--ids-file/--mau")
 
     print(f"render dpi={RENDER_DPI} max={RENDER_MAX_SIZE} (ĐÚNG production) · "
           f"DETECT_MIN_PAGES={DETECT_MIN_PAGES} · ≤{args.vlm} call đồng thời")
     if not args.file:
         print(f"DB: {config.MONGO_URI}/{config.MONGO_DB}")
+
+    if args.mau:
+        ids += await _lay_mau(args.mau, args.doi_chung)
 
     st = Counter()
     if args.file:
@@ -230,7 +294,8 @@ async def main() -> None:
     if st["file"] > 1:
         print("\n" + "=" * 68)
         print(f" {st['file']} hồ sơ · {st['file_rot_trang']} hồ sơ RỚT TRANG "
-              f"({st['trang_rot']} trang) · {st['file_nhieu_nhom']} hồ sơ >1 nhóm")
+              f"({st['trang_rot']} trang) · {st['file_nhieu_nhom']} hồ sơ >1 nhóm"
+              f" · {st['lech_voi_da_luu']} hồ sơ LỆCH với bản đã lưu")
         for k, v in st.most_common():
             if k.startswith(("LỖI", "NGHI")):
                 print(f"   {k:<16} {v}")
