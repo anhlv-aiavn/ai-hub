@@ -28,6 +28,7 @@ Chạy TRONG CONTAINER:
 import argparse
 import asyncio
 from collections import Counter
+from datetime import datetime, timezone
 
 from pymongo import UpdateOne
 
@@ -95,7 +96,12 @@ async def run(limit, batch_id, dry_run, chi_nghi, ke_ca_da_doi_soat) -> None:
             # khỏi gọi lại". Cắt lại sinh extractions MỚI (chính những hồ sơ trước
             # đây mất trang biến động) → phải cho LLM thử lại trên nội dung mới,
             # không thì hồ sơ vừa lấy lại được trang biến động vẫn kẹt cảnh báo.
-            {"$set": {"status": "queued", "error": None, "error_kind": None},
+            # cat_lai_at: dấu mốc để ĐO ĐƯỢC tiến độ. Hàng đợi thường có sẵn hàng
+            # chục nghìn doc từ import, doc cắt lại lẫn vào đó và fairness chia
+            # lượt theo lô → không có dấu này thì không tách nổi tiến độ cắt lại
+            # khỏi tiến độ import. Cũng là cách truy lại "hồ sơ nào đã cắt lại".
+            {"$set": {"status": "queued", "error": None, "error_kind": None,
+                      "cat_lai_at": datetime.now(timezone.utc)},
              "$unset": {"chu_cuoi_llm_done": ""}},
         ))
         if len(ops) >= BULK:
