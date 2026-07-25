@@ -39,8 +39,10 @@ def _build_filter(f: dict) -> dict:
         flt["batch_id"] = f["batch_id"]
     if f.get("branch"):
         flt["branch"] = f["branch"]
-    if f.get("status"):
-        flt["status"] = f["status"]
+    # Mặc định CHỈ hồ sơ đã xong — như bảng/CSV đồng bộ (routes/gcn.py `_rows_filter`):
+    # hồ sơ đang Chờ/Đang xử lý/Lỗi chưa có thửa nào để xuất, nếu không lọc thì CSV
+    # lẫn hàng loạt dòng trống. Truyền `status` cụ thể vẫn ghi đè được.
+    flt["status"] = f.get("status") or "done"
     if f.get("review"):
         flt["review.status"] = f["review"]
     return flt
