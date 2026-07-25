@@ -6,7 +6,11 @@ IMPORTANT:
     2. ^[A-Z]{1,2}\\s?\\d+$
     3. Tiền tố "SO" + dạng 2 → bỏ "SO"
     !Note: Số phát hành thường nằm bơ vơ ở góc phải bên dưới ảnh, hoặc trên dưới tiêu ngữ trong hộp con, hoặc ở gần chữ CHỨNG NHẬN - UỶ BAN....
-    !SỔ BÌA ĐỎ MẪU CŨ (chữ vàng trên nền đỏ/tối): bìa in "Số: <CHỮ SÊ-RI> <DÃY SỐ>", ví dụ "Số O 646324", "Số S 021939", hoặc dính liền "SỐO 812384". Chữ "Số"/"SỐ" chỉ là NHÃN (bỏ đi), nhưng CHỮ CÁI ngay sau nó (O, S, A, D, U...) là SÊ-RI và BẮT BUỘC GIỮ LẠI. ĐÚNG: "O 646324" / "S 021939" / "O 812384". SAI (mất sê-ri, chỉ còn số): "646324". TUYỆT ĐỐI không gộp chữ sê-ri vào chữ "Số" rồi bỏ mất.
+    !SỔ BÌA ĐỎ / SCAN TỐI — chữ Số phát hành in nhũ VÀNG trên nền ĐỎ, rất khó đọc, hay bị đọc SÓT chữ sê-ri. Xử lý riêng:
+      · Vị trí: góc DƯỚI BÊN PHẢI bìa, hoặc hộp nhỏ dưới quốc huy / tiêu ngữ.
+      · Dạng LUÔN là "Số: <1-2 CHỮ SÊ-RI> <DÃY SỐ>" — chữ "Số"/"SỐ" chỉ là NHÃN, BỎ. Ví dụ bìa ghi "Số O 646324" → "O 646324"; dính liền "SỐO 812384" → "O 812384".
+      · Chữ sê-ri hay gặp trong kho này: O, S, T, U, A, B, K, AH, AK, AI, BT, BR, CE, CG, DD, DL. Chữ vàng mờ thì suy theo NÉT rồi chọn trong nhóm này.
+      · BẮT BUỘC: bìa đỏ cũ thì Số phát hành LUÔN có chữ sê-ri đứng trước dãy số. TUYỆT ĐỐI KHÔNG trả về dãy số trần như "646324" — phải là "O 646324". Nếu chỉ đọc được số mà chưa thấy chữ, NHÌN LẠI vùng ngay TRƯỚC dãy số.
 - May have multiple Certificate of Land Use Rights with different information as Số phát hành.
 - Return JSON ONLY. No explanation, no markdown.
 - Output MUST match the structure EXACTLY.
@@ -177,7 +181,7 @@ QUY TẮC:
     2. ^[A-Z]{1,2}\\s?\\d+$
     3. Tiền tố "SO" + dạng 2 → bỏ "SO"
     4. Không trùng với số vào sổ
-    5. SỔ BÌA ĐỎ MẪU CŨ: bìa in "Số: <CHỮ SÊ-RI> <DÃY SỐ>" (vd "Số O 646324", "SỐO 812384", "Số S 021939"). Bỏ chữ "Số"/"SỐ" (nhãn) nhưng GIỮ chữ cái sê-ri ngay sau (O/S/A/D/U...). ĐÚNG "O 646324" / "S 021939"; SAI "646324" (mất sê-ri).
+    5. SỔ BÌA ĐỎ / SCAN TỐI (chữ nhũ VÀNG trên nền ĐỎ — khó đọc, hay SÓT sê-ri): Số phát hành ở góc DƯỚI PHẢI bìa hoặc hộp dưới tiêu ngữ, dạng "Số: <1-2 CHỮ SÊ-RI> <DÃY SỐ>". Bỏ nhãn "Số"/"SỐ", GIỮ chữ sê-ri. Sê-ri hay gặp: O, S, T, U, A, B, K, AH, AK, AI, BT, BR, CE, CG, DD, DL — chữ mờ thì suy theo nét rồi chọn trong nhóm này. BẮT BUỘC có chữ sê-ri: TUYỆT ĐỐI không trả dãy số trần "646324", đúng là "O 646324". Đọc được số mà chưa thấy chữ → nhìn lại NGAY TRƯỚC dãy số.
 
   - 'Số vào sổ': Kiểu dữ liệu - str. thường là XXXXX hoặc là CH XXXXX
   - 'Ngày cấp': CHỈ điền giá trị ngày dạng dd/mm/yyyy, KHÔNG kèm tên tỉnh, cơ quan, hay bất kỳ text nào khác. Vị trí nhận biết: trước đó là tên 1 tỉnh (ví dụ: Hưng Yên, Hải Phòng,...) và ngay sau là tên 1 cơ quan tổ chức — nhưng output CHỈ giữ phần ngày tháng.
