@@ -6,9 +6,10 @@ IMPORTANT:
     (D2) Chữ sê-ri + số:  ^[A-Z]{1,2}\\s?\\d+$    — SỔ BÌA ĐỎ mẫu cũ, vd "O 646324"
     · Tiền tố "SO"/"SỐ" DÍNH chữ (SOAP, SỐO) là NHÃN "Số" → bỏ, phần còn lại là D2 (SOAP XXXXXX → AP XXXXXX; "SỐO 812384" → "O 812384").
     · Vị trí: nằm bơ vơ ở góc DƯỚI PHẢI ảnh, hoặc hộp con trên/dưới tiêu ngữ, hoặc gần chữ CHỨNG NHẬN — UỶ BAN...
-- SỔ BÌA ĐỎ / SCAN TỐI: Số phát hành (dạng D2) in nhũ VÀNG trên nền ĐỎ, thường có chữ sê-ri đứng trước dãy số.
-    · NẾU đọc RÕ chữ sê-ri → ghi kèm, vd "O 646324".
-    · NẾU chữ vàng mờ, KHÔNG chắc là chữ nào → CHỈ ghi dãy số, TUYỆT ĐỐI KHÔNG đoán/bịa một chữ cái. Một chữ sê-ri SAI hại hơn THIẾU — thà để hậu kiểm bổ sung còn hơn ghi bừa.
+- SỔ BÌA ĐỎ / SCAN TỐI → Số phát hành LUÔN ở DẠNG D2 (chữ sê-ri đứng TRƯỚC dãy số):
+    Chữ in nhũ VÀNG trên nền ĐỎ nên rất khó đọc, model hay đọc SÓT chữ sê-ri — bắt buộc đọc bằng được chữ đó.
+    · Sê-ri hay gặp trong kho này: O, S, T, U, A, B, K, AH, AK, AI, BT, BR, CE, CG, DD, DL — chữ vàng mờ thì suy theo NÉT rồi chọn trong nhóm này.
+    · TUYỆT ĐỐI KHÔNG trả về dãy số trần "646324" cho bìa đỏ — phải là "O 646324". Chỉ đọc được số mà chưa thấy chữ → NHÌN LẠI vùng ngay TRƯỚC dãy số.
 - May have multiple Certificate of Land Use Rights with different information as Số phát hành.
 - Return JSON ONLY. No explanation, no markdown.
 - Output MUST match the structure EXACTLY.
@@ -121,6 +122,9 @@ Return EXACTLY this JSON structure:
 ====
 Examples output for Số phát hành giấy chứng nhận:
 - SOAP XXXXXX -> AP XXXXXX
+- Số O 646324 -> O 646324        (GIỮ chữ sê-ri O, đừng bỏ thành 646324)
+- SỐO 812384 -> O 812384
+- Số S 021939 -> S 021939
 - H0 XXXXXX -> HO XXXXXX
 - U0 XXXXXX -> UO XXXXXX
 - XXXXXXXXXX
@@ -176,8 +180,10 @@ QUY TẮC:
     (D2) Chữ sê-ri + số:  ^[A-Z]{1,2}\\s?\\d+$    — SỔ BÌA ĐỎ mẫu cũ, vd "O 646324"
     · Tiền tố "SO"/"SỐ" DÍNH chữ là NHÃN "Số" → bỏ, phần còn lại là D2 (SOAP → AP; "SỐO 812384" → "O 812384").
     · KHÔNG trùng với Số vào sổ.
-- SỔ BÌA ĐỎ / SCAN TỐI: Số phát hành (dạng D2) in nhũ VÀNG trên nền ĐỎ, thường có chữ sê-ri đứng trước dãy số (góc dưới phải / hộp dưới tiêu ngữ).
-    · Đọc RÕ chữ sê-ri → ghi kèm ("O 646324"). KHÔNG chắc chữ nào → CHỈ ghi dãy số, TUYỆT ĐỐI KHÔNG đoán/bịa chữ cái. Một chữ SAI hại hơn THIẾU.
+- SỔ BÌA ĐỎ / SCAN TỐI → Số phát hành LUÔN ở DẠNG D2 (chữ sê-ri đứng TRƯỚC dãy số). Chữ nhũ VÀNG trên nền ĐỎ khó đọc, hay sót sê-ri:
+    · Vị trí: góc DƯỚI PHẢI bìa hoặc hộp dưới tiêu ngữ.
+    · Sê-ri hay gặp: O, S, T, U, A, B, K, AH, AK, AI, BT, BR, CE, CG, DD, DL — chữ mờ thì suy theo nét, chọn trong nhóm này.
+    · BẮT BUỘC có chữ sê-ri: TUYỆT ĐỐI không trả dãy số trần "646324", đúng là "O 646324". Ra được số mà chưa thấy chữ → nhìn lại NGAY TRƯỚC dãy số.
 
   - 'Số vào sổ': Kiểu dữ liệu - str. thường là XXXXX hoặc là CH XXXXX
   - 'Ngày cấp': CHỈ điền giá trị ngày dạng dd/mm/yyyy, KHÔNG kèm tên tỉnh, cơ quan, hay bất kỳ text nào khác. Vị trí nhận biết: trước đó là tên 1 tỉnh (ví dụ: Hưng Yên, Hải Phòng,...) và ngay sau là tên 1 cơ quan tổ chức — nhưng output CHỈ giữ phần ngày tháng.
@@ -201,6 +207,9 @@ Trả về JSON đúng cấu trúc sau:
 ====
 Examples output for Số phát hành giấy chứng nhận (hay ở góc phải bên dưới ảnh - hoặc bên trên dưới tiêu ngữ trong hộp con):
 - SOAP XXXXXX -> AP XXXXXX
+- Số O 646324 -> O 646324        (GIỮ chữ sê-ri O, đừng bỏ thành 646324)
+- SỐO 812384 -> O 812384
+- Số S 021939 -> S 021939
 - HO XXXXXX
 - UO XXXXXX
 - XXXXXXXXXX
