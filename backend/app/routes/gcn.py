@@ -186,8 +186,11 @@ def _rows_filter(batch_id, status, review, user: dict) -> dict:
         ids = scoped_batch_ids(user)
         if ids is not None:
             flt["batch_id"] = {"$in": ids}
-    if status:
-        flt["status"] = status
+    # Mặc định CHỈ hồ sơ đã xử lý xong. Đây là bảng XUẤT DỮ LIỆU: hồ sơ đang
+    # Chờ/Đang xử lý/Lỗi chưa có thửa nào để xuất, nếu không lọc thì sắp-mới-nhất
+    # đẩy cả loạt vừa upload (chưa trích xuất) lên đầu → bảng nhìn TRẮNG. Truyền
+    # `status` cụ thể vẫn ghi đè được.
+    flt["status"] = status or "done"
     if review:
         flt["review.status"] = review
     own_or = _viewer_own_or(user)
