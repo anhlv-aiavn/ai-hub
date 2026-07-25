@@ -37,6 +37,11 @@ EVENT_CHANNEL = os.getenv("EVENT_CHANNEL", "aihub:events")
 MAX_VLM_CONCURRENT = int(os.getenv("MAX_VLM_CONCURRENT", "8"))
 # Số file in-flight tối đa (bound RAM ảnh render).
 MAX_IN_FLIGHT = int(os.getenv("MAX_IN_FLIGHT", str(MAX_VLM_CONCURRENT * 3)))
+# Tách file PDF per-GCN (cut-*.pdf) ghi lên S3 ĐÍCH. Tắt (false) khi không cần
+# file cắt — bỏ hẳn tải ghi hàng loạt lên đích (thủ phạm 502 khi đích là cổng
+# public quá tải). Dữ liệu trích xuất KHÔNG phụ thuộc cut; tắt chỉ mất file PDF
+# tách + cột "tệp cắt". Bật lại lúc nào cũng được, không mất dữ liệu.
+BUILD_CUTS = _b("AIHUB_BUILD_CUTS", "true")
 
 # ── Dry-run (tích hợp riêng ngoài hệ thống chính) ───────────────────────────
 # File tạm lên BUCKET RIÊNG (khác AIHUB_BUCKET của hệ thống thật) — xoá ngay

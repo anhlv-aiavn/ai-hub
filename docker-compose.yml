@@ -43,6 +43,9 @@ services:
       # Worker: in-flight batching cho vLLM + giới hạn trang
       MAX_VLM_CONCURRENT: ${MAX_VLM_CONCURRENT:-8}
       MAX_IN_FLIGHT: ${MAX_IN_FLIGHT:-24}
+      # false = KHÔNG tạo file cắt per-GCN (bỏ tải ghi hàng loạt lên S3 đích).
+      # Phân trang vẫn nằm trong extractions → cắt lại từ JSON khi cần.
+      AIHUB_BUILD_CUTS: ${AIHUB_BUILD_CUTS:-true}
       AIHUB_MAX_PAGES: ${AIHUB_MAX_PAGES:-250}
       DETECT_WINDOW: ${DETECT_WINDOW:-12}
       DETECT_VERIFY: ${DETECT_VERIFY:-true}

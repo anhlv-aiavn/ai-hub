@@ -315,7 +315,7 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
         status, err = "done", None
 
     cuts: list[dict] = []
-    if status == "done":
+    if status == "done" and config.BUILD_CUTS:
         try:
             cuts = await _build_cuts(gcn_id, batch_id, images, records)
         except DestinationNotConfigured as e:
