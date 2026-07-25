@@ -80,6 +80,10 @@ async def ensure_indexes() -> None:
     await import_jobs().create_index("started_at")
     await export_jobs().create_index("status")
     await gcns().create_index([("branch", 1), ("created_at", -1)])
+    # Bảng "Xuất dữ liệu" + "Tải CSV" sort mới-nhất-trước rồi limit: thiếu index
+    # này thì sort toàn kho (~600k) chạy trong RAM và Mongo chặn ở 32MB
+    # ("Sort exceeded memory limit"). Với index, sort+limit chỉ đi ngược index.
+    await gcns().create_index([("created_at", -1)], background=True, name="created_at_desc")
     # TTL: Mongo tự xóa cache tiến độ MinIO đã hết hạn — không cần dọn tay/kiểm
     # tra tuổi bằng Python (xem app.config.BROWSE_PROGRESS_CACHE_TTL).
     await browse_progress_cache().create_index(

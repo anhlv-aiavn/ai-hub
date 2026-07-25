@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
 import GcnPdf from "./GcnPdf.jsx";
 import Pager from "./Pager.jsx";
@@ -143,7 +143,8 @@ export default function ExportView({ user }) {
   const [stats, setStats] = useState(null);
   const [cols, setCols] = useState([]);
   const [rows, setRows] = useState([]);
-  const [rowsTotal, setRowsTotal] = useState(0);
+  const [rowsTotal, setRowsTotal] = useState(0); // ĐẾM HỒ SƠ (doc), không phải dòng
+  const [docOffset, setDocOffset] = useState(0); // số hồ sơ trước trang này → STT liên tục
   const [rowsPage, setRowsPage] = useState(1);
   const [rowsTotalPages, setRowsTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -151,7 +152,7 @@ export default function ExportView({ user }) {
   const [pvPage, setPvPage] = useState(1);
   const [job, setJob] = useState(null); // {job_id, status, row_count, error}
   const pollRef = useRef(null);
-  const refreshRef = useRef(() => {});
+  const refreshStatsRef = useRef(() => {}); // SSE chỉ làm tươi STATS (nhẹ), KHÔNG động bảng dòng
   const reviewerDaysMounted = useRef(false); // né gọi getStats trùng lúc mount (đã có refresh() lo)
 
   function openPreview(p) { setPvPage(1); setPreview(p); }
@@ -178,10 +179,11 @@ export default function ExportView({ user }) {
       setCols(d.columns || []);
       setRows(d.rows || []);
       setRowsTotal(d.total || 0);
+      setDocOffset(d.doc_offset || 0);
       setRowsTotalPages(d.total_pages || 1);
     } catch (e) { toastErr(e.message || e); } finally { setLoading(false); }
   }
-  useEffect(() => { refreshRef.current = refresh; });
+  useEffect(() => { refreshStatsRef.current = refreshStats; });
 
   // Đổi khoảng thời gian bảng "Theo người hậu kiểm" → chỉ gọi lại stats (nhẹ),
   // không đụng tới trang/bộ lọc của bảng dòng phẳng bên dưới. Bỏ qua lần đầu vì
@@ -199,9 +201,13 @@ export default function ExportView({ user }) {
   }, []);
   // Đổi bộ lọc → về trang 1 (không dùng state `rowsPage` cũ để tránh closure lệch nhịp).
   useEffect(() => { setRowsPage(1); refresh(1); /* eslint-disable-next-line */ }, [batchId, review]);
+  // SSE (đang xử lý) CHỈ làm tươi các thanh trạng thái trên cùng — KHÔNG tự nạp
+  // lại bảng dòng: bảng đó gom-bản-trùng bằng $group quét toàn kho, chạy mỗi
+  // event thì nặng Mongo. Người dùng bấm "Làm mới" (hoặc đổi lọc/lật trang) khi
+  // muốn xem dữ liệu mới.
   useEffect(() => {
     let t = null;
-    const un = subscribeEvents(() => { clearTimeout(t); t = setTimeout(() => refreshRef.current(), 800); });
+    const un = subscribeEvents(() => { clearTimeout(t); t = setTimeout(() => refreshStatsRef.current(), 800); });
     return () => { un(); clearTimeout(t); };
   }, []);
 
@@ -259,6 +265,19 @@ export default function ExportView({ user }) {
     return v == null ? "" : String(v);
   }
 
+  // Phân trang giờ ở TẦNG HỒ SƠ (mới nhất trước): 1 hồ sơ nhiều thửa = nhiều
+  // hàng liền nhau. STT đánh theo HỒ SƠ — chỉ hiện ở hàng đầu mỗi hồ sơ, các
+  // hàng thửa sau để trống (giống bảng trích xuất). doc_offset nối số qua trang.
+  const sttForRow = useMemo(() => {
+    const out = [];
+    let seq = 0, last;
+    for (const r of rows) {
+      if (r._gcn_id !== last) { seq += 1; last = r._gcn_id; out.push(docOffset + seq); }
+      else out.push(null);
+    }
+    return out;
+  }, [rows, docOffset]);
+
   const s = stats || {};
   const st = s.by_status || {};
 
@@ -292,7 +311,7 @@ export default function ExportView({ user }) {
             <select value={review} onChange={(e) => setReview(e.target.value)}>
               {Object.entries(REVIEW).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
-            <span className="muted ev-count">{fmt(rowsTotal)} dòng</span>
+            <span className="muted ev-count">{fmt(rowsTotal)} hồ sơ</span>
             <div className="ev-export-btns">
               <button className="primary sm" onClick={csv}><Icon name="download" size={14} /> Tải CSV</button>
               {canExportJob && (
@@ -334,7 +353,7 @@ export default function ExportView({ user }) {
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i}>
-                  <td className="et-stt">{(rowsPage - 1) * ROWS_PAGE_SIZE + i + 1}</td>
+                  <td className="et-stt">{sttForRow[i] == null ? "" : sttForRow[i]}</td>
                   {cols.map((c) => (
                     <td key={c} title={FILE_COLS.has(c) ? "" : (r[c] == null ? "" : String(r[c]))}>{cell(c, r)}</td>
                   ))}
@@ -349,7 +368,7 @@ export default function ExportView({ user }) {
           </table>
         </div>
 
-        <Pager page={rowsPage} totalPages={rowsTotalPages} total={rowsTotal} unit="dòng" onChange={goToRowsPage} />
+        <Pager page={rowsPage} totalPages={rowsTotalPages} total={rowsTotal} unit="hồ sơ" onChange={goToRowsPage} />
       </div>
 
       {preview && (

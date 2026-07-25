@@ -175,7 +175,9 @@ async def list_gcn(
     }
 
 
-async def _collect_rows(batch_id, status, review, user: dict) -> list[dict]:
+def _rows_filter(batch_id, status, review, user: dict) -> dict:
+    """Bộ lọc dùng chung cho preview `/rows` và `export.csv` — cùng phạm vi
+    quyền (lô được gán + giới hạn viewer) để hai đường luôn thấy cùng một tập."""
     flt: dict = {}
     if batch_id:
         ensure_batch_access(user, batch_id)
@@ -191,13 +193,70 @@ async def _collect_rows(batch_id, status, review, user: dict) -> list[dict]:
     own_or = _viewer_own_or(user)
     if own_or:
         flt["$and"] = [own_or]
-    docs = await gcns().find(flt).to_list(length=5000)
-    docs.sort(key=lambda r: (r.get("group_key") is None, r.get("group_key") or "",
-                             str(r.get("created_at") or "")))
+    return flt
+
+
+# "Tải CSV" đồng bộ cap ở đây (dựng cả CSV trong RAM + trả trong 1 response —
+# không stream). Toàn kho không cap = "Xuất nền" (export_job đọc qua cursor).
+_CSV_SYNC_CAP = 5000
+
+# group_key rỗng → mỗi hồ sơ tự làm một cụm (khoá "\n#id:<_id>"). Tiền tố có
+# xuống dòng để không đụng group_key thật (sinh từ Số phát hành, không có \n).
+_GRP_ID = {"$ifNull": ["$group_key", {"$concat": ["\n#id:", {"$toString": "$_id"}]}]}
+
+
+async def _ranked_doc_ids(flt: dict, page: int, page_size: int) -> tuple[list, int, int]:
+    """Xếp hồ sơ MỚI NHẤT TRƯỚC + GOM BẢN TRÙNG, trả về (ids theo đúng thứ tự cần
+    hiển thị của 1 trang, tổng số cụm, doc_offset).
+
+    Cụm = các hồ sơ cùng `group_key` (trùng nội dung GCN). Vị trí một cụm do hồ
+    sơ MỚI NHẤT trong cụm quyết định — nên bản trùng cũ được kéo lên nằm cạnh
+    bản mới, không lạc mất ở cuối kho. Gom PHẢI toàn cục (bản trùng có thể cách
+    nhau nhiều tháng, gom trong-trang thì chúng chẳng bao giờ gặp nhau).
+
+    Chỉ gom trên trường NHẸ (`group_key`/`created_at`/`_id`) — KHÔNG kéo
+    `extractions` vào $group (chục KB × 600k sẽ nổ RAM). $sort created_at đi theo
+    index `created_at_desc`; sau khi biết trang cần id nào mới nạp doc đầy đủ."""
+    skip = (page - 1) * page_size
+    pipeline = [
+        {"$match": flt},
+        # created_at giảm dần TRƯỚC $group để $first = bản mới nhất trong cụm.
+        {"$sort": {"created_at": -1, "_id": -1}},
+        {"$group": {"_id": _GRP_ID, "ids": {"$push": "$_id"},
+                    "newest": {"$first": "$created_at"}, "newest_id": {"$first": "$_id"}}},
+        {"$sort": {"newest": -1, "newest_id": -1}},
+        {"$facet": {
+            "page": [{"$skip": skip}, {"$limit": page_size}, {"$project": {"ids": 1}}],
+            "count": [{"$count": "n"}],
+        }},
+    ]
+    agg = await gcns().aggregate(pipeline, allowDiskUse=True).to_list(length=1)
+    facet = agg[0] if agg else {"page": [], "count": []}
+    total = (facet.get("count") or [{}])[0].get("n", 0) if facet.get("count") else 0
+    ids = [i for g in (facet.get("page") or []) for i in (g.get("ids") or [])]
+    return ids, total, skip
+
+
+async def _rows_for_ids(ids: list) -> list[dict]:
+    """Nạp doc đầy đủ cho đúng các id (1 truy vấn $in) rồi phẳng THEO ĐÚNG THỨ TỰ
+    `ids` đã xếp ($in trả về không theo thứ tự nên phải map lại)."""
+    if not ids:
+        return []
+    by_id = {d["_id"]: d async for d in gcns().find({"_id": {"$in": ids}})}
     rows: list[dict] = []
-    for d in docs:
-        rows.extend(flatten_doc(d))
+    for i in ids:
+        d = by_id.get(i)
+        if d is not None:
+            rows.extend(flatten_doc(d))
     return rows
+
+
+async def _collect_rows(batch_id, status, review, user: dict) -> list[dict]:
+    # "Tải CSV" dùng CHUNG cách xếp với bảng preview (mới nhất trước + gom trùng)
+    # để cái người ta xem và cái tải về khớp nhau — chỉ khác là cap 5000 cụm đầu.
+    flt = _rows_filter(batch_id, status, review, user)
+    ids, _total, _off = await _ranked_doc_ids(flt, page=1, page_size=_CSV_SYNC_CAP)
+    return await _rows_for_ids(ids)
 
 
 @router.get("/rows")
@@ -205,19 +264,22 @@ async def gcn_rows(batch_id: str | None = None, status: str | None = None,
                    review: str | None = None,
                    page: int = 1, page_size: int = 50,
                    user: dict = Depends(current_user)):
-    """Khung nhìn dạng HÀNG phẳng (đã áp hậu kiểm) — phục vụ xem/xuất/FME.
+    """Khung nhìn dạng HÀNG phẳng (đã áp hậu kiểm) — preview trên UI.
 
-    Phân trang ở TẦNG HÀNG (1 hàng = 1 thửa, xem `flatten_doc`) — chỉ áp cho
-    preview trên UI; `export.csv`/xuất nền vẫn lấy toàn bộ qua `_collect_rows`."""
-    all_rows = await _collect_rows(batch_id, status, review, user)
+    Phân trang ở TẦNG HỒ SƠ NGAY TRONG MONGO, MỚI NHẤT LÊN ĐẦU và GOM BẢN TRÙNG
+    (xem `_ranked_doc_ids`): xem được TOÀN KHO (không còn cap 5000 + sort-trong-
+    RAM như trước). Một hồ sơ nhiều thửa → nhiều hàng liền nhau; `total` đếm CỤM
+    (≈ số hồ sơ vì bản trùng hiếm) và `doc_offset` để FE đánh STT theo hồ sơ."""
+    flt = _rows_filter(batch_id, status, review, user)
     page = max(1, page)
     page_size = max(1, min(page_size, 500))
-    start = (page - 1) * page_size
-    rows = all_rows[start:start + page_size]
-    total = len(all_rows)
+    ids, total, doc_offset = await _ranked_doc_ids(flt, page, page_size)
+    rows = await _rows_for_ids(ids)
     return {
-        "columns": FLAT_COLUMNS, "rows": rows, "total": total, "page": page,
-        "page_size": page_size, "total_pages": max(1, -(-total // page_size)),
+        "columns": FLAT_COLUMNS, "rows": rows, "total": total,
+        "doc_offset": doc_offset,
+        "page": page, "page_size": page_size,
+        "total_pages": max(1, -(-total // page_size)),
     }
 
 
