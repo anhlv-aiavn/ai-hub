@@ -27,6 +27,7 @@ from app.worker.export_job import claim_export_job, process_export_job
 from app.worker.import_job import claim_import_job, process_import_job
 from app.worker.run_job import process_doc
 from src.extentions.mongo_helper import AsyncMongo
+from src.extentions.multimodal.vlm_client import endpoint_count, total_vlm_concurrency
 
 log = logging.getLogger(__name__)
 
@@ -113,8 +114,8 @@ async def run() -> None:
     while not await mongo.ping():
         log.warning("Chưa kết nối được Mongo, thử lại…")
         await asyncio.sleep(2)
-    log.info("Worker khởi động · MAX_VLM_CONCURRENT=%d · MAX_IN_FLIGHT=%d",
-             config.MAX_VLM_CONCURRENT, config.MAX_IN_FLIGHT)
+    log.info("Worker khởi động · %d endpoint vLLM · trần/máy=%d · trần tổng=%d · MAX_IN_FLIGHT=%d",
+             endpoint_count(), config.MAX_VLM_CONCURRENT, total_vlm_concurrency(), config.MAX_IN_FLIGHT)
 
     in_flight: set[asyncio.Task] = set()
     import_in_flight: set[asyncio.Task] = set()

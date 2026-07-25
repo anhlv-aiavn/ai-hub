@@ -40,6 +40,7 @@ from src.extentions.multimodal.chu_cuoi import chu_cuoi_for_entry
 from src.extentions.multimodal.mdsdd import ALGO_VERSION as MDSDD_VERSION
 from src.extentions.multimodal.mdsdd import gan_mdsdd
 from src.extentions.multimodal.normalize_dang_ky import normalize_extractions
+from src.extentions.multimodal.vlm_client import total_vlm_concurrency
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +57,11 @@ _VLM_SEM: asyncio.Semaphore | None = None
 def _vlm_sem() -> asyncio.Semaphore:
     global _VLM_SEM
     if _VLM_SEM is None:
-        _VLM_SEM = asyncio.Semaphore(config.MAX_VLM_CONCURRENT)
+        # Trần TỔNG = năng lực cả pool (trần/máy × số endpoint). Cân tải + trần
+        # riêng TỪNG máy đã do vlm_client lo; semaphore này chỉ chặn fan-out để
+        # bound RAM (mỗi call đang chờ giữ ảnh base64 ~vài MB). Thêm 1 máy vLLM
+        # vào VLLM_ENDPOINTS là trần này tự nhân lên, không cần sửa gì ở đây.
+        _VLM_SEM = asyncio.Semaphore(total_vlm_concurrency())
     return _VLM_SEM
 
 

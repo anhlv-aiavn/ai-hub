@@ -28,6 +28,10 @@ services:
       AWS_SECRET_ACCESS_KEY_MINIO: ${AWS_SECRET_ACCESS_KEY_MINIO:-Tumiki2026}
       REDIS_URL: redis://redis:6379/0
       VLLM_BASE_URL: ${VLLM_BASE_URL:-http://14.232.240.254:30000/v1}
+      # Nhiều máy vLLM: danh sách ngăn cách dấu phẩy, mỗi mục "url" hoặc "url|model|key".
+      # Bỏ trống → chỉ dùng VLLM_BASE_URL (như cũ). Ví dụ 2 máy:
+      #   VLLM_ENDPOINTS=http://192.168.120.9:30000/v1,http://192.168.120.10:30001/v1
+      VLLM_ENDPOINTS: ${VLLM_ENDPOINTS:-}
       VLLM_MODEL_NAME: ${VLLM_MODEL_NAME:-gemma-4-26B-A4B-NVFP4}
       VLLM_API_KEY: ${VLLM_API_KEY:-EMPTY}
       ENABLE_THINKING: ${ENABLE_THINKING:-false}

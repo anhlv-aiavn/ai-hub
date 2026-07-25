@@ -473,10 +473,24 @@ async def stage_requeue_guard(limit: int) -> None:
     print("  8 ca (4 phải bỏ · 4 phải lấy) ✓")
 
 
+async def stage_vlm_pool(limit: int) -> None:
+    """PURE — khai báo nhiều endpoint vLLM + chọn máy ít-việc/failover (không mạng).
+
+    docker compose exec api python -m app.scripts.smoke vlm_pool
+    """
+    from src.extentions.multimodal import vlm_client
+
+    try:
+        vlm_client._smoke()  # 10 KILL: parse VLLM_ENDPOINTS + _pick_least
+    except AssertionError as e:
+        raise Kill(str(e))
+
+
 # đăng ký stage: tên → (hàm, mô tả)
 _STAGES = {
     "cut_diagnose": (stage_cut_diagnose, "PURE — chẩn đoán cắt sai từ chuỗi nhãn"),
     "requeue_guard": (stage_requeue_guard, "PURE — requeue không đụng hồ sơ đã hậu kiểm"),
+    "vlm_pool": (stage_vlm_pool, "PURE — pool nhiều endpoint vLLM + cân tải/failover"),
     "chu_cuoi_real": (stage_chu_cuoi_real, "chu_cuoi trên doc có biến động thật"),
     "mdsdd_real": (stage_mdsdd_real, "ONT/ODT trên thửa đất thật"),
     "mdsdd_backfill": (stage_mdsdd_backfill, "path ghi + idempotent của backfill MĐSD"),
