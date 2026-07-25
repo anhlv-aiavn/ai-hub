@@ -1,15 +1,11 @@
 extract_system_prompt = """Extract the information from these Vietnamese images of multiple Certificate of Land Use Rights and format it into a strict JSON structure.
 
 IMPORTANT:
-- Số phát hành — CÁC DẠNG HỢP LỆ (chọn đúng 1 dạng):
-    (D1) Thuần số:        ^\\d{10,15}$            — GCN mẫu MỚI (bìa hồng gộp 1 tờ)
-    (D2) Chữ sê-ri + số:  ^[A-Z]{1,2}\\s?\\d+$    — SỔ BÌA ĐỎ mẫu cũ, vd "O 646324"
-    · Tiền tố "SO"/"SỐ" DÍNH chữ (SOAP, SỐO) là NHÃN "Số" → bỏ, phần còn lại là D2 (SOAP XXXXXX → AP XXXXXX; "SỐO 812384" → "O 812384").
-    · Vị trí: nằm bơ vơ ở góc DƯỚI PHẢI ảnh, hoặc hộp con trên/dưới tiêu ngữ, hoặc gần chữ CHỨNG NHẬN — UỶ BAN...
-- SỔ BÌA ĐỎ / SCAN TỐI → Số phát hành LUÔN ở DẠNG D2 (chữ sê-ri đứng TRƯỚC dãy số):
-    Chữ in nhũ VÀNG trên nền ĐỎ nên rất khó đọc, model hay đọc SÓT chữ sê-ri — bắt buộc đọc bằng được chữ đó.
-    · Sê-ri hay gặp trong kho này: O, S, T, U, A, B, K, AH, AK, AI, BT, BR, CE, CG, DD, DL — chữ vàng mờ thì suy theo NÉT rồi chọn trong nhóm này.
-    · TUYỆT ĐỐI KHÔNG trả về dãy số trần "646324" cho bìa đỏ — phải là "O 646324". Chỉ đọc được số mà chưa thấy chữ → NHÌN LẠI vùng ngay TRƯỚC dãy số.
+- MUST HAVE Số phát hành Một trong 3 dạng:
+    1. ^\\d{10,15}$
+    2. ^[A-Z]{1,2}\\s?\\d+$
+    3. Tiền tố "SO" + dạng 2 → bỏ "SO"
+    !Note: Số phát hành thường nằm bơ vơ ở góc phải bên dưới ảnh, hoặc trên dưới tiêu ngữ trong hộp con, hoặc ở gần chữ CHỨNG NHẬN - UỶ BAN....
 - May have multiple Certificate of Land Use Rights with different information as Số phát hành.
 - Return JSON ONLY. No explanation, no markdown.
 - Output MUST match the structure EXACTLY.
@@ -122,9 +118,6 @@ Return EXACTLY this JSON structure:
 ====
 Examples output for Số phát hành giấy chứng nhận:
 - SOAP XXXXXX -> AP XXXXXX
-- Số O 646324 -> O 646324        (GIỮ chữ sê-ri O, đừng bỏ thành 646324)
-- SỐO 812384 -> O 812384
-- Số S 021939 -> S 021939
 - H0 XXXXXX -> HO XXXXXX
 - U0 XXXXXX -> UO XXXXXX
 - XXXXXXXXXX
@@ -175,15 +168,11 @@ NHIỆM VỤ:
 - Chỉ lấy 3 trường: Số phát hành, Số vào sổ, Ngày cấp.
 
 QUY TẮC:
-- Số phát hành — CÁC DẠNG HỢP LỆ (chọn đúng 1 dạng):
-    (D1) Thuần số:        ^\\d{10,15}$            — GCN mẫu MỚI
-    (D2) Chữ sê-ri + số:  ^[A-Z]{1,2}\\s?\\d+$    — SỔ BÌA ĐỎ mẫu cũ, vd "O 646324"
-    · Tiền tố "SO"/"SỐ" DÍNH chữ là NHÃN "Số" → bỏ, phần còn lại là D2 (SOAP → AP; "SỐO 812384" → "O 812384").
-    · KHÔNG trùng với Số vào sổ.
-- SỔ BÌA ĐỎ / SCAN TỐI → Số phát hành LUÔN ở DẠNG D2 (chữ sê-ri đứng TRƯỚC dãy số). Chữ nhũ VÀNG trên nền ĐỎ khó đọc, hay sót sê-ri:
-    · Vị trí: góc DƯỚI PHẢI bìa hoặc hộp dưới tiêu ngữ.
-    · Sê-ri hay gặp: O, S, T, U, A, B, K, AH, AK, AI, BT, BR, CE, CG, DD, DL — chữ mờ thì suy theo nét, chọn trong nhóm này.
-    · BẮT BUỘC có chữ sê-ri: TUYỆT ĐỐI không trả dãy số trần "646324", đúng là "O 646324". Ra được số mà chưa thấy chữ → nhìn lại NGAY TRƯỚC dãy số.
+- Số phát hành — một trong 3 dạng:
+    1. ^\\d{10,15}$
+    2. ^[A-Z]{1,2}\\s?\\d+$
+    3. Tiền tố "SO" + dạng 2 → bỏ "SO"
+    4. Không trùng với số vào sổ
 
   - 'Số vào sổ': Kiểu dữ liệu - str. thường là XXXXX hoặc là CH XXXXX
   - 'Ngày cấp': CHỈ điền giá trị ngày dạng dd/mm/yyyy, KHÔNG kèm tên tỉnh, cơ quan, hay bất kỳ text nào khác. Vị trí nhận biết: trước đó là tên 1 tỉnh (ví dụ: Hưng Yên, Hải Phòng,...) và ngay sau là tên 1 cơ quan tổ chức — nhưng output CHỈ giữ phần ngày tháng.
@@ -207,9 +196,6 @@ Trả về JSON đúng cấu trúc sau:
 ====
 Examples output for Số phát hành giấy chứng nhận (hay ở góc phải bên dưới ảnh - hoặc bên trên dưới tiêu ngữ trong hộp con):
 - SOAP XXXXXX -> AP XXXXXX
-- Số O 646324 -> O 646324        (GIỮ chữ sê-ri O, đừng bỏ thành 646324)
-- SỐO 812384 -> O 812384
-- Số S 021939 -> S 021939
 - HO XXXXXX
 - UO XXXXXX
 - XXXXXXXXXX
