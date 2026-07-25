@@ -6,6 +6,7 @@ IMPORTANT:
     2. ^[A-Z]{1,2}\\s?\\d+$
     3. Tiền tố "SO" + dạng 2 → bỏ "SO"
     !Note: Số phát hành thường nằm bơ vơ ở góc phải bên dưới ảnh, hoặc trên dưới tiêu ngữ trong hộp con, hoặc ở gần chữ CHỨNG NHẬN - UỶ BAN....
+    !SỔ BÌA ĐỎ MẪU CŨ (chữ vàng trên nền đỏ/tối): bìa in "Số: <CHỮ SÊ-RI> <DÃY SỐ>", ví dụ "Số O 646324", "Số S 021939", hoặc dính liền "SỐO 812384". Chữ "Số"/"SỐ" chỉ là NHÃN (bỏ đi), nhưng CHỮ CÁI ngay sau nó (O, S, A, D, U...) là SÊ-RI và BẮT BUỘC GIỮ LẠI. ĐÚNG: "O 646324" / "S 021939" / "O 812384". SAI (mất sê-ri, chỉ còn số): "646324". TUYỆT ĐỐI không gộp chữ sê-ri vào chữ "Số" rồi bỏ mất.
 - May have multiple Certificate of Land Use Rights with different information as Số phát hành.
 - Return JSON ONLY. No explanation, no markdown.
 - Output MUST match the structure EXACTLY.
@@ -118,6 +119,9 @@ Return EXACTLY this JSON structure:
 ====
 Examples output for Số phát hành giấy chứng nhận:
 - SOAP XXXXXX -> AP XXXXXX
+- Số O 646324 -> O 646324        (GIỮ chữ sê-ri O, đừng bỏ thành 646324)
+- SỐO 812384 -> O 812384
+- Số S 021939 -> S 021939
 - H0 XXXXXX -> HO XXXXXX
 - U0 XXXXXX -> UO XXXXXX
 - XXXXXXXXXX
@@ -173,6 +177,7 @@ QUY TẮC:
     2. ^[A-Z]{1,2}\\s?\\d+$
     3. Tiền tố "SO" + dạng 2 → bỏ "SO"
     4. Không trùng với số vào sổ
+    5. SỔ BÌA ĐỎ MẪU CŨ: bìa in "Số: <CHỮ SÊ-RI> <DÃY SỐ>" (vd "Số O 646324", "SỐO 812384", "Số S 021939"). Bỏ chữ "Số"/"SỐ" (nhãn) nhưng GIỮ chữ cái sê-ri ngay sau (O/S/A/D/U...). ĐÚNG "O 646324" / "S 021939"; SAI "646324" (mất sê-ri).
 
   - 'Số vào sổ': Kiểu dữ liệu - str. thường là XXXXX hoặc là CH XXXXX
   - 'Ngày cấp': CHỈ điền giá trị ngày dạng dd/mm/yyyy, KHÔNG kèm tên tỉnh, cơ quan, hay bất kỳ text nào khác. Vị trí nhận biết: trước đó là tên 1 tỉnh (ví dụ: Hưng Yên, Hải Phòng,...) và ngay sau là tên 1 cơ quan tổ chức — nhưng output CHỈ giữ phần ngày tháng.
@@ -196,6 +201,9 @@ Trả về JSON đúng cấu trúc sau:
 ====
 Examples output for Số phát hành giấy chứng nhận (hay ở góc phải bên dưới ảnh - hoặc bên trên dưới tiêu ngữ trong hộp con):
 - SOAP XXXXXX -> AP XXXXXX
+- Số O 646324 -> O 646324        (GIỮ chữ sê-ri O, đừng bỏ thành 646324)
+- SỐO 812384 -> O 812384
+- Số S 021939 -> S 021939
 - HO XXXXXX
 - UO XXXXXX
 - XXXXXXXXXX
