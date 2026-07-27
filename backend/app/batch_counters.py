@@ -2,11 +2,12 @@
 mỗi lần cần biết tiến độ (đắt ở quy mô chục triệu doc). Mọi điểm chuyển trạng thái
 gcn gọi `bump()` cạnh update Mongo hiện có; đọc tiến độ chỉ cần đọc field này.
 
-Trạng thái theo dõi: queued, processing, done, error, skip, dead."""
+Trạng thái theo dõi: queued, processing, done, error, no_gcn, skip, dead.
+("no_gcn" = hồ sơ không chứa giấy chứng nhận — kết quả hợp lệ, tách khỏi "error".)"""
 
 from pymongo import ReturnDocument
 
-_STATUSES = ("queued", "processing", "done", "error", "skip", "dead")
+_STATUSES = ("queued", "processing", "done", "error", "no_gcn", "skip", "dead")
 
 
 def zero_counts() -> dict:

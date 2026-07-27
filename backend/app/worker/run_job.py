@@ -308,9 +308,15 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
 
     if skip_reason:
         status, err = "skip", first.get("error")
-    elif not records or has_error:
+    elif has_error:
         status = "error"
-        err = next((r.get("error") for r in records if r.get("error")), None) or "no_gcn_detected"
+        err = next((r.get("error") for r in records if r.get("error")), None)
+    elif not records:
+        # Không có bìa GCN nào trong hồ sơ — KẾT QUẢ HỢP LỆ, KHÔNG phải lỗi xử lý
+        # (ảnh đã render OK, VLM soi xong mà không thấy giấy). Tách riêng "no_gcn"
+        # để: (a) không thổi phồng ô "Lỗi"; (b) không bị nút "thử lại lỗi" quét
+        # (chỉ nhắm status="error") → khỏi requeue vô tận cái mà chạy lại vẫn trống.
+        status, err = "no_gcn", "no_gcn_in_document"
     else:
         status, err = "done", None
 

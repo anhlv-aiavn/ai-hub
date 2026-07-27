@@ -19,6 +19,7 @@ const STATUS_SEGS = [
   { key: "processing", label: "Đang xử lý", cls: "info" },
   { key: "queued", label: "Chờ", cls: "muted" },
   { key: "error", label: "Lỗi", cls: "danger" },
+  { key: "no_gcn", label: "Không có giấy", cls: "warn" },
   { key: "skip", label: "Bỏ qua", cls: "warn" },
 ];
 const REVIEW_SEGS = [

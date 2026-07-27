@@ -990,6 +990,7 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .badge.st-processing { background: #fef3c7; color: #92400e; }
 .badge.st-done { background: #d1fae5; color: #065f46; }
 .badge.st-error { background: #fee2e2; color: #991b1b; }
+.badge.st-no_gcn { background: #fef3c7; color: #92400e; }
 .badge.st-skip { background: #e5e7eb; color: #4b5563; }
 .badge.rv-unreviewed { background: var(--surface-3); color: var(--text-3); }
 .badge.rv-needs_review { background: #fee2e2; color: #991b1b; }

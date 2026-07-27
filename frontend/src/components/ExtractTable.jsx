@@ -11,7 +11,8 @@ const PAGE_SIZE = 50;
 const PENDING = new Set(["queued", "processing"]);
 
 export const STATUS_LABEL = {
-  queued: "Chờ", processing: "Đang xử lý", done: "Xong", error: "Lỗi", skip: "Bỏ qua",
+  queued: "Chờ", processing: "Đang xử lý", done: "Xong", error: "Lỗi",
+  no_gcn: "Không có giấy", skip: "Bỏ qua",
 };
 export const REVIEW_LABEL = {
   unreviewed: "Chưa kiểm", needs_review: "Không duyệt", reviewed: "Đã duyệt",
