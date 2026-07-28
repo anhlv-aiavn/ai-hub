@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 
 from dotenv import load_dotenv
 
@@ -27,6 +28,12 @@ ENABLE_THINKING = os.getenv("ENABLE_THINKING", "true").strip().lower() == "true"
 # Trần call ĐỒNG THỜI cho MỖI endpoint (mỗi máy vLLM = 1 GPU). Thêm máy → tổng
 # năng lực = PER_ENDPOINT × số endpoint, tự nhân lên, KHÔNG phải sửa chỗ khác.
 PER_ENDPOINT_CONCURRENCY = int(os.getenv("MAX_VLM_CONCURRENT", "8"))
+
+# Circuit-breaker: máy vừa lỗi kết nối bị "làm nguội" N giây — trong lúc đó
+# _pick_least né nó, khỏi phí một lần thử-máy-chết mỗi request (máy tắt luôn có
+# inflight=0 nên nếu không có cái này nó lại là "máy rảnh nhất" được chọn TRƯỚC).
+# 0 = tắt tính năng (giữ hành vi cũ: chọn thuần theo inflight).
+ENDPOINT_COOLDOWN = float(os.getenv("VLM_ENDPOINT_COOLDOWN_SECONDS", "15"))
 
 
 # ── Khai báo endpoint ────────────────────────────────────────────────────────
@@ -57,7 +64,7 @@ class _Endpoint:
     """1 máy vLLM: base_url + model + key, kèm semaphore riêng (trần/máy) và bộ
     đếm việc-đang-chạy để cân tải."""
 
-    __slots__ = ("base_url", "model", "api_key", "sem", "inflight")
+    __slots__ = ("base_url", "model", "api_key", "sem", "inflight", "cooldown_until")
 
     def __init__(self, base_url: str, model: str, api_key: str):
         self.base_url = base_url
@@ -65,6 +72,8 @@ class _Endpoint:
         self.api_key = api_key
         self.sem = asyncio.Semaphore(PER_ENDPOINT_CONCURRENCY)
         self.inflight = 0
+        # Mốc time.monotonic() mà máy này hết "nguội" (được chọn lại). 0 = khỏe.
+        self.cooldown_until = 0.0
 
 
 _POOL: list[_Endpoint] | None = None
@@ -92,10 +101,15 @@ def endpoint_count() -> int:
 
 
 def _pick_least(pool: list, tried: list) -> "_Endpoint":
-    """Chọn endpoint ÍT VIỆC NHẤT trong số CHƯA THỬ (cân tải + failover). THUẦN
-    (đồng bộ, không await) nên chọn-rồi-tăng-inflight là nguyên tử trong asyncio."""
+    """Chọn endpoint ÍT VIỆC NHẤT trong số CHƯA THỬ (cân tải + failover), ưu tiên
+    máy KHÔNG đang cooldown (né máy vừa lỗi). Nếu mọi máy còn lại đều đang cooldown
+    thì vẫn chọn 1 để PROBE — không bao giờ trả None, để vòng lặp kết thúc bằng
+    raise thay vì kẹt. THUẦN (đồng bộ, không await) nên chọn-rồi-tăng-inflight là
+    nguyên tử trong asyncio."""
+    now = time.monotonic()
     cands = [e for e in pool if e not in tried] or pool
-    return min(cands, key=lambda e: e.inflight)
+    healthy = [e for e in cands if e.cooldown_until <= now]
+    return min(healthy or cands, key=lambda e: e.inflight)
 
 
 # ── Gọi VLM ──────────────────────────────────────────────────────────────────
@@ -185,10 +199,14 @@ async def chat_json(
         ep.inflight += 1  # tăng NGAY (đồng bộ) để lần chọn kế cân sang máy khác
         try:
             async with ep.sem:
-                return await _call_endpoint(ep, messages, extra, temperature, repetition_penalty)
+                result = await _call_endpoint(ep, messages, extra, temperature, repetition_penalty)
+            ep.cooldown_until = 0.0  # gọi được → gỡ cooldown ngay (half-open đã khỏi)
+            return result
         except _FAILOVER_ERRORS as e:
+            ep.cooldown_until = time.monotonic() + ENDPOINT_COOLDOWN  # làm nguội máy lỗi
             last_exc = e
-            log.warning("VLM %s lỗi (%s) — chuyển endpoint khác", ep.base_url, type(e).__name__)
+            log.warning("VLM %s lỗi (%s) — cooldown %.0fs, chuyển endpoint khác",
+                        ep.base_url, type(e).__name__, ENDPOINT_COOLDOWN)
         finally:
             ep.inflight -= 1
     # Mọi endpoint đều lỗi kết nối → ném lỗi cuối để run_job xử (retry mức doc).
@@ -228,7 +246,18 @@ def _smoke() -> None:
     # Đã thử hết → vẫn trả 1 máy (không None) để vòng lặp kết thúc bằng raise.
     assert _pick_least(eps, eps) in eps, "KILL [10] thử hết vẫn trả 1 máy"
 
-    print("vlm_client PURE: 10 KILL ✓")
+    # Cooldown: né máy vừa lỗi DÙ nó rảnh hơn (inflight thấp hơn).
+    eps[0].inflight, eps[1].inflight = 5, 0
+    eps[1].cooldown_until = time.monotonic() + 999
+    assert _pick_least(eps, []) is eps[0], "KILL [11] né máy đang cooldown dù nó rảnh hơn"
+    # Mọi máy đều cooldown → vẫn PROBE (không kẹt), chọn máy ít việc nhất.
+    eps[0].cooldown_until = time.monotonic() + 999
+    assert _pick_least(eps, []) is eps[1], "KILL [12] tất cả cooldown → vẫn probe máy ít việc"
+    # Cooldown đã hết hạn (mốc trong quá khứ) → coi như khỏe lại.
+    eps[0].cooldown_until = eps[1].cooldown_until = time.monotonic() - 1
+    assert _pick_least(eps, []) is eps[1], "KILL [13] hết hạn cooldown → khỏe lại, chọn theo inflight"
+
+    print("vlm_client PURE: 13 KILL ✓")
 
 
 if __name__ == "__main__":
