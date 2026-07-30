@@ -193,6 +193,23 @@ loop API. Worker dù sao cũng render lại (biết số trang).
 
 ---
 
+### ⚡ PERF-10 · P1 · 🟡 · Audit luồng share (claim/reclaim/sweep) đa worker {#perf-share}
+
+Audit khi chạy nhiều worker (quan sát `processing`=384 = 3 worker × MAX_IN_FLIGHT 128):
+
+- ✅ **Claim KHÔNG trùng lặp**: `find_one_and_update` nguyên tử — 2 worker không cùng giật 1 doc.
+- ⚠️ **Rủi ro trùng khi reclaim**: doc `processing` sống > `PROC_TTL`(1800s) bị worker khác reclaim
+  → xử lý 2 lần + `processing` trừ 2 lần (drift âm). Hiện avg latency ~5′ nên chưa xảy ra, nhưng
+  **oversubscribe đẩy latency lên** → tăng rủi ro. Giữ `PROC_TTL` > p99 latency; giảm oversubscribe.
+- 🟢 **`_sweep_dead` chạy mỗi vòng poll (≤2s, có khi sub-giây) → ĐÃ throttle** `WORKER_SWEEP_INTERVAL`
+  (mặc định 30s). Giảm mạnh query Mongo nền khi nhiều worker. — [worker/main.py]
+- 🔴 **Oversubscribe (chưa tối ưu)**: tổng client concurrency (vd 3 worker × 128 = 384) **vượt tổng
+  slot server vLLM** (`max-num-seqs`×số máy, vd 128×2=256) → ~128 request nằm chờ (Waiting) vô ích,
+  giữ RAM ảnh + phồng latency, KHÔNG thêm throughput. **Nên: Σ(MAX_VLM_CONCURRENT×worker) ≈ Σ slot
+  server.** Đây là config/ops (không phải bug code).
+- 🟡 Fairness `distinct(batch_id,{status:queued})` mỗi 3s/worker trên corpus lớn khi thực tế chỉ
+  1 lô chạy — tốn (thiếu compound index PERF-7). Cân nhắc nới `WORKER_FAIRNESS_REFRESH_SECONDS`.
+
 ## B. ISSUES — Đúng đắn / vận hành
 
 ### OPS-1 · P1 · 🟢 · NoSuchKey → trạng thái `no_file` (tách khỏi "Lỗi"/retry) {#nosuchkey}

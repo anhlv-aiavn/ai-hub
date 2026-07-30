@@ -37,6 +37,12 @@ IMPORT_MAX_CONCURRENT = int(os.getenv("WORKER_IMPORT_MAX_CONCURRENT", "2"))
 EXPORT_MAX_CONCURRENT = int(os.getenv("WORKER_EXPORT_MAX_CONCURRENT", "1"))
 MAX_ATTEMPTS = int(os.getenv("WORKER_MAX_ATTEMPTS", "3"))
 RR_REFRESH_INTERVAL = float(os.getenv("WORKER_FAIRNESS_REFRESH_SECONDS", "3"))
+# Dead-letter sweep là tác vụ nền hiếm — KHÔNG cần chạy mỗi vòng poll (vòng lặp
+# quay ≤POLL_INTERVAL, có khi sub-giây khi task xong liên tục → mỗi worker quét
+# Mongo nhiều lần/giây, nhân theo số worker). Chạy mỗi SWEEP_INTERVAL là đủ:
+# poison chỉ được phát hiện sau khi treo > PROC_TTL(30′) nên trễ thêm ~30s vô hại.
+SWEEP_INTERVAL = float(os.getenv("WORKER_SWEEP_INTERVAL", "30"))
+_last_sweep = 0.0
 
 # Round-robin fairness: cache batch_id có doc queued, refresh theo chu kỳ (không
 # phải mỗi lần claim — tránh thêm 1 `distinct` vào hot path).
@@ -90,9 +96,13 @@ async def _claim(mongo: AsyncMongo, batch_id: str | None = None) -> dict | None:
 
 
 async def _sweep_dead(mongo: AsyncMongo) -> None:
-    """Chuyển doc processing-treo-quá-hạn-và-vượt-MAX_ATTEMPTS sang "dead" — chạy
-    đầu mỗi vòng poll, rẻ (chỉ quét doc đang "processing", một tập nhỏ so với
-    tổng corpus)."""
+    """Chuyển doc processing-treo-quá-hạn-và-vượt-MAX_ATTEMPTS sang "dead". Tự
+    THROTTLE mỗi SWEEP_INTERVAL (không chạy mỗi vòng poll — xem SWEEP_INTERVAL)."""
+    global _last_sweep
+    now_m = time.monotonic()
+    if now_m - _last_sweep < SWEEP_INTERVAL:
+        return
+    _last_sweep = now_m
     now = datetime.now(timezone.utc)
     stale = now - timedelta(seconds=PROC_TTL)
     cursor = mongo.db[config.COLL_GCN].find(
