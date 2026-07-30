@@ -1,55 +1,79 @@
-# AI-HUB — console số hóa & đối soát Giấy Chứng Nhận (GCN)
+# AI-HUB — Console số hóa & đối soát Giấy Chứng Nhận (GCN)
 
-Sản phẩm **riêng** (tách Parsany) để **xử lý theo lô + đối soát** Giấy Chứng Nhận quyền sử dụng đất:
-thả lô PDF → tự phát hiện GCN, bóc tách (VLM) → **bảng trích xuất** → **đối soát PDF ↔ GCN bóc ra**
-→ **hậu kiểm + đặt lại tên + tải bộ**. Tờ bổ sung tự gom về GCN gốc theo **Số phát hành**.
+Xử lý **theo lô, quy mô lớn** Giấy Chứng Nhận quyền sử dụng đất: thả/nhập lô PDF scan → tự phát
+hiện GCN, bóc tách bằng **VLM** → **bảng trích xuất** → **đối soát PDF ↔ dữ liệu bóc ra** →
+**hậu kiểm + đặt lại tên + tải bộ**. Tờ bổ sung tự gom về GCN gốc theo **Số phát hành**.
 
-Engine detect+extract GCN vendor nguyên trạng từ `auto-detect-extract-gcn-vlm`
-(`src/extentions/multimodal/pipeline.detect_and_extract`). MongoDB riêng (chạy trong compose);
-MinIO dùng kho **có sẵn** `storage.ai-hub.tumiki.org`; model VLM dùng endpoint **public**
-`gemma-4-26B-A4B-NVFP4` (`14.232.240.254:30000`).
+Đang chạy production ở quy mô **hàng triệu hồ sơ/lô** (khách tham chiếu: VP Đăng ký đất đai TP Hà Nội).
+
+Engine detect+extract là VLM tự host (`gemma-4-26B-A4B-NVFP4` qua vLLM/litellm), vendor nguyên
+trạng từ `auto-detect-extract-gcn-vlm` (`src/extentions/multimodal/*`).
 
 ## Kiến trúc
-- **backend/** FastAPI (motor + aioboto3) + worker async (streaming pool, poll Mongo).
-  - `app/` API + worker; `src/` = engine GCN vendor (giữ import `from src.extentions…`).
-  - Worker chạy NHIỀU file in-flight + 1 semaphore VLM toàn cục (`MAX_VLM_CONCURRENT`)
-    → tận dụng vLLM dynamic-batch. File lớn: detect chia cửa sổ song song; giới hạn
-    `AIHUB_MAX_PAGES` (mặc định 250).
-- **frontend/** React/Vite (nginx) — tái dùng component Parsany (Icon, Dropzone, EditableTree,
-  PdfViewer→GcnPdf, style.css teal/ivory).
-- **compose**: api · worker · mongo · minio · redis · frontend.
+
+- **backend/** FastAPI (motor + aioboto3) + **worker async streaming-pool**.
+  - `app/` = API + worker + routes + scripts; `src/` = engine GCN vendor (`from src.extentions…`).
+  - **Mongo làm hàng đợi** (không RQ): worker poll doc `status=queued`, claim nguyên tử, xử lý,
+    reclaim job treo, dead-letter poison.
+  - Worker chạy **nhiều file in-flight** + **pool nhiều máy vLLM** (cân tải ít-việc-nhất, failover,
+    circuit-breaker). Detect = phân loại biên từng trang song song; giới hạn `AIHUB_MAX_PAGES` (250).
+- **frontend/** React/Vite (nginx) — bảng trích xuất, đối soát 2 cột PDF↔GCN, hậu kiểm, admin.
+- **compose**: `api · worker · mongo · redis · frontend`. MinIO (kho nguồn + đích) và model VLM là
+  **dịch vụ ngoài**.
+
+## Luồng dữ liệu (tóm tắt)
+
+1. `POST /v1/batches` (upload) hoặc `import_jobs` (nhập thư mục kho nguồn) → tạo `gcn{queued}`.
+2. Worker `process_doc`: tải PDF (MinIO) → render+xoay → detect + extract song song → normalize →
+   gom theo Số phát hành → ghi `extractions/summary/cuts` → SSE tiến độ.
+3. `GET /v1/gcn` bảng trích xuất · `PUT /v1/gcn/{id}` hậu kiểm · `/download` tải zip · export CSV.
+
+Chi tiết thuật toán từng bước: **[docs/algorithm.md](docs/algorithm.md)**.
 
 ## Cổng (né Parsany)
-| dịch vụ | host |
+
+| dịch vụ | host → container |
 |---|---|
 | API | 18002 → 8000 |
 | Web | 3000 → 80 |
-| Mongo | 27018 |
-| Redis | 56381 |
+| Mongo | 27018 → 27017 |
+| Redis | 56381 → 6379 |
 
-MinIO (`storage.ai-hub.tumiki.org`) và model VLM (`14.232.240.254:30000`) là dịch vụ ngoài —
-không chạy trong compose.
+## Chạy (trên máy serve)
 
-## Chạy
 ```bash
-cp .env.example .env          # mặc định đã trỏ MinIO + model thật; chỉnh nếu cần
-docker compose up -d --build  # bucket `ai-hub` + index Mongo tạo tự động lúc API khởi động
+cp .env.example .env               # trỏ MinIO nguồn/đích + VLLM_ENDPOINTS; chỉnh nếu cần
+docker compose up -d --build       # bucket + index Mongo tạo tự động lúc API khởi động
 # UI: http://<host>:3000
 ```
 
-## Luồng dữ liệu
-1. `POST /v1/batches` (nhiều PDF) → MinIO + `gcn`(queued). Worker tự poll & claim.
-2. worker `process_doc`: tải PDF → render+xoay → detect(windowed) + extract(song song) → normalize → ghi
-   `extractions / group_key / summary` → publish SSE.
-3. `GET /v1/gcn` bảng trích xuất (gom theo Số phát hành); `GET /v1/gcn/{id}` chi tiết;
-   `/page/{n}` ảnh trang; `PUT /v1/gcn/{id}` hậu kiểm; `/download` tải zip (PDF + JSON).
+Deploy code mới: `git pull && docker compose up -d --build api worker frontend` (chỉ 3 service
+build từ code). Sau khi restart/build worker, có thể có job kẹt `processing` → dùng nút **Giải
+phóng job kẹt** (Admin → Lỗi) hoặc `POST /v1/gcn/release-stuck`.
 
-## Mongo
-- `batch{_id,name,created_at,file_count,status}`
-- `gcn{_id,batch_id,filename,s3_key,status,page_count,extractions[],
-  extracted_so_phat_hanhs[],group_key,summary,review{display_name,overrides,status,reviewer,at}}`
-  — raw `extractions` giữ nguyên; hậu kiểm ghi `review.*`.
+## Vận hành nhanh
 
-## Pha sau
-Tiến độ %/retry từng bước, cây lịch sử giấy (chuỗi Biến động/Số phát hành), dashboard.
-Xem `PLAN.md`.
+- **Retry lỗi**: Admin → tab Lỗi (mọi lô + lọc thời gian) hoặc `app/scripts/retry_errors_all.py`.
+- **Giải phóng job kẹt**: Admin → tab Lỗi → "Giải phóng job kẹt".
+- **Đo hiệu năng**: `docker compose exec worker python -m app.scripts.bench_pipeline tmp/*.pdf --duration 60`.
+
+## Tài liệu (`docs/`)
+
+| File | Nội dung |
+|---|---|
+| [overall_roadmap.md](docs/overall_roadmap.md) | Tổng quan dự án + roadmap chi tiết (thay project-insight) |
+| [algorithm.md](docs/algorithm.md) | Thuật toán các luồng xử lý |
+| [features_issues.md](docs/features_issues.md) | Sổ tính năng + issue (gồm phân tích hiệu năng MinIO) |
+| [test_eval.md](docs/test_eval.md) | Smoke test + benchmark + eval (máy serve vs cá nhân) |
+| [need_exchange.md](docs/need_exchange.md) | Câu hỏi cần làm rõ với khách hàng |
+
+Quyết định thiết kế lịch sử: `PLAN.md`, `PLAN_.md`, `PLAN_CHU_CUOI_MDSDD.md`.
+
+## Bất biến (đừng phá)
+
+1. Kho nguồn **read-only** — không ghi/xóa trên MinIO nguồn của khách.
+2. Giữ raw `extractions` — hậu kiểm ghi vào `review.*`.
+3. Không `count_documents` ở hot path — tiến độ từ `batch.counts`.
+4. Không nạp toàn bộ vào RAM — mọi liệt kê/xóa S3, import đều STREAM theo trang.
+5. Khóa nghiệp vụ = **Số phát hành**.
+6. Không sửa vendor (`minio_helper`, `multimodal/*`) — bọc ở lớp app.

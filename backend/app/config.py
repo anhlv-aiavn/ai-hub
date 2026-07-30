@@ -28,6 +28,16 @@ REVIEW_LOCK_TTL = int(os.getenv("AIHUB_REVIEW_LOCK_TTL", "300"))
 # ── MinIO (kho riêng AI-HUB) — biến ENDPOINT_URL_MINIO/… do minio_helper đọc ─
 AIHUB_BUCKET = os.getenv("AIHUB_BUCKET", "ai-hub")
 
+# ── MinIO client pool (PERF-1 — xem docs/features_issues.md#perf-minio-pool) ──
+# Tái dùng 1 client aioboto3 SỐNG LÂU cho mỗi endpoint thay vì tạo Session+client
+# mới mỗi call (mỗi call cũ = 1 bắt tay TCP/TLS mới → nghẽn hot path ingest).
+# KILL-SWITCH: đặt AIHUB_S3_POOL=false để quay lại hành vi cũ (per-call client)
+# NGAY, không cần đổi code — dùng khi nghi client pool gây sự cố trên production.
+S3_POOL_ENABLED = _b("AIHUB_S3_POOL", "true")
+# Trần connection trong pool của 1 client — nên ≥ số S3-op đồng thời (~MAX_IN_FLIGHT
+# + số cut ghi song song). Mặc định boto3 chỉ 10 → phải nới.
+S3_POOL_MAX_CONNECTIONS = int(os.getenv("AIHUB_S3_POOL_MAX_CONNECTIONS", "128"))
+
 # ── Redis (bus SSE) ─────────────────────────────────────────────────────────
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 EVENT_CHANNEL = os.getenv("EVENT_CHANNEL", "aihub:events")

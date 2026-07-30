@@ -2,13 +2,86 @@
 duyệt thư mục 1 cấp (vendor chỉ có liệt kê đệ quy), test connection với thông
 báo lỗi phân loại rõ. KHÔNG sửa vendor `minio_helper.py`."""
 
-from contextlib import asynccontextmanager
+import asyncio
+import io
+from contextlib import AsyncExitStack, asynccontextmanager
 
 import aioboto3
 from botocore.config import Config
 from botocore.exceptions import ClientError, ConnectTimeoutError, EndpointConnectionError
 
-from src.extentions.minio_helper import MinioClient
+from src.extentions.minio_helper import MinioClient, normalize_s3_key
+
+
+# ── Client pool SỐNG LÂU (PERF-1) ────────────────────────────────────────────
+# 1 client aioboto3 dùng chung/endpoint, giữ mở suốt đời process (bound vào event
+# loop hiện tại — API và worker mỗi process 1 loop nên an toàn). aiobotocore an
+# toàn khi nhiều coroutine gọi đồng thời (connection pool trong aiohttp). Thay cho
+# việc MinioClient.async_* mở Session+client MỚI mỗi call = 1 handshake TCP/TLS.
+_pooled: dict[tuple, object] = {}
+_pooled_stacks: dict[tuple, AsyncExitStack] = {}
+_pooled_lock = asyncio.Lock()
+
+
+def _pool_key(client: MinioClient) -> tuple:
+    # Gồm CẢ secret: xoay credential (đổi secret, giữ access_key) ⇒ key khác ⇒
+    # client mới, không dùng nhầm client cũ với secret cũ.
+    return (client.endpoint_url, client.aws_access_key_id,
+            client.aws_secret_access_key, bool(client.verify))
+
+
+async def pooled_s3(client: MinioClient, max_pool_connections: int = 128):
+    """Trả 1 s3 client aioboto3 SỐNG LÂU cho endpoint/creds của `client` (tạo
+    lười, cache theo creds). Dùng cho hot path get/put — KHÔNG mở/đóng mỗi call."""
+    key = _pool_key(client)
+    s3 = _pooled.get(key)
+    if s3 is not None:
+        return s3
+    async with _pooled_lock:
+        s3 = _pooled.get(key)  # double-check sau khi giành lock
+        if s3 is not None:
+            return s3
+        stack = AsyncExitStack()
+        session = aioboto3.Session()
+        s3 = await stack.enter_async_context(session.client(
+            "s3", endpoint_url=client.endpoint_url,
+            aws_access_key_id=client.aws_access_key_id,
+            aws_secret_access_key=client.aws_secret_access_key,
+            verify=client.verify, region_name="us-east-1",
+            config=Config(
+                max_pool_connections=max_pool_connections,
+                connect_timeout=60, read_timeout=300,
+                retries={"max_attempts": 3, "mode": "standard"},
+            ),
+        ))
+        _pooled[key] = s3
+        _pooled_stacks[key] = stack
+        return s3
+
+
+async def pooled_get(client: MinioClient, bucket: str, key: str, max_pool: int = 128) -> io.BytesIO:
+    s3 = await pooled_s3(client, max_pool)
+    resp = await s3.get_object(Bucket=bucket, Key=key)
+    body = await resp["Body"].read()
+    return io.BytesIO(body)
+
+
+async def pooled_put(client: MinioClient, bucket: str, key: str, data: bytes, max_pool: int = 128) -> None:
+    # Giữ ĐÚNG hành vi vendor async_put_object: normalize key trước khi ghi.
+    s3 = await pooled_s3(client, max_pool)
+    await s3.put_object(Bucket=bucket, Key=normalize_s3_key(key), Body=data)
+
+
+async def aclose_pooled() -> None:
+    """Đóng mọi client pool (gọi lúc shutdown API) — tránh cảnh báo unclosed session."""
+    async with _pooled_lock:
+        for stack in _pooled_stacks.values():
+            try:
+                await stack.aclose()
+            except Exception:  # noqa: BLE001
+                pass
+        _pooled.clear()
+        _pooled_stacks.clear()
 
 
 def build_client(conn: dict) -> MinioClient:

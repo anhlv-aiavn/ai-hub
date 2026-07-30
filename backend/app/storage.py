@@ -14,7 +14,7 @@ from PIL import Image
 
 from app import config
 from app.db import s3_connections
-from app.s3_util import build_client
+from app.s3_util import build_client, pooled_get, pooled_put
 
 log = logging.getLogger(__name__)
 
@@ -108,19 +108,33 @@ async def ensure_destination_configured() -> None:
     await _get_dest_client()
 
 
+# ── Hot path get/put: dùng client pool sống lâu (PERF-1), kill-switch S3_POOL ──
+async def _s3_get(client, bucket: str, key: str) -> io.BytesIO:
+    if config.S3_POOL_ENABLED:
+        return await pooled_get(client, bucket, key, config.S3_POOL_MAX_CONNECTIONS)
+    return await client.async_get_object(bucket, key)
+
+
+async def _s3_put(client, bucket: str, key: str, data: bytes) -> None:
+    if config.S3_POOL_ENABLED:
+        await pooled_put(client, bucket, key, data, config.S3_POOL_MAX_CONNECTIONS)
+        return
+    await client.async_put_object(bucket, key, io.BytesIO(data))
+
+
 async def put_object(key: str, data: bytes) -> None:
     """Ghi ĐÍCH luôn — dùng chung cho PDF (upload gốc/cuts) và tệp khác (export
     CSV, logo). `DestinationNotConfigured` (từ `_get_dest_client`) truyền
     nguyên xuống người gọi — KHÔNG bắt ở đây."""
     client, bucket = await _get_dest_client()
-    await client.async_put_object(bucket, key, io.BytesIO(data))
+    await _s3_put(client, bucket, key, data)
 
 
 async def get_object(key: str) -> bytes:
     """Đọc ĐÍCH (đối xứng `put_object`) — dùng cho logo. `DestinationNotConfigured`
     truyền nguyên xuống người gọi."""
     client, bucket = await _get_dest_client()
-    buf = await client.async_get_object(bucket, key)
+    buf = await _s3_get(client, bucket, key)
     return buf.getvalue()
 
 
@@ -141,7 +155,7 @@ async def get_pdf(key: str, source_connection_id: str | None = None) -> io.Bytes
     else:
         client, bucket = await _get_source_client(source_connection_id)
     try:
-        return await client.async_get_object(bucket, key)
+        return await _s3_get(client, bucket, key)
     except ClientError as e:
         code = e.response.get("Error", {}).get("Code", "")
         raise SourceObjectUnavailable(f"Không đọc được file ({code or e}): {key}") from e

@@ -43,6 +43,14 @@ async def _startup() -> None:
     await _ensure_bucket()
 
 
+@app.on_event("shutdown")
+async def _shutdown() -> None:
+    # Đóng client MinIO pool sống lâu (PERF-1) — tránh cảnh báo unclosed session.
+    from app.s3_util import aclose_pooled
+
+    await aclose_pooled()
+
+
 async def _seed_site_config() -> None:
     """Migrate cấu hình hard-code hôm nay vào DB — Hà Nội chạy y hệt sau migrate.
     upsert `$setOnInsert`: nhiều API worker khởi động song song vẫn chỉ tạo 1

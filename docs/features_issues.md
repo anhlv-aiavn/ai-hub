@@ -1,0 +1,202 @@
+# Features & Issues — AI-HUB
+
+> Sổ đăng ký **tính năng + vấn đề** của dự án. Mỗi mục có: mã, mức ưu tiên, trạng thái,
+> mô tả, bằng chứng (`path:line`), và hướng xử lý. Cập nhật khi raise/đóng.
+>
+> Ưu tiên: **P0** chặn/đắt nghiêm trọng · **P1** đáng làm sớm · **P2** cải thiện · **P3** nice-to-have.
+> Trạng thái: 🔴 mở · 🟡 đang làm · 🟢 xong · ⚪ backlog.
+
+---
+
+## A. ISSUES — Hiệu năng (trọng tâm: tốc độ trích xuất bắt nguồn từ MinIO)
+
+### ⚡ PERF-1 · P0 · 🟡 · MinIO tạo connection MỚI mỗi request (không pool) {#perf-minio-pool}
+
+> **Trạng thái**: ĐÃ TRIỂN KHAI client pool sống lâu (bọc lớp app, không đụng vendor), có
+> kill-switch `AIHUB_S3_POOL=false`. Chờ bench trước/sau trên máy serve để định lượng.
+> Đã xác nhận qua log vLLM: GPU chưa bão hòa (KV cache ~46–52%, Waiting nhỏ) ⇒ nghẽn ở feed.
+> Code: `app/s3_util.py` (`pooled_s3/pooled_get/pooled_put`), `app/storage.py` (`_s3_get/_s3_put`).
+
+
+**Triệu chứng**: throughput ingest thấp hơn nhiều so với năng lực GPU; 502 hàng loạt khi ghi
+cut lên đích (đã phải thêm cờ tắt `AIHUB_BUILD_CUTS`).
+
+**Gốc rễ**: `MinioClient.async_get_object` / `async_put_object` **tạo `aioboto3.Session()` +
+`session.client()` mới trong MỖI lần gọi** — mỗi call là một bắt tay TCP + TLS mới tới endpoint
+HTTPS. — [backend/src/extentions/minio_helper.py:71-89, 236-250]
+
+Lớp cache ở `storage.py` (`_get_dest_client`/`_get_source_client`, TTL 30s) chỉ cache **wrapper
+giữ credential**, KHÔNG phải client boto3 → **không tái dùng connection nào** trên hot path.
+— [backend/app/storage.py:49-73]
+
+Mỗi hồ sơ trong pipeline mở connection mới ít nhất: **1× tải** (`get_pdf`) + **N× ghi cut**
+(`_build_cuts` → `put_pdf`, mỗi cut 1 connection) — [worker/run_job.py:180-201]. Ở 1M+ hồ sơ,
+chi phí handshake cộng dồn lấn át cả thời gian GPU → GPU đói việc trong khi worker chờ TLS.
+
+**Bằng chứng phụ**: path *listing* đã gặp đúng bệnh này và được vá bằng `open_s3_client` (mở 1
+client dùng chung cho cả chuỗi trang) — [backend/app/s3_util.py:26-40]; nhưng path **ingest chưa
+được migrate**. Cờ `AIHUB_BUILD_CUTS=false` ra đời để né 502 khi ghi — chính là triệu chứng của
+issue này.
+
+**Hướng xử lý** (ưu tiên cao nhất — đây là câu hỏi "tối ưu MinIO→trích xuất" của dự án):
+1. **Tái dùng client boto3 sống lâu** theo endpoint, cache trong worker/process (không mở/đóng
+   mỗi call). aioboto3 client là async context manager → giữ mở qua một "client manager" cấp
+   worker, hoặc dùng 1 `aiobotocore` client pool. Kỳ vọng: bỏ handshake/call → giảm p50 tải file
+   rõ rệt, GPU no việc hơn.
+2. Chỉnh `botocore.Config(max_pool_connections=...)` đủ lớn (mặc định 10) khớp `MAX_IN_FLIGHT`.
+3. Cân nhắc **HTTP** (không TLS) nếu MinIO ở mạng nội bộ tin cậy — bỏ hẳn chi phí TLS.
+4. Đo bằng `bench_pipeline` trước/sau (xem `test_eval.md`) để định lượng.
+
+**Ghi chú**: sửa ở `minio_helper.py` là "vendor" — theo house-style ưu tiên bọc ở lớp app
+(`storage.py`/`s3_util.py`) thay vì sửa vendor. Có thể thêm hàm `get_pdf`/`put_pdf` dùng
+`open_s3_client` (đã có) thay cho `MinioClient.async_*`.
+
+---
+
+### ⚡ PERF-2 · P0 · 🔴 · Ảnh gửi VLM là PNG base64 (nên JPEG) {#perf-png}
+
+`pdf_to_corrected_images` và `render_pages_chunk` lưu ảnh **PNG** rồi base64 —
+[backend/src/extentions/multimodal/make.py:78-82, 165-168]. Với ảnh **scan** (ảnh chụp, nhiều
+nhiễu), PNG lớn gấp **5–10×** JPEG cùng chất lượng nhìn. Hệ quả: (a) CPU encode nặng hơn;
+(b) payload base64 gửi qua mạng tới vLLM phình to; (c) RAM giữ ảnh in-flight lớn → hạ trần
+`MAX_IN_FLIGHT` thực tế.
+
+**Hướng**: đổi sang JPEG (quality ~85–90) cho ảnh gửi model; giữ PNG chỉ khi cần nét chữ nhỏ.
+Đo lại độ chính xác extract trên tập vàng để chắc không tụt chất lượng. Lưu ý số **token ảnh** của
+vLLM phụ thuộc **độ phân giải** chứ không phải định dạng — nên xem thêm PERF-6 (giảm DPI/kích thước).
+
+---
+
+### ⚡ PERF-3 · P1 · 🔴 · Temp file + `os.fsync()` mỗi PDF khi render {#perf-fsync}
+
+`pdf_to_corrected_images` ghi mỗi PDF ra `NamedTemporaryFile` kèm **`os.fsync()`** (ép ghi xuống
+đĩa vật lý) rồi ProcessPool đọc lại — [backend/src/extentions/multimodal/make.py:112-116]. `fsync`
+đắt và không cần cho tính đúng (temp cục bộ, đọc lại ngay trong cùng máy). Ở throughput cao, fsync
+tuần tự là điểm nghẽn I/O ẩn.
+
+**Hướng**: bỏ `os.fsync` (giữ `flush`); hoặc truyền thẳng `bytes` cho subprocess (pdfium mở được
+từ bytes) thay vì qua file — giảm cả fsync lẫn round-trip đĩa.
+
+---
+
+### ⚡ PERF-4 · P1 · 🔴 · Hai lần submit ProcessPool + serialize base64 qua process {#perf-procpool}
+
+Mỗi PDF submit ProcessPool **2 lần**: `count_pdf_pages_from_bytes` (đếm trang) rồi render —
+[make.py:46-56, 118-137]. Ngoài ra kết quả render là **base64 PNG string** truyền ngược qua ranh
+giới process (pickle copy) — payload lớn bị copy giữa process.
+
+**Hướng**: gộp đếm-trang vào trong job render (mở pdfium 1 lần). Cân nhắc trả **bytes ảnh nén**
+(JPEG, PERF-2) thay vì base64 để giảm kích thước pickle; hoặc render trong thread (pdfium tuần tự
+hóa bằng 1-thread executor như `storage._RENDER_POOL` đã làm cho preview) nếu process overhead > lợi.
+
+---
+
+### ⚡ PERF-5 · P2 · 🔴 · `_refresh_dup_group` ghi khuếch đại O(n²) trên hot path {#perf-dup-group}
+
+Mỗi hồ sơ `done` có Số phát hành: query mọi doc cùng SPH rồi **ghi lại từng doc đó**, và **lặp
+qua từng candidate** chạy lại toàn bộ refresh — [worker/run_job.py:204-227, 366-381]. Trong 1 cụm
+trùng lớn, đây là O(n²) lượt ghi Mongo trên hot path ingest.
+
+**Hướng**: (a) chỉ refresh khi tập SPH thật sự đổi; (b) dời sang backfill định kỳ / hàng đợi phụ
+thay vì đồng bộ trong `process_doc`; (c) chặn số candidate xử lý mỗi lần. Cân nhắc trade-off với
+tính "tự chữa lành" mà thiết kế hiện tại cố ý có.
+
+---
+
+### ⚡ PERF-6 · P2 · ⚪ · Tinh chỉnh DPI/kích thước ảnh & thinking theo tập vàng {#perf-dpi}
+
+`AIHUB_RENDER_DPI=200`, `RENDER_MAX_SIZE=2000`, `ENABLE_THINKING` — mỗi thông số đổi trực tiếp số
+token ảnh + thời gian sinh của VLM (nút cổ chai GPU). Chưa có bằng chứng 200 DPI / 2000px là điểm
+tối ưu chất lượng-vs-tốc-độ.
+
+**Hướng**: quét DPI (150/175/200) và max-size trên **tập vàng** đo cả độ chính xác lẫn
+throughput; tắt thinking nếu không cải thiện chính xác. Dùng `bench_pipeline --sweep-vlm` +
+eval chất lượng.
+
+---
+
+### ⚡ PERF-7 · P2 · 🔴 · Thiếu index ghép cho claim & fairness {#perf-index}
+
+Query claim dùng `{status, batch_id}` và `{status, started_at}`; fairness dùng
+`distinct(batch_id, {status:queued})` — [worker/main.py:52,76]. Nhưng index hiện chỉ có **đơn
+trường** `status`, `batch_id`, `started_at` rời — [backend/app/db.py:54-82]. `distinct` theo
+`status` rồi bới `batch_id` không được phủ; claim reclaim quét theo `status` rồi lọc `started_at`.
+
+**Hướng**: thêm compound `{status:1, batch_id:1}` (phủ được distinct fairness + nhánh claim
+queued) và `{status:1, started_at:1}` (nhánh reclaim + `_sweep_dead`). Kiểm bằng `explain()` ở
+quy mô thật.
+
+---
+
+### ⚡ PERF-8 · P2 · ⚪ · `page_count` đồng bộ trong request upload {#perf-pagecount-upload}
+
+`POST /v1/batches` gọi `storage.page_count(data)` (pdfium, đồng bộ, in-process) cho **từng** file
+ngay trong request handler — [routes/batches.py:79-82]. Upload lô lớn → request chậm + block event
+loop API. Worker dù sao cũng render lại (biết số trang).
+
+**Hướng**: bỏ đếm ở upload (để `page_count=0`, worker điền), hoặc đưa vào executor.
+
+---
+
+## B. ISSUES — Đúng đắn / vận hành
+
+### OPS-1 · P1 · 🔴 · NoSuchKey bị phân loại `transient` → churn khi retry {#nosuchkey}
+
+File thật sự không tồn tại (`NoSuchKey`) bị gán `error_kind=transient` vì mọi
+`SourceObjectUnavailable` → transient — [worker/run_job.py:283-286]. Nút "Retry lỗi tạm thời"
+quét trúng → chạy lại → lại NoSuchKey → churn vô ích, thổi phồng/nhảy số ô "Lỗi".
+
+**Hướng**: phân loại `NoSuchKey`/404 thành nhóm riêng (vd `error_kind="missing_source"` hoặc
+chuyển thẳng `skip/skip_reason="no_such_key"`) để tách khỏi rổ retry. (Đã có quy trình thủ công
+trong `test_eval.md`.) Cân nhắc: đôi khi NoSuchKey do lệch prefix chứ không phải mất thật — cần
+xác minh trước khi tự động chuyển hàng loạt.
+
+### OPS-2 · P2 · ⚪ · `dead` (poison) cần công cụ soi thủ công {#dead-tool}
+
+Doc `dead` nằm ngoài phạm vi retry hàng loạt (đúng thiết kế) nhưng chưa có UI/CLI để soi vì sao
+poison. **Hướng**: thêm trang/endpoint liệt kê `dead` + lý do + link file để người vận hành quyết.
+
+### OPS-3 · P3 · ⚪ · Xử lý trùng nội dung mới ở mức "cảnh báo" {#dup-policy}
+
+`dup_suspect` chỉ cảnh báo, không chặn/gộp. Chính sách gộp bản trùng (giữ bản chất lượng cao hơn)
+chưa có. **Hướng**: định nghĩa chính sách cùng khách hàng (xem `need_exchange.md`).
+
+---
+
+## C. FEATURES — Đã có (đã ship)
+
+| Mã | Tính năng | Ghi chú |
+|----|-----------|---------|
+| F-01 | Upload lô PDF + import thư mục kho nguồn (stream) | `routes/batches.py`, `worker/import_job.py` |
+| F-02 | Trích xuất VLM: detect biên từng trang + extract song song | `worker/run_job.py`, `multimodal/*` |
+| F-03 | Pool nhiều máy vLLM: cân tải ít-việc-nhất + failover + circuit-breaker | `vlm_client.py` |
+| F-04 | Gom tờ bổ sung theo **Số phát hành** + đánh dấu nghi trùng | `summary.py`, `_refresh_dup_group` |
+| F-05 | Suy MĐSD + chủ cuối (regex, trong pipeline) + backfill LLM ca mập mờ | `mdsdd.py`, `chu_cuoi*.py` |
+| F-06 | Bảng trích xuất + đối soát PDF↔GCN + hậu kiểm (overrides/lock/version) | `routes/gcn.py`, FE `Reconcile.jsx` |
+| F-07 | Đặt lại tên + tải bộ (zip PDF+JSON) + xuất CSV / xuất nền | `routes/gcn.py`, `export_job.py` |
+| F-08 | Cắt file per-GCN lên S3 đích (cờ `AIHUB_BUILD_CUTS`) | `_build_cuts` |
+| F-09 | Tiến độ realtime SSE (throttle/gộp cho lô lớn) | `bus.py`, `_rollup` |
+| F-10 | Counter lô duy trì (không count_documents) | `batch_counters.py` |
+| F-11 | Mongo-as-queue: claim nguyên tử, reclaim treo, dead-letter | `worker/main.py` |
+| F-12 | **Retry lỗi**: mọi lô/1 lô + lọc thời gian `finished_at` | `POST /v1/gcn/retry-errors` |
+| F-13 | **Giải phóng job kẹt** processing→queued (ngưỡng an toàn) | `POST /v1/gcn/release-stuck` |
+| F-14 | Quản lý S3 nguồn/đích, phân quyền lô, audit log, JWT/1-phiên | `routes/{s3_connections,users,audit,auth}.py` |
+| F-15 | Dry-run trích xuất (bucket/collection riêng, TTL tự dọn) | `routes/dryrun.py` |
+
+## D. FEATURES — Đề xuất (backlog)
+
+| Mã | Tính năng | Ưu tiên | Ghi chú |
+|----|-----------|---------|---------|
+| N-01 | Client MinIO pool sống lâu (nền của PERF-1) | P0 | Mở khóa throughput |
+| N-02 | Trang "Dead-letter" soi poison + hành động | P1 | OPS-2 |
+| N-03 | Dashboard hiệu năng: files/phút, VLM utilization, breakdown thời gian | P1 | Bề mặt hóa `bench_pipeline` |
+| N-04 | Cây lịch sử giấy (chuỗi Biến động/Số phát hành theo thời gian) | P2 | Pha sau trong PLAN.md |
+| N-05 | Chính sách gộp bản trùng nội dung | P2 | OPS-3 + need_exchange |
+| N-06 | Retry-từng-bước (chỉ chạy lại extract, giữ ảnh đã render) | P2 | Tiết kiệm render lại |
+
+---
+
+## Cách dùng file này
+- Raise issue mới: thêm mục vào §A/§B với mã tăng dần, priority, `path:line` bằng chứng.
+- Đóng issue: đổi 🔴→🟢, ghi commit/PR đã sửa.
+- Mục hiệu năng nên kèm **số đo trước/sau** từ `bench_pipeline` (xem `test_eval.md`).
