@@ -265,14 +265,25 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
         publish_sync({"type": "gcn", "gcn_id": gcn_id, "batch_id": batch_id,
                       "branch": branch, "status": "processing"})
 
+    # Đo thời gian từng chặng (gated AIHUB_TRACE_TIMINGS) — bóc tách nút thắt lúc
+    # chạy: download S3 vs pipeline (render+VLM) vs ghi cut. Tắt → timings=None,
+    # zero overhead.
+    timings: dict | None = {} if config.TRACE_TIMINGS else None
+
     try:
         # source_connection_id=None → hành vi cũ (kho nội bộ). Có id → đọc kho
         # nguồn read-only; lỗi (mất/di chuyển/quyền) raise SourceObjectUnavailable,
         # bắt chung bên dưới → doc "error" message rõ, không kẹt processing.
+        _t = time.monotonic()
         pdf_buf = await storage.get_pdf(doc["s3_key"], doc.get("source_connection_id"))
+        if timings is not None:
+            timings["download"] = round(time.monotonic() - _t, 3)
         if pdf_buf.getvalue()[:4] != b"%PDF":
             raise ValueError("File không phải PDF (magic-byte không khớp)")
+        _t = time.monotonic()
         records, images = await _pipeline(pdf_buf)
+        if timings is not None:
+            timings["pipeline"] = round(time.monotonic() - _t, 3)
     except Exception as e:  # noqa: BLE001
         log.exception("process %s lỗi: %s", gcn_id, e)
         # Dead-letter/retry hàng loạt (§Quy mô cực lớn 6): "permanent" (không phải
@@ -322,8 +333,11 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
 
     cuts: list[dict] = []
     if status == "done" and config.BUILD_CUTS:
+        _t = time.monotonic()
         try:
             cuts = await _build_cuts(gcn_id, batch_id, images, records)
+            if timings is not None:
+                timings["cuts"] = round(time.monotonic() - _t, 3)
         except DestinationNotConfigured as e:
             # Khác các lỗi cắt-trang cục bộ ở nhánh dưới (1 file cắt hỏng thì bỏ
             # qua, giữ "done" không cuts) — thiếu S3 đích là lỗi HỆ THỐNG, ảnh
@@ -361,6 +375,10 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
         "mdsdd_ly_do": tt_mdsdd["ly_do"],
         "finished_at": datetime.now(timezone.utc),
     }
+    if timings is not None:
+        timings["page_count"] = page_count
+        timings["n_groups"] = len(records)
+        update["timings"] = timings
     await mongo.update_one(config.COLL_GCN, {"_id": gcn_id}, {"$set": update})
 
     dup_suspect, dup_candidates = False, []

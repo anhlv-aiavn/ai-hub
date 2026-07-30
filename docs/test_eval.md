@@ -90,6 +90,31 @@ docker compose exec worker python -m app.scripts.bench_pipeline tmp/*.pdf --dura
 
 ---
 
+## 3b. Quan sát luồng TRỰC TIẾP lúc đang chạy (`watch`)
+
+`app/scripts/watch.py` — dashboard terminal, **chỉ đọc** (an toàn production). Đọc `batch.counts`
+(rẻ, không quét gcn) → throughput hồ sơ/phút, số đang xử lý, ETA, lô đang chạy, lỗi.
+
+```bash
+docker compose exec api python -m app.scripts.watch                # mọi lô, refresh 5s
+docker compose exec api python -m app.scripts.watch --interval 3
+docker compose exec api python -m app.scripts.watch --batch <id>   # 1 lô
+docker compose exec api python -m app.scripts.watch --timings      # + phân bố thời gian chặng
+docker compose exec api python -m app.scripts.watch --once         # in 1 lần
+```
+
+**Bóc tách nút thắt bằng `--timings`**: cần bật đo chặng ở **worker** (không đổi API):
+đặt `AIHUB_TRACE_TIMINGS=true` cho service worker rồi `docker compose up -d worker`. Mỗi hồ sơ
+xong sẽ ghi `gcn.timings = {download, pipeline, cuts, page_count, n_groups}`. `watch --timings`
+in p50/p90 mỗi chặng:
+- **download** cao → nghẽn **MinIO** (PERF-1). So p50 trước/sau khi bật client pool để định lượng.
+- **pipeline** cao → render CPU + VLM (dùng `bench_pipeline` bóc tách sâu hơn render vs detect vs extract).
+- **cuts** cao → ghi S3 đích chậm (cân nhắc `AIHUB_BUILD_CUTS=false` hoặc PERF-1).
+
+Tắt lại khi xong quan sát: bỏ `AIHUB_TRACE_TIMINGS` (mặc định tắt, zero overhead).
+
+---
+
 ## 4. Kiểm/soi dữ liệu thật (máy serve)
 
 ```bash

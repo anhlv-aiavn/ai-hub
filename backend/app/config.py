@@ -53,6 +53,12 @@ MAX_IN_FLIGHT = int(os.getenv("MAX_IN_FLIGHT", str(MAX_VLM_CONCURRENT * 3)))
 # tách + cột "tệp cắt". Bật lại lúc nào cũng được, không mất dữ liệu.
 BUILD_CUTS = _b("AIHUB_BUILD_CUTS", "true")
 
+# Đo thời gian TỪNG CHẶNG mỗi hồ sơ (download S3 / pipeline render+VLM / ghi cut)
+# và ghi vào `gcn.timings` — để `app.scripts.watch` bóc tách nút thắt LÚC ĐANG
+# CHẠY. Mặc định TẮT (zero overhead, không đổi schema production); bật khi cần
+# quan sát: AIHUB_TRACE_TIMINGS=true.
+TRACE_TIMINGS = _b("AIHUB_TRACE_TIMINGS", "false")
+
 # ── Dry-run (tích hợp riêng ngoài hệ thống chính) ───────────────────────────
 # File tạm lên BUCKET RIÊNG (khác AIHUB_BUCKET của hệ thống thật) — xoá ngay
 # sau khi xử lý xong; lifecycle rule bên dưới là lưới an toàn nếu tiến trình
