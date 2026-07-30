@@ -8,14 +8,46 @@
 
 ---
 
-## A. ISSUES — Hiệu năng (trọng tâm: tốc độ trích xuất bắt nguồn từ MinIO)
+## A. ISSUES — Hiệu năng
 
-### ⚡ PERF-1 · P0 · 🟡 · MinIO tạo connection MỚI mỗi request (không pool) {#perf-minio-pool}
+### 🔴 NÚT THẮT HIỆN TẠI: VLM extract (GPU decode) {#bottleneck-vlm}
 
-> **Trạng thái**: ĐÃ TRIỂN KHAI client pool sống lâu (bọc lớp app, không đụng vendor), có
-> kill-switch `AIHUB_S3_POOL=false`. Chờ bench trước/sau trên máy serve để định lượng.
-> Đã xác nhận qua log vLLM: GPU chưa bão hòa (KV cache ~46–52%, Waiting nhỏ) ⇒ nghẽn ở feed.
+Đo thực tế 2026-07-30 (`watch --timings`, sample 219 doc, hồ sơ p50 **2 trang**):
+
+| Chặng | p50 | p90 | Ghi chú |
+|---|---|---|---|
+| download (MinIO) | 1.57s | 7.20s | ~1% — đã tối ưu (PERF-1) |
+| render (CPU) | 1.88s | 5.99s | ~1.5% |
+| detect (VLM) | ~0s | ~0s | file ≤5 trang bỏ qua classify |
+| **extract (VLM)** | **117.7s** | **171s** | **~98% thời gian** |
+
+**Vì sao**: log vLLM cho generation ~1000 tok/s *tổng* với ~128 request đồng thời (`Running`≈128)
+→ mỗi request ~8 tok/s; một GCN JSON ~800–900 token ⇒ ~115s. **GPU bão hòa decode.**
+
+**Throughput ≈ 1000 tok/s ÷ (token đầu ra / hồ sơ)** — không tăng bằng cách nới thêm concurrency
+(đã bão hòa; nới chỉ tăng latency/hồ sơ). Đòn bẩy thật:
+1. **Thêm GPU / endpoint vLLM** — throughput tăng tuyến tính (chắc chắn nhất).
+2. **Thử nới `max_num_seqs` của vLLM** — KV cache mới ~46–52% (còn dư RAM) → có thể còn headroom
+   decode; xác nhận bằng `bench_pipeline --sweep-vlm` (nếu tok/s tổng tăng → đáng nới, kèm tăng
+   `MAX_VLM_CONCURRENT` cho khớp).
+3. **Giảm token đầu ra/hồ sơ** — đòn bẩy trực tiếp NHƯNG đụng prompt/schema vendor và **rủi ro
+   chất lượng** → đã chốt ưu tiên chất lượng, GÁC lại (xem [#decide-png] tinh thần tương tự).
+
+App-side (PERF-1/3/4) đã/không còn giúp cho phần này — đây là bài toán **năng lực GPU**.
+
+---
+
+### A′. ISSUES — Hiệu năng tầng ứng dụng (đã/đang xử lý)
+
+### ⚡ PERF-1 · P0 · 🟢 · MinIO tạo connection MỚI mỗi request (không pool) {#perf-minio-pool}
+
+> **XONG.** Client pool sống lâu (bọc lớp app, không đụng vendor), kill-switch `AIHUB_S3_POOL=false`.
 > Code: `app/s3_util.py` (`pooled_s3/pooled_get/pooled_put`), `app/storage.py` (`_s3_get/_s3_put`).
+>
+> **Kết quả đo thực tế** (`watch --timings`, 2026-07-30): download p50 **1.57s** / p90 7.20s —
+> chỉ ~1% thời gian mỗi hồ sơ. **MinIO KHÔNG còn là nút thắt.** Toàn bộ thời gian giờ nằm ở
+> **extract (VLM)**: p50 **117.7s** / p90 171s (render 1.88s, detect ~0). Nút thắt thật đã dời
+> sang **GPU decode của vLLM** — xem [Nút thắt hiện tại](#bottleneck-vlm) bên dưới.
 
 
 **Triệu chứng**: throughput ingest thấp hơn nhiều so với năng lực GPU; 502 hàng loạt khi ghi
@@ -146,6 +178,15 @@ loop API. Worker dù sao cũng render lại (biết số trang).
 >
 > Cân nhắc còn lại: NoSuchKey đôi khi do lệch prefix (không phải mất thật) — nếu nghi, xác minh
 > vài key trên MinIO trước khi coi là mất hẳn.
+
+### OPS-4 · P1 · 🟢 · Counter drift (processing âm) do release-stuck giật doc đang chạy {#counter-drift}
+
+> **ĐÃ XỬ LÝ.** Extract 1 hồ sơ mất ~117s p50 / 171s p90 — gần/ vượt ngưỡng `min_stale_seconds`
+> mặc định cũ **120s** của `release-stuck` → nút "Giải phóng job kẹt" giật cả doc đang extract dở
+> → doc xử lý 2 lần, `bump(processing=-1)` chạy 2 lần → `batch.counts.processing` **âm**.
+> Sửa: nâng mặc định `min_stale_seconds` **120→600s** (> p90; worker vẫn tự reclaim doc CHẾT sau
+> `PROC_TTL`=1800s). Dọn counter đã lệch: `app/scripts/reconcile_counts.py` (tính lại từ status thật).
+> Bài học: ngưỡng release phải > thời gian xử lý thật của 1 hồ sơ.
 
 ### OPS-2 · P2 · ⚪ · `dead` (poison) cần công cụ soi thủ công {#dead-tool}
 

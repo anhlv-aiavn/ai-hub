@@ -456,7 +456,11 @@ async def retry_errors(body: RetryErrorsIn, user: dict = Depends(require_operato
 
 class ReleaseStuckIn(BaseModel):
     batch_id: str | None = None      # None = MỌI LÔ (cần admin)
-    min_stale_seconds: int = 120     # chỉ giải phóng doc processing "cũ" hơn ngưỡng này
+    # Chỉ giải phóng doc processing "cũ" hơn ngưỡng này. PHẢI lớn hơn thời gian xử
+    # lý thật của 1 hồ sơ (extract p90 quan sát ~170s) — nếu không sẽ GIẬT doc
+    # đang chạy dở → xử lý 2 lần + counter processing bị trừ 2 lần (âm). Mặc định
+    # 600s an toàn; worker dù sao cũng tự reclaim doc CHẾT sau PROC_TTL(1800s).
+    min_stale_seconds: int = 600
 
 
 @router.post("/release-stuck")

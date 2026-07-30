@@ -424,8 +424,8 @@ function ErrorsTab() {
       <p className="muted small" style={{ marginTop: 4 }}>
         Sau khi tắt/bật hay build lại worker, một số hồ sơ có thể mắc kẹt ở{" "}
         <b>đang xử lý</b> mà không worker nào chạy. Nút này đưa chúng về hàng chờ ngay
-        (thay vì chờ worker tự nhặt lại sau ~30′). Chỉ đụng hồ sơ kẹt trên 2 phút để
-        không giật hồ sơ worker vừa bắt đầu.
+        (thay vì chờ worker tự nhặt lại sau ~30′). Chỉ đụng hồ sơ kẹt trên 10 phút để
+        KHÔNG giật hồ sơ đang extract dở (extract 1 hồ sơ có thể mất vài phút).
       </p>
       <p className="muted small">Đang xử lý: <b>{processingCount}</b>{isAll && " · gộp mọi đợt"}</p>
       <div className="admin-tab-foot">
