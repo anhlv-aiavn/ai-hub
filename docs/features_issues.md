@@ -22,7 +22,13 @@
 | **extract (VLM)** | **117.7s** | **171s** | **~98% thời gian** |
 
 **Vì sao**: log vLLM cho generation ~1000 tok/s *tổng* với ~128 request đồng thời (`Running`≈128)
-→ mỗi request ~8 tok/s; một GCN JSON ~800–900 token ⇒ ~115s. **GPU bão hòa decode.**
+→ mỗi request ~6–8 tok/s. **GPU bão hòa decode.**
+
+**Đã đo bằng `probe_vlm` (2026-07-30, chạy cùng 128 request khác)**:
+- output chỉ **461 completion_tokens** (đã gọn — KHÔNG có gì để cắt), prompt 2704 tok, **75.6s**.
+- `implicit_off ≡ explicit_off`, `reasoning=0` → **THINKING ĐÃ TẮT THẬT, reasoning KHÔNG xảy ra**
+  → nghi phạm "reasoning ngầm" (mục 1 cũ) **ĐÃ LOẠI**. 75s = 461 tok ÷ ~6 tok/s = decode bị chia
+  cho 128 luồng. Đây là **giới hạn năng lực decode GPU thuần túy**.
 
 **Throughput ≈ 1000 tok/s ÷ (token đầu ra / hồ sơ)** — không tăng bằng cách nới thêm concurrency
 (đã bão hòa; nới chỉ tăng latency/hồ sơ). Đòn bẩy thật:
@@ -38,20 +44,14 @@ App-side (PERF-1/3/4) đã/không còn giúp cho phần này — đây là bài 
 **Đòn bẩy từ config serve vLLM thực tế** (2 máy H100, mỗi máy 1 GPU, `vllm 0.22.1`,
 Gemma-4-26B-A4B-NVFP4), ưu tiên nghi ngờ:
 
-1. **NGHI PHẠM SỐ 1 — reasoning NGẦM sinh token thừa.** Model là loại reasoning. Việc có suy
-   luận hay không do **chat template mặc định** quyết định — KHÔNG phải do cờ server
-   (`--reasoning-parser`/`--tool-call-parser` chỉ PARSE output, trơ nếu request không dùng; gỡ
-   chúng không làm ngừng reasoning). Vấn đề ở CLIENT: `vlm_client.chat_json` khi
-   `ENABLE_THINKING=false` gửi `extra={}` (không nói gì) → phó mặc template; nếu template reasoning
-   MẶC ĐỊNH BẬT thì mỗi extract sinh trace suy luận ta **trả tiền decode rồi vứt**.
-   → Đo dứt điểm: `app/scripts/probe_vlm.py <pdf>` so `implicit_off` (=production) vs
-   `explicit_off` vs `thinking_on`. Nếu `implicit_off ≈ thinking_on` (compl_tok cao) → trúng; sửa
-   = gửi `enable_thinking:false` TƯỜNG MINH ở client (không đụng cờ server). EVAL chất lượng trước
-   khi đổi mặc định. Nếu `implicit_off ≈ explicit_off` (thấp) → thinking đã tắt thật, bỏ qua mục này.
+1. ~~reasoning ngầm~~ **ĐÃ LOẠI** bằng `probe_vlm` (reasoning=0, implicit≡explicit). Bỏ qua.
 2. **1 GPU/máy** (`device_ids: ["0"]`). Nếu box H100 có nhiều GPU → đang phí. `nvidia-smi` kiểm;
    có thì `--tensor-parallel-size N` (giảm latency) hoặc thêm replica (tăng throughput).
-3. **`--max-num-seqs 128`** khớp `Running≈128`; KV cache mới ~50% → còn RAM. Thử nới 192/256 +
-   tăng `MAX_VLM_CONCURRENT` cho khớp; `bench_pipeline --sweep-vlm` xác nhận tok/s tổng có tăng.
+   Đây là đòn bẩy chắc chắn nhất (throughput tuyến tính theo số GPU).
+3. **`--max-num-seqs 128`** khớp `Running≈128`; KV cache mới ~50% → còn RAM. **Thí nghiệm rẻ, làm
+   trước**: nới 1 máy lên 256, restart, nhìn log `Avg generation throughput`. Tăng >1000 →
+   memory-bound còn headroom → giữ + tăng `MAX_VLM_CONCURRENT` (64→128/endpoint). Vẫn ~1000 →
+   compute-bound → chỉ thêm GPU mới giúp. (`probe_vlm` khi worker DỪNG cho latency đơn-luồng để so.)
 4. **`--max-model-len 100000`** quá thừa (seq thật ~5k token: ảnh ~560 soft-tok×2 + output). Hạ
    xuống ~16384 có thể cho lịch/nhiều seq tốt hơn. Rủi ro thấp, thử + đo.
 5. **tecotec THIẾU `--enable-prefix-caching`** (vpdkhn có). System prompt lặp lại giống hệt mọi
