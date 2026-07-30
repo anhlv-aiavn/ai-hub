@@ -53,17 +53,12 @@ issue này.
 
 ---
 
-### ⚡ PERF-2 · P0 · 🔴 · Ảnh gửi VLM là PNG base64 (nên JPEG) {#perf-png}
+### 🔒 Quyết định: GIỮ ẢNH PNG gửi VLM (không đổi JPEG) {#decide-png}
 
-`pdf_to_corrected_images` và `render_pages_chunk` lưu ảnh **PNG** rồi base64 —
-[backend/src/extentions/multimodal/make.py:78-82, 165-168]. Với ảnh **scan** (ảnh chụp, nhiều
-nhiễu), PNG lớn gấp **5–10×** JPEG cùng chất lượng nhìn. Hệ quả: (a) CPU encode nặng hơn;
-(b) payload base64 gửi qua mạng tới vLLM phình to; (c) RAM giữ ảnh in-flight lớn → hạ trần
-`MAX_IN_FLIGHT` thực tế.
-
-**Hướng**: đổi sang JPEG (quality ~85–90) cho ảnh gửi model; giữ PNG chỉ khi cần nét chữ nhỏ.
-Đo lại độ chính xác extract trên tập vàng để chắc không tụt chất lượng. Lưu ý số **token ảnh** của
-vLLM phụ thuộc **độ phân giải** chứ không phải định dạng — nên xem thêm PERF-6 (giảm DPI/kích thước).
+**Đã chốt — KHÔNG đề xuất lại.** Ảnh gửi model phải là **PNG** (không nén mất mát). GCN là tài
+liệu pháp lý; nén JPEG làm nhiễu nét chữ/dấu/số nhỏ → **rủi ro sai dữ liệu bóc ra**, không đánh
+đổi lấy tốc độ. Đầu vào đúng như hiện tại thì chất lượng mới đảm bảo. Tối ưu tốc độ tìm ở nơi
+khác (PERF-1 MinIO, PERF-3/4 render), **không đụng định dạng ảnh**.
 
 ---
 
@@ -85,9 +80,10 @@ Mỗi PDF submit ProcessPool **2 lần**: `count_pdf_pages_from_bytes` (đếm t
 [make.py:46-56, 118-137]. Ngoài ra kết quả render là **base64 PNG string** truyền ngược qua ranh
 giới process (pickle copy) — payload lớn bị copy giữa process.
 
-**Hướng**: gộp đếm-trang vào trong job render (mở pdfium 1 lần). Cân nhắc trả **bytes ảnh nén**
-(JPEG, PERF-2) thay vì base64 để giảm kích thước pickle; hoặc render trong thread (pdfium tuần tự
-hóa bằng 1-thread executor như `storage._RENDER_POOL` đã làm cho preview) nếu process overhead > lợi.
+**Hướng**: gộp đếm-trang vào trong job render (mở pdfium 1 lần). Cân nhắc trả **bytes PNG** thay
+vì chuỗi base64 để giảm kích thước pickle (giữ nguyên PNG — xem [Quyết định giữ PNG](#decide-png));
+hoặc render trong thread (pdfium tuần tự hóa bằng 1-thread executor như `storage._RENDER_POOL` đã
+làm cho preview) nếu process overhead > lợi.
 
 ---
 

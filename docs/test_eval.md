@@ -72,7 +72,8 @@ docker compose exec worker python -m app.scripts.bench_pipeline tmp/*.pdf --dura
 
 **Đọc kết quả** (chốt nút thắt — xem `overall_roadmap.md §5`):
 - **VLM utilization = tổng-giây-call-VLM / (elapsed × MAX_VLM_CONCURRENT)**
-  - ~1.0 → GPU là nút cổ chai → nới trần / thêm GPU / giảm token ảnh (PERF-2/6).
+  - ~1.0 → GPU là nút cổ chai → nới trần / thêm GPU / giảm token ảnh (PERF-6 — chỉnh DPI/độ phân
+    giải, KHÔNG đổi định dạng PNG).
   - thấp → nghẽn nơi khác: render CPU, `MAX_IN_FLIGHT` thấp, **hoặc I/O MinIO (PERF-1)**.
 - **vlm_wait** cao mà GPU rảnh → tăng `MAX_VLM_CONCURRENT`; cao mà GPU full → GPU là trần thật.
 - breakdown render/detect/extract cho biết dồn công vào đâu.
@@ -85,7 +86,7 @@ docker compose exec worker python -m app.scripts.bench_pipeline tmp/*.pdf --dura
 1. Ghi **baseline** (`--csv`) trước khi sửa.
 2. Sửa (vd PERF-1/2/3).
 3. Chạy lại cùng tham số, so files/phút + utilization.
-4. Với thay đổi động tới ảnh (PERF-2 JPEG, PERF-6 DPI): **bắt buộc eval chất lượng** trên tập
+4. Với thay đổi động tới ảnh (PERF-6 DPI/độ phân giải — GIỮ PNG): **bắt buộc eval chất lượng** trên tập
    vàng (đừng chỉ nhìn tốc độ) — so dữ liệu bóc ra với nhãn đúng trước khi đổi mặc định.
 
 ---

@@ -49,7 +49,8 @@ mongo · redis · frontend` (MinIO + model VLM là dịch vụ ngoài). Chi ti�
 Throughput toàn hệ = **min(năng lực GPU, năng lực render CPU, năng lực I/O MinIO)**. Mục tiêu vận
 hành: "1 phút / 15 phút xử lý được bao nhiêu bộ GCN". Công cụ đo đã có: `bench_pipeline` bóc tách
 thời gian đi đâu (render vs detect vs extract) và tính **VLM utilization**:
-- utilization ~1.0 → GPU là trần → nới `MAX_VLM_CONCURRENT` / thêm GPU / giảm token ảnh (PERF-2/6).
+- utilization ~1.0 → GPU là trần → nới `MAX_VLM_CONCURRENT` / thêm GPU / giảm token ảnh (PERF-6,
+  chỉ chỉnh DPI/độ phân giải — KHÔNG đổi định dạng PNG, xem features_issues #decide-png).
 - utilization thấp + `vlm_wait` thấp → **nghẽn ở nơi khác** (rất có thể MinIO PERF-1 hoặc render).
 
 Giả thuyết làm việc: hiện đang nghẽn I/O MinIO (handshake mỗi call) khiến GPU không no. **Việc
@@ -67,7 +68,6 @@ Giả thuyết làm việc: hiện đang nghẽn I/O MinIO (handshake mỗi call
 
 ### Giai đoạn 1 — Tối ưu MinIO→trích xuất (trọng tâm)
 - [ ] **PERF-1** Client MinIO pool sống lâu (tái dùng connection) — bọc ở `storage.py`, đo lại.
-- [ ] **PERF-2** Ảnh JPEG thay PNG gửi VLM — eval chất lượng trên tập vàng.
 - [ ] **PERF-3** Bỏ `os.fsync`/temp-file trong render.
 - [ ] **PERF-4** Gộp đếm-trang vào render; giảm serialize qua ProcessPool.
 - [ ] **PERF-7** Thêm compound index `{status,batch_id}`, `{status,started_at}`.
@@ -98,7 +98,7 @@ Giả thuyết làm việc: hiện đang nghẽn I/O MinIO (handshake mỗi call
 | MinIO đích là cổng public quá tải | 502 khi ghi cut | `AIHUB_BUILD_CUTS=false`; PERF-1 pool |
 | vLLM restart giữa chừng | lỗi hàng loạt `transient` | circuit-breaker + retry-errors (đã có) |
 | Chất lượng scan kém / NoSuchKey | error/no_gcn cao | OPS-1; làm rõ chất lượng nguồn với khách |
-| Ảnh hưởng chất lượng khi đổi JPEG/DPI | sai dữ liệu bóc ra | bắt buộc eval tập vàng trước khi đổi mặc định |
+| Ảnh hưởng chất lượng khi đổi DPI/độ phân giải | sai dữ liệu bóc ra | eval tập vàng trước khi đổi; GIỮ PNG (không đổi định dạng) |
 | Sửa vendor `minio_helper`/`multimodal` | lệch bản gốc | bọc ở lớp app, không sửa vendor |
 
 ## 8. Tài liệu liên quan
