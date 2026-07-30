@@ -38,13 +38,16 @@ App-side (PERF-1/3/4) đã/không còn giúp cho phần này — đây là bài 
 **Đòn bẩy từ config serve vLLM thực tế** (2 máy H100, mỗi máy 1 GPU, `vllm 0.22.1`,
 Gemma-4-26B-A4B-NVFP4), ưu tiên nghi ngờ:
 
-1. **NGHI PHẠM SỐ 1 — model reasoning sinh token thừa.** Server chạy `--reasoning-parser gemma4`
-   (model reasoning). Code khi `ENABLE_THINKING=false` KHÔNG gửi `enable_thinking:false` tường
-   minh (`vlm_client.chat_json`: `extra={}`), phó mặc default chat template → nếu template
-   reasoning MẶC ĐỊNH BẬT thì mỗi extract sinh cả trace suy luận ta **trả tiền decode rồi vứt**.
-   → Đo dứt điểm: `app/scripts/probe_vlm.py <pdf>` so `implicit_off` vs `explicit_off` vs
-   `thinking_on` (completion_tokens + reasoning). Nếu trúng → gửi `enable_thinking:false` tường
-   minh, cắt token → nhanh hơn nhiều (EVAL chất lượng trước khi đổi mặc định).
+1. **NGHI PHẠM SỐ 1 — reasoning NGẦM sinh token thừa.** Model là loại reasoning. Việc có suy
+   luận hay không do **chat template mặc định** quyết định — KHÔNG phải do cờ server
+   (`--reasoning-parser`/`--tool-call-parser` chỉ PARSE output, trơ nếu request không dùng; gỡ
+   chúng không làm ngừng reasoning). Vấn đề ở CLIENT: `vlm_client.chat_json` khi
+   `ENABLE_THINKING=false` gửi `extra={}` (không nói gì) → phó mặc template; nếu template reasoning
+   MẶC ĐỊNH BẬT thì mỗi extract sinh trace suy luận ta **trả tiền decode rồi vứt**.
+   → Đo dứt điểm: `app/scripts/probe_vlm.py <pdf>` so `implicit_off` (=production) vs
+   `explicit_off` vs `thinking_on`. Nếu `implicit_off ≈ thinking_on` (compl_tok cao) → trúng; sửa
+   = gửi `enable_thinking:false` TƯỜNG MINH ở client (không đụng cờ server). EVAL chất lượng trước
+   khi đổi mặc định. Nếu `implicit_off ≈ explicit_off` (thấp) → thinking đã tắt thật, bỏ qua mục này.
 2. **1 GPU/máy** (`device_ids: ["0"]`). Nếu box H100 có nhiều GPU → đang phí. `nvidia-smi` kiểm;
    có thì `--tensor-parallel-size N` (giảm latency) hoặc thêm replica (tăng throughput).
 3. **`--max-num-seqs 128`** khớp `Running≈128`; KV cache mới ~50% → còn RAM. Thử nới 192/256 +
@@ -55,6 +58,9 @@ Gemma-4-26B-A4B-NVFP4), ưu tiên nghi ngờ:
    call → prefix cache giúp prefill. Thêm cho nhất quán (vLLM mới có thể đã default-on — xác nhận).
 6. `--mm-processor-kwargs max_soft_tokens=560` — ảnh đã gọn, KHÔNG phải vấn đề (khớp với render
    nhanh 1.88s). Giữ nguyên.
+7. **Các cờ "cho đủ feature" là TRƠ nếu không dùng**: `--enable-auto-tool-choice` +
+   `--tool-call-parser` chỉ hoạt động khi request gửi `tools` (extract không gửi);
+   `--reasoning-parser` chỉ tách output. Không ảnh hưởng tốc độ — cứ để.
 
 ---
 
