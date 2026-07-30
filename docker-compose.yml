@@ -29,8 +29,8 @@ services:
       # Client MinIO pool sống lâu (PERF-1) + kill-switch. Xem docs/features_issues.md.
       AIHUB_S3_POOL: ${AIHUB_S3_POOL:-true}
       AIHUB_S3_POOL_MAX_CONNECTIONS: ${AIHUB_S3_POOL_MAX_CONNECTIONS:-128}
-      # Đo thời gian từng chặng cho app.scripts.watch --timings (mặc định tắt).
-      AIHUB_TRACE_TIMINGS: ${AIHUB_TRACE_TIMINGS:-false}
+      # Đo thời gian từng chặng cho app.scripts.watch --timings (mặc định bật, chi phí ~0).
+      AIHUB_TRACE_TIMINGS: ${AIHUB_TRACE_TIMINGS:-true}
       REDIS_URL: redis://redis:6379/0
       VLLM_BASE_URL: ${VLLM_BASE_URL:-http://14.232.240.254:30000/v1}
       # Nhiều máy vLLM: danh sách ngăn cách dấu phẩy, mỗi mục "url" hoặc "url|model|key".

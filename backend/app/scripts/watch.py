@@ -10,8 +10,8 @@ Chạy TRONG CONTAINER:
     docker compose exec api python -m app.scripts.watch --timings       # + phân bố thời gian chặng
     docker compose exec api python -m app.scripts.watch --once          # in 1 lần rồi thoát
 
-Cột timing chỉ có dữ liệu khi worker chạy với AIHUB_TRACE_TIMINGS=true (mặc định
-tắt). Bật nó (chỉ cần trên service worker) để thấy download/pipeline/cuts.
+Cột timing có dữ liệu khi worker chạy với AIHUB_TRACE_TIMINGS=true (mặc định BẬT,
+chi phí ~0). Đặt false nếu muốn doc gọn (bỏ field timings).
 """
 
 import argparse

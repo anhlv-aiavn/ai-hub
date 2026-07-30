@@ -103,15 +103,14 @@ docker compose exec api python -m app.scripts.watch --timings      # + phân b�
 docker compose exec api python -m app.scripts.watch --once         # in 1 lần
 ```
 
-**Bóc tách nút thắt bằng `--timings`**: cần bật đo chặng ở **worker** (không đổi API):
-đặt `AIHUB_TRACE_TIMINGS=true` cho service worker rồi `docker compose up -d worker`. Mỗi hồ sơ
-xong sẽ ghi `gcn.timings = {download, pipeline, cuts, page_count, n_groups}`. `watch --timings`
-in p50/p90 mỗi chặng:
+**Bóc tách nút thắt bằng `--timings`**: đo chặng **mặc định BẬT** (`AIHUB_TRACE_TIMINGS=true`,
+chi phí ~0). Mỗi hồ sơ xong ghi `gcn.timings = {download, render, detect, extract, cuts,
+page_count, n_groups}`. `watch --timings` in p50/p90 mỗi chặng:
 - **download** cao → nghẽn **MinIO** (PERF-1). So p50 trước/sau khi bật client pool để định lượng.
 - **pipeline** cao → render CPU + VLM (dùng `bench_pipeline` bóc tách sâu hơn render vs detect vs extract).
 - **cuts** cao → ghi S3 đích chậm (cân nhắc `AIHUB_BUILD_CUTS=false` hoặc PERF-1).
 
-Tắt lại khi xong quan sát: bỏ `AIHUB_TRACE_TIMINGS` (mặc định tắt, zero overhead).
+Muốn doc gọn (bỏ field timings): đặt `AIHUB_TRACE_TIMINGS=false`.
 
 ---
 

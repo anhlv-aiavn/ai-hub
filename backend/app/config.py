@@ -55,9 +55,10 @@ BUILD_CUTS = _b("AIHUB_BUILD_CUTS", "true")
 
 # Đo thời gian TỪNG CHẶNG mỗi hồ sơ (download S3 / pipeline render+VLM / ghi cut)
 # và ghi vào `gcn.timings` — để `app.scripts.watch` bóc tách nút thắt LÚC ĐANG
-# CHẠY. Mặc định TẮT (zero overhead, không đổi schema production); bật khi cần
-# quan sát: AIHUB_TRACE_TIMINGS=true.
-TRACE_TIMINGS = _b("AIHUB_TRACE_TIMINGS", "false")
+# CHẠY. Chi phí tốc độ ~0 (vài time.monotonic + gộp dict vào update đã có); chỉ
+# tốn thêm ít storage/doc. Mặc định BẬT để luôn có dữ liệu quan sát; tắt bằng
+# AIHUB_TRACE_TIMINGS=false nếu muốn doc gọn.
+TRACE_TIMINGS = _b("AIHUB_TRACE_TIMINGS", "true")
 
 # ── Dry-run (tích hợp riêng ngoài hệ thống chính) ───────────────────────────
 # File tạm lên BUCKET RIÊNG (khác AIHUB_BUCKET của hệ thống thật) — xoá ngay
