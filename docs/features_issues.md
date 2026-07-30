@@ -140,16 +140,16 @@ loop API. Worker dù sao cũng render lại (biết số trang).
 
 ## B. ISSUES — Đúng đắn / vận hành
 
-### OPS-1 · P1 · 🔴 · NoSuchKey bị phân loại `transient` → churn khi retry {#nosuchkey}
+### OPS-1 · P1 · 🟢 · NoSuchKey → trạng thái `no_file` (tách khỏi "Lỗi"/retry) {#nosuchkey}
 
-File thật sự không tồn tại (`NoSuchKey`) bị gán `error_kind=transient` vì mọi
-`SourceObjectUnavailable` → transient — [worker/run_job.py:283-286]. Nút "Retry lỗi tạm thời"
-quét trúng → chạy lại → lại NoSuchKey → churn vô ích, thổi phồng/nhảy số ô "Lỗi".
-
-**Hướng**: phân loại `NoSuchKey`/404 thành nhóm riêng (vd `error_kind="missing_source"` hoặc
-chuyển thẳng `skip/skip_reason="no_such_key"`) để tách khỏi rổ retry. (Đã có quy trình thủ công
-trong `test_eval.md`.) Cân nhắc: đôi khi NoSuchKey do lệch prefix chứ không phải mất thật — cần
-xác minh trước khi tự động chuyển hàng loạt.
+> **ĐÃ XỬ LÝ.** `storage.get_pdf` raise `SourceObjectMissing` (con của `SourceObjectUnavailable`)
+> cho `NoSuchKey/404/NoSuchBucket`; `run_job` phân loại sang **`status="no_file"`**
+> (`error_kind="missing_source"`) — RỜI ô "Lỗi", KHÔNG bị `retry-errors`/`release-stuck` quét
+> (chúng chỉ nhắm `error`/`processing`). Thêm state `no_file` vào `batch_counters`, legend UI
+> ("Không có tệp"). Dữ liệu cũ: `app/scripts/reclass_no_file.py` (dry-run trước).
+>
+> Cân nhắc còn lại: NoSuchKey đôi khi do lệch prefix (không phải mất thật) — nếu nghi, xác minh
+> vài key trên MinIO trước khi coi là mất hẳn.
 
 ### OPS-2 · P2 · ⚪ · `dead` (poison) cần công cụ soi thủ công {#dead-tool}
 

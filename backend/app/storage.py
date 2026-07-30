@@ -24,6 +24,12 @@ class SourceObjectUnavailable(Exception):
     gọi phải xử lý riêng (409/502 rõ ràng), không để lỗi trần 500."""
 
 
+class SourceObjectMissing(SourceObjectUnavailable):
+    """File KHÔNG TỒN TẠI ở key đó (NoSuchKey/404/NoSuchBucket) — khác lỗi tạm
+    thời (mạng/quyền/timeout): chạy lại KHÔNG bao giờ khỏi. Người gọi (run_job)
+    dùng để tách sang trạng thái `no_file`, KHÔNG để dính vào rổ "Lỗi"/retry."""
+
+
 class DestinationNotConfigured(Exception):
     """Chưa cấu hình S3 đích (role=destination) — KHÔNG còn fallback ENV ngầm
     (xem PLAN_PHASE3_menu_logo_s3dest.md §Quyết định 5). Người gọi phải dịch
@@ -158,6 +164,10 @@ async def get_pdf(key: str, source_connection_id: str | None = None) -> io.Bytes
         return await _s3_get(client, bucket, key)
     except ClientError as e:
         code = e.response.get("Error", {}).get("Code", "")
+        # File thật sự KHÔNG có (mất/không tồn tại) → lỗi VĨNH VIỄN, tách riêng để
+        # run_job đưa sang `no_file` (không dính rổ "Lỗi"/retry, xem OPS-1).
+        if code in ("NoSuchKey", "404", "NoSuchBucket"):
+            raise SourceObjectMissing(f"Không tìm thấy file ({code}): {key}") from e
         raise SourceObjectUnavailable(f"Không đọc được file ({code or e}): {key}") from e
     except Exception as e:  # noqa: BLE001 — lỗi mạng/kết nối (không phải ClientError)
         raise SourceObjectUnavailable(f"Không đọc được file ({e}): {key}") from e

@@ -62,7 +62,8 @@ async def _timings(batch_id: str | None, n: int = 400) -> dict:
     match = {"timings": {"$exists": True}}
     if batch_id:
         match["batch_id"] = batch_id
-    buckets: dict[str, list[float]] = {"download": [], "pipeline": [], "cuts": []}
+    buckets: dict[str, list[float]] = {
+        "download": [], "render": [], "detect": [], "extract": [], "pipeline": [], "cuts": []}
     pages: list[float] = []
     cur = gcns().aggregate([{"$match": match}, {"$sample": {"size": n}},
                             {"$project": {"timings": 1}}])
@@ -148,15 +149,19 @@ async def render(args, prev: dict | None) -> dict:
             lines.append("  → chạy worker với AIHUB_TRACE_TIMINGS=true rồi đợi vài hồ sơ xong.")
         else:
             lines.append(f"Timing/chặng (giây · sample {tm['n']} doc · p50 / p90):")
-            for k in ("download", "pipeline", "cuts"):
+            # render/detect/extract là 3 chặng CON của pipeline — thụt vào cho rõ.
+            sub = {"render", "detect", "extract"}
+            for k in ("download", "pipeline", "render", "detect", "extract", "cuts"):
                 v = tm["buckets"][k]
                 if v:
-                    lines.append(f"  {k:<9} {_pct(v,50):>7.2f} / {_pct(v,90):>7.2f}"
+                    label = ("  ↳ " + k) if k in sub else k
+                    lines.append(f"  {label:<12} {_pct(v,50):>7.2f} / {_pct(v,90):>7.2f}"
                                  f"   (mẫu {len(v)})")
             if tm["pages"]:
                 lines.append(f"  trang/hồ sơ p50={_pct(tm['pages'],50):.0f}"
                              f" p90={_pct(tm['pages'],90):.0f}")
-            lines.append("  → download cao = nghẽn MinIO; pipeline cao = render/VLM; cuts cao = ghi S3 đích.")
+            lines.append("  → download cao = nghẽn MinIO; render cao = CPU; detect/extract cao = VLM;"
+                         " cuts cao = ghi S3 đích.")
 
     # Lỗi
     if counts["error"]:

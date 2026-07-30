@@ -20,6 +20,7 @@ const STATUS_SEGS = [
   { key: "queued", label: "Chờ", cls: "muted" },
   { key: "error", label: "Lỗi", cls: "danger" },
   { key: "no_gcn", label: "Không có giấy", cls: "warn" },
+  { key: "no_file", label: "Không có tệp", cls: "warn" },
   { key: "skip", label: "Bỏ qua", cls: "warn" },
 ];
 const REVIEW_SEGS = [

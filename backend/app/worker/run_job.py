@@ -26,7 +26,7 @@ from PIL import Image
 from app import config, storage
 from app.batch_counters import bump
 from app.bus import publish_sync
-from app.storage import DestinationNotConfigured, SourceObjectUnavailable
+from app.storage import DestinationNotConfigured, SourceObjectMissing, SourceObjectUnavailable
 from app.summary import collect_so_phat_hanhs, group_key_of, per_gcn, summarize
 from src.extentions.mongo_helper import AsyncMongo
 from src.extentions.multimodal.detect_gcn import classify_page, groups_from_roles
@@ -112,8 +112,9 @@ async def _detect_groups(images: list[str]) -> list[list[int]]:
     return groups_from_roles(list(roles))
 
 
-async def _pipeline(pdf_buf: io.BytesIO) -> tuple[list[dict], list[str]]:
-    """Trả (records, images). images = ảnh đã xoay thẳng (tái dùng để cắt file)."""
+async def _pipeline(pdf_buf: io.BytesIO, timings: dict | None = None) -> tuple[list[dict], list[str]]:
+    """Trả (records, images). images = ảnh đã xoay thẳng (tái dùng để cắt file).
+    `timings` (nếu truyền) được điền render/detect/extract để bóc tách nút thắt."""
     loop = asyncio.get_running_loop()
     n = await loop.run_in_executor(None, count_pdf_pages_from_bytes, pdf_buf)
     if n == 0:
@@ -125,11 +126,17 @@ async def _pipeline(pdf_buf: io.BytesIO) -> tuple[list[dict], list[str]]:
     render = functools.partial(
         pdf_to_corrected_images, dpi=RENDER_DPI, max_img_size=RENDER_MAX_SIZE
     )
+    _t = time.monotonic()
     images = await loop.run_in_executor(None, render, pdf_buf)
+    if timings is not None:
+        timings["render"] = round(time.monotonic() - _t, 3)
     if not images:
         return [], []
     page_count = len(images)
+    _t = time.monotonic()
     groups = await _detect_groups(images)
+    if timings is not None:
+        timings["detect"] = round(time.monotonic() - _t, 3)
     if not groups:
         return [], images
 
@@ -147,7 +154,10 @@ async def _pipeline(pdf_buf: io.BytesIO) -> tuple[list[dict], list[str]]:
             base["error"] = _friendly_vlm_error(e)
         return base
 
+    _t = time.monotonic()
     records = await asyncio.gather(*(_run(g) for g in groups))
+    if timings is not None:
+        timings["extract"] = round(time.monotonic() - _t, 3)
     return records, images
 
 
@@ -281,30 +291,34 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
         if pdf_buf.getvalue()[:4] != b"%PDF":
             raise ValueError("File không phải PDF (magic-byte không khớp)")
         _t = time.monotonic()
-        records, images = await _pipeline(pdf_buf)
+        records, images = await _pipeline(pdf_buf, timings)
         if timings is not None:
             timings["pipeline"] = round(time.monotonic() - _t, 3)
     except Exception as e:  # noqa: BLE001
         log.exception("process %s lỗi: %s", gcn_id, e)
-        # Dead-letter/retry hàng loạt (§Quy mô cực lớn 6): "permanent" (không phải
-        # PDF) không đáng retry tự động; "transient" (nguồn tạm mất/timeout/lỗi
-        # khác) mặc định retry được — an toàn hơn bỏ sót lỗi có thể tự khỏi.
-        if isinstance(e, ValueError):
-            error_kind = "permanent"
-        elif isinstance(e, SourceObjectUnavailable):
-            error_kind = "transient"
-        else:
-            error_kind = "transient"
+        # Phân loại lỗi:
+        #  - File KHÔNG tồn tại (NoSuchKey) → "no_file": lỗi vĩnh viễn, tách khỏi
+        #    "Lỗi" để KHÔNG bị nút retry quét (chạy lại vẫn NoSuchKey) — OPS-1.
+        #    SourceObjectMissing là con của SourceObjectUnavailable → CHECK TRƯỚC.
+        #  - "permanent" (không phải PDF) không đáng retry tự động.
+        #  - "transient" (nguồn tạm mất/timeout/lỗi khác) mặc định retry được.
+        if isinstance(e, SourceObjectMissing):
+            fail_status, error_kind = "no_file", "missing_source"
+        elif isinstance(e, ValueError):
+            fail_status, error_kind = "error", "permanent"
+        else:  # SourceObjectUnavailable (tạm) + lỗi khác
+            fail_status, error_kind = "error", "transient"
         await mongo.update_one(
             config.COLL_GCN, {"_id": gcn_id},
-            {"$set": {"status": "error", "error": str(e), "error_kind": error_kind,
+            {"$set": {"status": fail_status, "error": str(e), "error_kind": error_kind,
                       "finished_at": datetime.now(timezone.utc)}},
         )
-        counts = await bump(mongo.db[config.COLL_BATCH], batch_id, processing=-1, error=1)
+        counts = await bump(mongo.db[config.COLL_BATCH], batch_id,
+                            processing=-1, **{fail_status: 1})
         publish_sync({"type": "gcn", "gcn_id": gcn_id, "batch_id": batch_id,
-                      "branch": branch, "status": "error", "error": str(e)})
+                      "branch": branch, "status": fail_status, "error": str(e)})
         await _rollup(mongo, batch_id, branch, counts)
-        return "error"
+        return fail_status
 
     records = records or []
     normalize_extractions(records)
