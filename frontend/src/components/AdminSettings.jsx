@@ -5,7 +5,7 @@ import {
   getSiteConfig, updateSiteConfig, uploadLogo, getSettingsStatus,
   getS3Connections, createS3Connection, updateS3Connection, deleteS3Connection,
   testS3Connection, testS3ConnectionDraft,
-  listBatches, retryErrors,
+  listBatches, retryErrors, releaseStuck,
 } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 import { copyToClipboard } from "../clipboard.js";
@@ -310,10 +310,23 @@ function S3Tab({ role }) {
   );
 }
 
-// ── Tab: Dead-letter/lỗi (§Quy mô cực lớn 6) — retry hàng loạt theo lô ──────
+// ── Tab: Dead-letter/lỗi (§Quy mô cực lớn 6) — retry hàng loạt ──────────────
+// "Tất cả đợt" (batchId="") gộp mọi lô; lọc theo khoảng THỜI ĐIỂM LỖI (finished_at)
+// để nhắm đúng đợt hỏng do sự cố hạ tầng (vd VLM khởi động lại).
+const ALL_BATCHES = "__all__";
+
+// datetime-local (giờ máy) → ISO UTC cho backend; rỗng ⇒ undefined.
+function toIso(local) {
+  if (!local) return undefined;
+  const d = new Date(local);
+  return isNaN(d) ? undefined : d.toISOString();
+}
+
 function ErrorsTab() {
   const [rows, setRows] = useState([]);
-  const [batchId, setBatchId] = useState("");
+  const [batchId, setBatchId] = useState(ALL_BATCHES);
+  const [since, setSince] = useState("");
+  const [until, setUntil] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function refresh() {
@@ -322,51 +335,104 @@ function ErrorsTab() {
   }
   useEffect(() => { refresh(); }, []);
 
+  const isAll = batchId === ALL_BATCHES;
   const current = rows.find((b) => b.batch_id === batchId);
   const counts = current?.counts || {};
+  // Tất cả đợt: cộng dồn error/dead qua mọi lô để hiển thị (retry thực tế do
+  // backend đếm lại theo finished_at, con số này chỉ là ước lượng trần).
+  const totalError = rows.reduce((s, b) => s + (b.counts?.error || 0), 0);
+  const totalDead = rows.reduce((s, b) => s + (b.counts?.dead || 0), 0);
+  const totalProcessing = rows.reduce((s, b) => s + (b.counts?.processing || 0), 0);
+  const errorCount = isAll ? totalError : (counts.error || 0);
+  const deadCount = isAll ? totalDead : (counts.dead || 0);
+  const processingCount = isAll ? totalProcessing : (counts.processing || 0);
+  const hasTimeFilter = !!(since || until);
 
   async function retry(errorKind) {
-    if (!batchId) return;
     setBusy(true);
     try {
-      const res = await retryErrors({ batchId, errorKind });
-      toastOk(`Đã đưa lại vào hàng chờ ${res.requeued} hồ sơ`);
+      const res = await retryErrors({
+        batchId: isAll ? undefined : batchId,
+        errorKind,
+        since: toIso(since),
+        until: toIso(until),
+      });
+      const scope = res.batches != null ? ` (${res.batches} lô)` : "";
+      toastOk(`Đã đưa lại vào hàng chờ ${res.requeued} hồ sơ${scope}`);
+      refresh();
+    } catch (e) { toastErr(e.message || e); } finally { setBusy(false); }
+  }
+
+  async function release() {
+    setBusy(true);
+    try {
+      const res = await releaseStuck({ batchId: isAll ? undefined : batchId });
+      const scope = res.batches != null ? ` (${res.batches} lô)` : "";
+      toastOk(`Đã giải phóng ${res.released} hồ sơ kẹt${scope}`);
       refresh();
     } catch (e) { toastErr(e.message || e); } finally { setBusy(false); }
   }
 
   return (
     <div className="admin-tab-body">
-      <label className="field-label" htmlFor="errors-batch">Chọn lô</label>
+      <label className="field-label" htmlFor="errors-batch">Phạm vi</label>
       <select id="errors-batch" className="text-input" value={batchId}
         onChange={(e) => setBatchId(e.target.value)}>
-        <option value="">— Chọn lô —</option>
+        <option value={ALL_BATCHES}>— Tất cả đợt —</option>
         {rows.map((b) => (
           <option key={b.batch_id} value={b.batch_id}>{b.name} · {b.file_count} hồ sơ</option>
         ))}
       </select>
 
-      {current && (
-        <>
-          <p className="muted small" style={{ marginTop: 10 }}>
-            Lỗi: <b>{counts.error || 0}</b> · Poison/dead: <b>{counts.dead || 0}</b>
-          </p>
-          <div className="admin-tab-foot">
-            <button className="primary sm" disabled={busy || !counts.error} onClick={() => retry("transient")}>
-              Retry lỗi tạm thời
-            </button>
-            <button className="ghost sm" disabled={busy || !counts.error} onClick={() => retry(undefined)}>
-              Retry mọi lỗi
-            </button>
-          </div>
-          {!!counts.dead && (
-            <p className="muted small">
-              {counts.dead} hồ sơ "dead" (nghi làm worker treo — poison doc) KHÔNG nằm trong phạm vi retry
-              hàng loạt, cần soi thủ công.
-            </p>
-          )}
-        </>
+      <label className="field-label" style={{ marginTop: 10 }}>Lọc theo thời điểm lỗi (tùy chọn)</label>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <input type="datetime-local" className="text-input" style={{ flex: 1, minWidth: 180 }}
+          value={since} onChange={(e) => setSince(e.target.value)} aria-label="Từ" />
+        <input type="datetime-local" className="text-input" style={{ flex: 1, minWidth: 180 }}
+          value={until} onChange={(e) => setUntil(e.target.value)} aria-label="Đến" />
+      </div>
+      {(since || until) && (
+        <button className="ghost sm" style={{ marginTop: 6 }}
+          onClick={() => { setSince(""); setUntil(""); }}>Xóa lọc thời gian</button>
       )}
+
+      <p className="muted small" style={{ marginTop: 10 }}>
+        Lỗi: <b>{errorCount}</b> · Poison/dead: <b>{deadCount}</b>
+        {isAll && " · gộp mọi đợt"}
+        {hasTimeFilter && " · con số trên chưa trừ lọc thời gian — backend đếm lại khi chạy"}
+      </p>
+      <div className="admin-tab-foot">
+        <button className="primary sm" disabled={busy || (!errorCount && !hasTimeFilter)}
+          onClick={() => retry("transient")}>
+          Retry lỗi tạm thời
+        </button>
+        <button className="ghost sm" disabled={busy || (!errorCount && !hasTimeFilter)}
+          onClick={() => retry(undefined)}>
+          Retry mọi lỗi
+        </button>
+      </div>
+      {!!deadCount && (
+        <p className="muted small">
+          {deadCount} hồ sơ "dead" (nghi làm worker treo — poison doc) KHÔNG nằm trong phạm vi retry
+          hàng loạt, cần soi thủ công.
+        </p>
+      )}
+
+      <hr style={{ margin: "16px 0", border: "none", borderTop: "1px solid var(--border, #e2e2e2)" }} />
+
+      <label className="field-label">Giải phóng job kẹt</label>
+      <p className="muted small" style={{ marginTop: 4 }}>
+        Sau khi tắt/bật hay build lại worker, một số hồ sơ có thể mắc kẹt ở{" "}
+        <b>đang xử lý</b> mà không worker nào chạy. Nút này đưa chúng về hàng chờ ngay
+        (thay vì chờ worker tự nhặt lại sau ~30′). Chỉ đụng hồ sơ kẹt trên 2 phút để
+        không giật hồ sơ worker vừa bắt đầu.
+      </p>
+      <p className="muted small">Đang xử lý: <b>{processingCount}</b>{isAll && " · gộp mọi đợt"}</p>
+      <div className="admin-tab-foot">
+        <button className="ghost sm" disabled={busy || !processingCount} onClick={release}>
+          Giải phóng job kẹt
+        </button>
+      </div>
     </div>
   );
 }

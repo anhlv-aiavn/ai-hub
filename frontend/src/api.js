@@ -413,12 +413,29 @@ export async function releaseReviewLock(id) {
   return handle(await fetch(`/v1/gcn/${id}/lock`, { method: "DELETE", headers: headers() }));
 }
 
-// Retry hàng loạt (dead-letter/lỗi) — chỉ 1 lô/lần, "dead" (poison) không nằm
-// trong phạm vi (cần soi thủ công).
-export async function retryErrors({ batchId, errorKind } = {}) {
+// Retry hàng loạt (dead-letter/lỗi). batchId rỗng ⇒ MỌI LÔ (cần admin). since/until
+// (ISO 8601) lọc theo thời điểm lỗi. "dead" (poison) không nằm trong phạm vi.
+export async function retryErrors({ batchId, errorKind, since, until } = {}) {
   return handle(await fetch(`/v1/gcn/retry-errors`, {
     method: "POST", headers: headers({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ batch_id: batchId, error_kind: errorKind || undefined }),
+    body: JSON.stringify({
+      batch_id: batchId || undefined,
+      error_kind: errorKind || undefined,
+      since: since || undefined,
+      until: until || undefined,
+    }),
+  }));
+}
+
+// Giải phóng hồ sơ kẹt ở "processing" → "queued" (sau khi restart/build worker).
+// batchId rỗng ⇒ MỌI LÔ (cần admin). minStaleSeconds: chỉ đụng doc cũ hơn ngưỡng.
+export async function releaseStuck({ batchId, minStaleSeconds } = {}) {
+  return handle(await fetch(`/v1/gcn/release-stuck`, {
+    method: "POST", headers: headers({ "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      batch_id: batchId || undefined,
+      min_stale_seconds: minStaleSeconds ?? undefined,
+    }),
   }));
 }
 

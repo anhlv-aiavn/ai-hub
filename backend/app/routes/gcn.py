@@ -19,7 +19,7 @@ from app.batch_counters import bump
 from app.bus import publish
 from app.db import batches, gcns
 from app.deps import (
-    current_user, ensure_batch_access, is_admin, require_operator, require_viewer, scoped_batch_ids,
+    current_user, ensure_batch_access, is_admin, require_admin, require_operator, require_viewer, scoped_batch_ids,
 )
 from app.storage import DestinationNotConfigured, SourceObjectUnavailable
 from app.flatten import COLUMNS as FLAT_COLUMNS, effective_extractions, flatten_doc
@@ -404,28 +404,92 @@ async def stats(batch_id: str | None = None,
 
 
 class RetryErrorsIn(BaseModel):
-    batch_id: str
+    batch_id: str | None = None  # None = MỌI LÔ (§tất cả đợt); giá trị = 1 lô cụ thể
     error_kind: str | None = None  # None = mọi error_kind; "dead" (poison) không nằm trong phạm vi
+    since: datetime | None = None  # lọc theo thời điểm lỗi (finished_at) ≥ since
+    until: datetime | None = None  # finished_at ≤ until
 
 
 @router.post("/retry-errors")
 async def retry_errors(body: RetryErrorsIn, user: dict = Depends(require_operator)):
-    """Retry hàng loạt (§Quy mô cực lớn 6) — đặt lại `queued` cho doc `status=error`
-    của 1 lô (giới hạn 1 lô/lần để cộng dồn `batch.counts` đơn giản, đúng). Doc
-    `status="dead"` (poison, §Backend worker) KHÔNG nằm trong phạm vi — cần soi thủ công."""
-    batch = await batches().find_one({"_id": body.batch_id}, {"_id": 1})
-    if not batch:
-        raise HTTPException(status_code=404, detail="Không tìm thấy lô")
-    ensure_batch_access(user, body.batch_id)
+    """Retry hàng loạt (§Quy mô cực lớn 6) — đặt lại `queued` cho doc `status=error`.
+    `batch_id=None` ⇒ MỌI LÔ (cần quyền admin, không giới hạn theo lô); có giá trị ⇒
+    1 lô cụ thể. `since`/`until` lọc theo `finished_at` (thời điểm lỗi) — hữu ích khi
+    một sự cố (vd VLM khởi động lại) làm hỏng hàng loạt trong một khoảng thời gian.
 
-    flt: dict = {"batch_id": body.batch_id, "status": "error"}
+    Update chạy TỪNG LÔ để mỗi `bump(batch.counts)` khớp đúng `modified_count` của lô
+    đó (không thể một lệnh `update_many` toàn cục vì counter theo từng lô). Doc
+    `status="dead"` (poison, §Backend worker) KHÔNG nằm trong phạm vi — cần soi thủ công."""
+    time_flt: dict = {}
+    if body.since:
+        time_flt["$gte"] = body.since
+    if body.until:
+        time_flt["$lte"] = body.until
+
+    base: dict = {"status": "error"}
     if body.error_kind:
-        flt["error_kind"] = body.error_kind
-    res = await gcns().update_many(
-        flt, {"$set": {"status": "queued", "error": None, "error_kind": None}})
-    if res.modified_count:
-        await bump(batches(), body.batch_id, error=-res.modified_count, queued=res.modified_count)
-    return {"requeued": res.modified_count}
+        base["error_kind"] = body.error_kind
+    if time_flt:
+        base["finished_at"] = time_flt
+
+    if body.batch_id:
+        batch = await batches().find_one({"_id": body.batch_id}, {"_id": 1})
+        if not batch:
+            raise HTTPException(status_code=404, detail="Không tìm thấy lô")
+        ensure_batch_access(user, body.batch_id)
+        batch_ids = [body.batch_id]
+    else:
+        # Mọi lô — chỉ admin (không truyền lô ⇒ không giới hạn theo quyền lô).
+        require_admin(user)
+        batch_ids = [b for b in await gcns().distinct("batch_id", base) if b]
+
+    total = 0
+    for bid in batch_ids:
+        res = await gcns().update_many(
+            {**base, "batch_id": bid},
+            {"$set": {"status": "queued", "error": None, "error_kind": None}})
+        if res.modified_count:
+            await bump(batches(), bid, error=-res.modified_count, queued=res.modified_count)
+            total += res.modified_count
+    return {"requeued": total, "batches": len(batch_ids)}
+
+
+class ReleaseStuckIn(BaseModel):
+    batch_id: str | None = None      # None = MỌI LÔ (cần admin)
+    min_stale_seconds: int = 120     # chỉ giải phóng doc processing "cũ" hơn ngưỡng này
+
+
+@router.post("/release-stuck")
+async def release_stuck(body: ReleaseStuckIn, user: dict = Depends(require_operator)):
+    """Giải phóng hồ sơ KẸT ở `processing` → `queued` NGAY, không chờ worker tự
+    reclaim sau PROC_TTL (30′). Dùng sau khi tắt/bật hay build lại worker: worker
+    cũ chết giữa chừng bỏ lại doc `processing` không ai chạy.
+
+    An toàn: CHỈ đụng doc `started_at` cũ hơn `min_stale_seconds` — để không giật
+    doc mà worker vừa khởi động lại đang claim & chạy thật (double-processing).
+    Không tăng `attempts` (đây là thao tác vận hành, không phải dấu hiệu poison).
+    Update TỪNG LÔ để `bump(batch.counts)` khớp đúng modified_count từng lô."""
+    stale = datetime.now(timezone.utc) - timedelta(seconds=max(0, body.min_stale_seconds))
+    base: dict = {"status": "processing", "started_at": {"$lt": stale}}
+
+    if body.batch_id:
+        batch = await batches().find_one({"_id": body.batch_id}, {"_id": 1})
+        if not batch:
+            raise HTTPException(status_code=404, detail="Không tìm thấy lô")
+        ensure_batch_access(user, body.batch_id)
+        batch_ids = [body.batch_id]
+    else:
+        require_admin(user)
+        batch_ids = [b for b in await gcns().distinct("batch_id", base) if b]
+
+    total = 0
+    for bid in batch_ids:
+        res = await gcns().update_many(
+            {**base, "batch_id": bid}, {"$set": {"status": "queued"}})
+        if res.modified_count:
+            await bump(batches(), bid, processing=-res.modified_count, queued=res.modified_count)
+            total += res.modified_count
+    return {"released": total, "batches": len(batch_ids)}
 
 
 @router.delete("/{gcn_id}")
