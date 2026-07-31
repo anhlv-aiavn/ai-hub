@@ -10,6 +10,18 @@ import { toastOk, toastErr } from "../toast.js";
 const PAGE_SIZE = 50;
 const PENDING = new Set(["queued", "processing"]);
 
+// Nhớ bộ lọc + trang đang xem qua sessionStorage — không chỉ dựa vào việc giữ
+// component mounted (App.jsx ẩn bằng display:none khi mở Reconcile), phòng khi
+// vẫn có đường remount khác (đổi tab, F5, v.v.) làm mất lựa chọn của người dùng.
+const FILTERS_KEY = "et_filters_v1";
+function loadFilters() {
+  try { return JSON.parse(sessionStorage.getItem(FILTERS_KEY)) || {}; }
+  catch { return {}; }
+}
+function saveFilters(f) {
+  try { sessionStorage.setItem(FILTERS_KEY, JSON.stringify(f)); } catch { /* bỏ qua */ }
+}
+
 export const STATUS_LABEL = {
   queued: "Chờ", processing: "Đang xử lý", done: "Xong", error: "Lỗi",
   no_gcn: "Không có giấy", no_file: "Không có tệp", skip: "Bỏ qua",
@@ -131,15 +143,15 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
   const [rows, setRows] = useState([]);
   const [pendingDelete, setPendingDelete] = useState(null); // {gcn_id, name} đang chờ xác nhận xóa
   const [deleteBusy, setDeleteBusy] = useState(false);
-  const [status, setStatus] = useState(initialStatus);
-  const [review, setReview] = useState("");
-  const [reviewer, setReviewer] = useState("");
+  const [status, setStatus] = useState(() => initialStatus || loadFilters().status || "");
+  const [review, setReview] = useState(() => loadFilters().review || "");
+  const [reviewer, setReviewer] = useState(() => loadFilters().reviewer || "");
   const [reviewers, setReviewers] = useState([]);
-  const [canhBao, setCanhBao] = useState("");  // "" | "co" | "khong"
-  const [q, setQ] = useState("");
+  const [canhBao, setCanhBao] = useState(() => loadFilters().canhBao || "");  // "" | "co" | "khong"
+  const [q, setQ] = useState(() => loadFilters().q || "");
   const [loading, setLoading] = useState(false);
   const [hasPending, setHasPending] = useState(false);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(() => loadFilters().page || 1);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const refreshRef = useRef(() => {});
@@ -173,14 +185,28 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
       setReviewers((d.by_reviewer || []).map((r) => r.reviewer).filter(Boolean).sort());
     }).catch(() => {});
   }
-  useEffect(() => {
-    refreshBatches();
-  }, []);
-  useEffect(() => { setStatus(initialStatus); }, [initialStatus]);
   // Đổi bộ lọc → về trang 1 (không dùng state `page` cũ để tránh closure lệch nhịp).
   // Đổi batchId (kể cả khi vừa tạo đợt mới ở "Số hóa") → cũng nạp lại danh sách đợt
   // để số lượng hồ sơ hiển thị đúng ngay, không cần tải lại trang.
-  useEffect(() => { setPage(1); refresh(1); refreshBatches(); /* eslint-disable-next-line */ }, [batchId, status, review, reviewer, canhBao]);
+  // Lần mount ĐẦU TIÊN: giữ nguyên trang đã khôi phục từ sessionStorage (không ép
+  // về trang 1) — chỉ những lần SAU, khi người dùng thực sự đổi bộ lọc, mới reset.
+  const filtersMounted = useRef(false);
+  useEffect(() => {
+    if (!filtersMounted.current) {
+      filtersMounted.current = true;
+      refresh(page);
+    } else {
+      setPage(1);
+      refresh(1);
+    }
+    refreshBatches();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchId, status, review, reviewer, canhBao]);
+  // Lưu lại bộ lọc + trang đang xem để khôi phục nếu component bị remount
+  // (đổi tab, F5, v.v.) — xem ghi chú ở FILTERS_KEY.
+  useEffect(() => {
+    saveFilters({ status, review, reviewer, canhBao, q, page });
+  }, [status, review, reviewer, canhBao, q, page]);
   // Danh sách tài khoản phụ thuộc đợt đang chọn — nạp lại khi đổi.
   useEffect(() => { refreshReviewers(); /* eslint-disable-next-line */ }, [batchId, canFilterReviewer]);
 

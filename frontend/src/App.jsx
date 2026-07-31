@@ -135,19 +135,19 @@ export default function App() {
           <AdminSettings onClose={() => { setShowSettings(false); refreshBranding(); }} />
         )}
         {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
-        {openGcn ? (
-          <Reconcile user={user} gcnId={openGcn} onBack={() => setOpenGcn(null)} onOpen={setOpenGcn} />
-        ) : (
-          <>
-            {tab === "create" && rank >= ROLE_RANK.operator && <CreateBatch user={user} onCreated={onCreated} />}
-            {tab === "table" && (
-              <ExtractTable user={user} batchId={batchId} onPickBatch={setBatchId} onOpen={setOpenGcn} />
-            )}
-            {tab === "export" && <ExportView user={user} />}
-            {tab === "manage" && isAdmin && <BatchManager />}
-            {tab === "audit" && isAdmin && <AuditLog />}
-          </>
-        )}
+        {openGcn && <Reconcile user={user} gcnId={openGcn} onBack={() => setOpenGcn(null)} onOpen={setOpenGcn} />}
+        {/* Ẩn (không unmount) khi đang xem chi tiết — ExtractTable giữ state bộ lọc
+            (trạng thái/hậu kiểm/tài khoản/từ khóa/trang) cục bộ, unmount sẽ mất hết
+            lúc quay lại từ Reconcile. */}
+        <div style={openGcn ? { display: "none" } : undefined}>
+          {tab === "create" && rank >= ROLE_RANK.operator && <CreateBatch user={user} onCreated={onCreated} />}
+          {tab === "table" && (
+            <ExtractTable user={user} batchId={batchId} onPickBatch={setBatchId} onOpen={setOpenGcn} />
+          )}
+          {tab === "export" && <ExportView user={user} />}
+          {tab === "manage" && isAdmin && <BatchManager />}
+          {tab === "audit" && isAdmin && <AuditLog />}
+        </div>
       </main>
       <Toaster />
     </div>
