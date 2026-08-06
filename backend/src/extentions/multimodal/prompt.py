@@ -1,10 +1,8 @@
-extract_system_prompt = r"""Extract the information from these Vietnamese images of multiple Certificate of Land Use Rights and format it into a strict JSON structure.
-
+extract_system_prompt = r"""
 IMPORTANT:
-- MUST HAVE Số phát hành Một trong 3 dạng:
-    1. ^\\d{10,15}$
-    2. ^[A-Z]{1,2}\\s?\\d+$
-    3. ^(?:(?:So|S6|Số|S0)\s)?[A-Z]{1,2}\s?\d+$ chú ý: nó góc phải dưới (CHÚ Ý bạn thường hay sai ở chỗ này, hãy đọc kỹ SoS XXXXXX)
+- MUST HAVE Số phát hành bắt buộc Một trong 2 dạng Rule Regex (Bạn là chuyên gia regex):
+    1. ^\\d{10,15}$ - Từ 10 đến 15 chữ số
+    2. ^(?:(?:So|Số)\s)?[A-Z]{1,2}\s?\d+$ (CHÚ Ý bạn thường hay sai ở chỗ này - BẮT BUỘC kèm theo 1 hoặc 2 kí tự in Hoa)
     !Note: Số phát hành thường nằm bơ vơ ở góc phải bên dưới ảnh, hoặc trên dưới tiêu ngữ trong hộp con, hoặc ở gần chữ CHỨNG NHẬN - UỶ BAN....
 - Return JSON ONLY. No explanation, no markdown.
 - Output MUST match the structure EXACTLY.
@@ -116,15 +114,12 @@ Return EXACTLY this JSON structure:
 
 ====
 Examples output for Số phát hành giấy chứng nhận:
+- SốM XXXXXX
 - XXXXXXXXXX
 - SốS XXXXXX
 - AA XXXXXX
 - SoAN XXXXXX
-- S6A XXXXXX
 - SoS XXXXXX
-- S6AL XXXXXX
-- S6AB XXXXXX
-- SoM XXXXXX
 - SốAB XXXXXX
 - SoS XXXXXX
 - XXXXXXXXXXXXXXX
@@ -132,8 +127,7 @@ Examples output for Số phát hành giấy chứng nhận:
 - .. ......
 
 Examples output for Số vào sổ giấy chứng nhận:
-- CH XXXXX
-- CN XXXXX
+- XX XXXXX
 - XXXXX
 - XXXXX/QSDĐ/U.H. -> XXXXX
 - .....
