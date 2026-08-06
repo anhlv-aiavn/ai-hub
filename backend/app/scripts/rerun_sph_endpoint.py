@@ -55,6 +55,11 @@ from app.scripts.requeue_sph_thieu_chu import (
 )
 
 _stop = False
+# Số hồ sơ hỏng LIÊN TIẾP — chạm ngưỡng thì dừng cả lượt (xem MAX_LOI_LIEN_TIEP).
+_loi_lien_tiep = 0
+# Máy vLLM tắt giữa chừng: mỗi doc claim ra đều bị process_doc ghi đè extractions
+# bằng bản ghi lỗi ⇒ MẤT SPH cũ. Hỏng liên tiếp ngần này thì dừng, đừng cày tiếp.
+MAX_LOI_LIEN_TIEP = int(os.getenv("SPH_MAX_LOI_LIEN_TIEP", "10"))
 
 
 def _xin_dung(*_a) -> None:
@@ -123,24 +128,33 @@ async def _claim(mongo):
     (process_doc cuối hàm bump processing=-1, <status>=+1)."""
     now = datetime.now(timezone.utc)
     doc = await mongo.db[config.COLL_GCN].find_one_and_update(
-        {"sph_rerun": "pending", "status": "done"},
+        # Nhận cả doc "error": ca hỏng vì endpoint chết giữa chừng (extractions bị
+        # ghi đè bằng bản ghi lỗi) — chính những hồ sơ CẦN chạy lại nhất.
+        {"sph_rerun": "pending", "status": {"$in": ["done", "error"]}},
         {"$set": {"status": "processing", "started_at": now, "sph_rerun": "running"},
          "$inc": {"attempts": 1}},
         return_document=ReturnDocument.BEFORE,
     )
     if not doc:
         return None
-    await bump(mongo.db[config.COLL_BATCH], doc.get("batch_id"), done=-1, processing=1)
+    cu = doc.get("status") or "done"
+    # Nhớ trạng thái TRƯỚC khi claim: --reset-running phải trả về đúng cái đó,
+    # không thì doc vốn "error" bị đội lốt "done" và counter lô lệch.
+    await mongo.db[config.COLL_GCN].update_one(
+        {"_id": doc["_id"]}, {"$set": {"sph_rerun_prev": cu}})
+    await bump(mongo.db[config.COLL_BATCH], doc.get("batch_id"), **{cu: -1, "processing": 1})
     doc["status"] = "processing"
     return doc
 
 
 async def _chay_mot(mongo, doc, process_doc, st: Counter) -> None:
+    global _loi_lien_tiep
     truoc = _sph_list(doc.get("extractions"))
     try:
         status = await process_doc(mongo, doc)
     except Exception as e:  # noqa: BLE001
         st["loi"] += 1
+        _loi_lien_tiep += 1
         print(f"    LỖI {doc.get('filename')}: {e}", flush=True)
         await mongo.db[config.COLL_GCN].update_one(
             {"_id": doc["_id"]}, {"$set": {"sph_rerun": "error"}})
@@ -150,6 +164,19 @@ async def _chay_mot(mongo, doc, process_doc, st: Counter) -> None:
         {"_id": doc["_id"]},
         {"extractions.result.Đăng ký.Giấy chứng nhận.Số phát hành": 1})
     sau = _sph_list((moi_doc or {}).get("extractions"))
+
+    if status != "done":
+        # Chạy hỏng (thường: endpoint chết) — process_doc ĐÃ ghi đè extractions
+        # bằng bản ghi lỗi, SPH cũ MẤT. Để "error" (không phải "done") thì
+        # --reset-error đưa lại được vào hàng chờ khi máy sống lại.
+        st["hong"] += 1
+        _loi_lien_tiep += 1
+        await mongo.db[config.COLL_GCN].update_one(
+            {"_id": doc["_id"]}, {"$set": {"sph_rerun": "error"}})
+        print(f"    HỎNG({status}) {str(doc.get('filename'))[:28]:<30} {truoc} → {sau}", flush=True)
+        return
+
+    _loi_lien_tiep = 0
     da_sua = sau != truoc
     st["sua_duoc" if da_sua else "y_nguyen"] += 1
     await mongo.db[config.COLL_GCN].update_one(
@@ -157,6 +184,27 @@ async def _chay_mot(mongo, doc, process_doc, st: Counter) -> None:
         {"$set": {"sph_rerun": "done", "sph_rerun_at": datetime.now(timezone.utc)}})
     if da_sua:
         print(f"    SỬA {str(doc.get('filename'))[:32]:<34} {truoc} → {sau}", flush=True)
+
+
+async def _kiem_tra_endpoint() -> bool:
+    """Ping /models từng endpoint TRƯỚC khi chạy. Máy tắt mà cứ chạy thì mỗi hồ sơ
+    claim ra đều bị process_doc ghi đè extractions bằng bản ghi lỗi → MẤT DỮ LIỆU."""
+    import httpx
+
+    from src.extentions.multimodal.vlm_client import _pool
+
+    ok = True
+    for ep in _pool():
+        try:
+            async with httpx.AsyncClient(timeout=10) as c:
+                r = await c.get(f"{ep.base_url.rstrip('/')}/models",
+                                headers={"Authorization": f"Bearer {ep.api_key}"})
+            print(f"  endpoint {ep.base_url}: HTTP {r.status_code}", flush=True)
+            ok = ok and r.status_code < 500
+        except Exception as e:  # noqa: BLE001
+            print(f"  endpoint {ep.base_url}: KHÔNG KẾT NỐI ĐƯỢC — {e}", flush=True)
+            ok = False
+    return ok
 
 
 async def chay(mongo, in_flight_max: int) -> None:
@@ -168,6 +216,12 @@ async def chay(mongo, in_flight_max: int) -> None:
     print(f"  endpoint: {os.getenv('VLLM_ENDPOINTS') or os.getenv('VLLM_BASE_URL')}"
           f"  ·  {endpoint_count()} máy  ·  trần tổng {total_vlm_concurrency()}"
           f"  ·  in-flight {in_flight_max}", flush=True)
+
+    if not await _kiem_tra_endpoint():
+        print("\n  DỪNG: có endpoint không kết nối được. Bật vLLM lên rồi chạy lại "
+              "(chạy khi máy tắt = mỗi hồ sơ bị ghi đè extractions bằng bản ghi lỗi).",
+              flush=True)
+        return
 
     con_lai = await mongo.db[config.COLL_GCN].count_documents({"sph_rerun": "pending"})
     print(f"  {con_lai:,} hồ sơ chờ chạy lại\n", flush=True)
@@ -190,14 +244,18 @@ async def chay(mongo, in_flight_max: int) -> None:
         for t in done:
             if t.exception():
                 print(f"    task lỗi: {t.exception()}", flush=True)
-        xong = st["done"] + st["error"] + st["loi"] + st["no_file"]
+        if _loi_lien_tiep >= MAX_LOI_LIEN_TIEP and not _stop:
+            _xin_dung()
+            print(f"  DỪNG KHẨN: {_loi_lien_tiep} hồ sơ hỏng liên tiếp — nghi máy vLLM chết. "
+                  "Kiểm tra máy, rồi --reset-error và chạy lại.", flush=True)
+        xong = st["done"] + st["hong"] + st["loi"]
         if xong:
             phut = (time.monotonic() - t0) / 60 or 1e-9
             print(f"  … {xong:,} hồ sơ  ·  sửa được {st['sua_duoc']:,}  ·  "
                   f"{xong / phut:.1f} hồ sơ/phút", flush=True)
 
     print("=" * 70)
-    print(f" XONG {st['done']:,} thành công · {st['error'] + st['loi']:,} lỗi  ·  "
+    print(f" XONG {st['done']:,} thành công · {st['hong'] + st['loi']:,} hỏng  ·  "
           f"SỬA ĐƯỢC SPH {st['sua_duoc']:,} · y nguyên {st['y_nguyen']:,}")
     print("=" * 70)
     if _stop:
@@ -217,21 +275,32 @@ async def reset_running(mongo) -> None:
     processing về done cho khớp counter."""
     gcns = mongo.db[config.COLL_GCN]
     n = 0
-    async for doc in gcns.find({"sph_rerun": "running"}, {"batch_id": 1, "status": 1}):
+    async for doc in gcns.find({"sph_rerun": "running"},
+                               {"batch_id": 1, "status": 1, "sph_rerun_prev": 1}):
+        cu = doc.get("sph_rerun_prev") or "done"
         res = await gcns.update_one(
             {"_id": doc["_id"], "sph_rerun": "running"},
-            {"$set": {"sph_rerun": "pending", "status": "done"}})
+            {"$set": {"sph_rerun": "pending", "status": cu}})
         if res.modified_count:
             if doc.get("status") == "processing":
                 await bump(mongo.db[config.COLL_BATCH], doc.get("batch_id"),
-                           processing=-1, done=1)
+                           processing=-1, **{cu: 1})
             n += 1
     print(f"  đã trả {n:,} hồ sơ về pending")
 
 
+async def reset_error(mongo) -> None:
+    """Doc hỏng vì máy vLLM chết (sph_rerun="error") → về pending để chạy lại khi
+    máy sống. Chính những doc này đang mất SPH cũ nên PHẢI chạy lại."""
+    res = await mongo.db[config.COLL_GCN].update_many(
+        {"sph_rerun": "error"}, {"$set": {"sph_rerun": "pending"}})
+    print(f"  đã đưa {res.modified_count:,} hồ sơ hỏng về hàng chờ")
+
+
 async def go_co(mongo) -> None:
     res = await mongo.db[config.COLL_GCN].update_many(
-        {"sph_rerun": {"$exists": True}}, {"$unset": {"sph_rerun": "", "sph_rerun_at": ""}})
+        {"sph_rerun": {"$exists": True}},
+        {"$unset": {"sph_rerun": "", "sph_rerun_at": "", "sph_rerun_prev": ""}})
     print(f"  đã gỡ cờ trên {res.modified_count:,} hồ sơ")
 
 
@@ -240,6 +309,8 @@ async def main() -> None:
     p.add_argument("--mark", action="store_true", help="Pha 1: đánh dấu phạm vi (không gọi GPU).")
     p.add_argument("--trang-thai", action="store_true", help="Đếm theo cờ sph_rerun rồi thoát.")
     p.add_argument("--reset-running", action="store_true", help="Trả doc kẹt 'running' về pending.")
+    p.add_argument("--reset-error", action="store_true",
+                   help="Trả doc hỏng (máy vLLM chết giữa chừng) về pending để chạy lại.")
     p.add_argument("--go-co", action="store_true", help="Gỡ sạch cờ sph_rerun (dọn sau khi xong).")
     p.add_argument("--in-flight", type=int, default=config.MAX_IN_FLIGHT,
                    help=f"Số hồ sơ chạy song song (mặc định {config.MAX_IN_FLIGHT}).")
@@ -261,6 +332,8 @@ async def main() -> None:
         await trang_thai(mongo)
     elif args.reset_running:
         await reset_running(mongo)
+    elif args.reset_error:
+        await reset_error(mongo)
     elif args.go_co:
         await go_co(mongo)
     elif args.mark:
