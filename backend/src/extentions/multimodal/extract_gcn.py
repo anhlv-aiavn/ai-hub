@@ -259,6 +259,7 @@ async def _process_pdf(file_path: str):
 
 async def main():
     file_paths = [
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp/10105015072.pdf",
         "/home/vpdkhn/bags/ai-hub/tmp/tmp/199153.pdf",
         "/home/vpdkhn/bags/ai-hub/tmp/tmp/273191.pdf",
         "/home/vpdkhn/bags/ai-hub/tmp/tmp/421339.pdf",

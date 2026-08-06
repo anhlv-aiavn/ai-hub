@@ -1,12 +1,11 @@
-extract_system_prompt = """Extract the information from these Vietnamese images of multiple Certificate of Land Use Rights and format it into a strict JSON structure.
+extract_system_prompt = r"""Extract the information from these Vietnamese images of multiple Certificate of Land Use Rights and format it into a strict JSON structure.
 
 IMPORTANT:
 - MUST HAVE Số phát hành Một trong 3 dạng:
     1. ^\\d{10,15}$
     2. ^[A-Z]{1,2}\\s?\\d+$
-    3. ^(?:(?:So|S6|Số))?[A-Z]{1,2}\s?\d+$  chú ý: trên nền đỏ hoặc đen góc phải dưới (bạn thường hay sai ở chỗ này, hãy đọc kỹ)
+    3. ^(?:(?:So|S6|Số|S0)\s)?[A-Z]{1,2}\s?\d+$ chú ý: nó góc phải dưới (CHÚ Ý bạn thường hay sai ở chỗ này, hãy đọc kỹ SoS XXXXXX)
     !Note: Số phát hành thường nằm bơ vơ ở góc phải bên dưới ảnh, hoặc trên dưới tiêu ngữ trong hộp con, hoặc ở gần chữ CHỨNG NHẬN - UỶ BAN....
-- May have multiple Certificate of Land Use Rights with different information as Số phát hành.
 - Return JSON ONLY. No explanation, no markdown.
 - Output MUST match the structure EXACTLY.
 - Do NOT add any extra fields.
@@ -118,11 +117,16 @@ Return EXACTLY this JSON structure:
 ====
 Examples output for Số phát hành giấy chứng nhận:
 - XXXXXXXXXX
+- SốS XXXXXX
 - AA XXXXXX
 - SoAN XXXXXX
 - S6A XXXXXX
 - SoS XXXXXX
 - S6AL XXXXXX
+- S6AB XXXXXX
+- SoM XXXXXX
+- SốAB XXXXXX
+- SoS XXXXXX
 - XXXXXXXXXXXXXXX
 - CU XXXXXX
 - .. ......
