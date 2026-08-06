@@ -4,7 +4,7 @@ IMPORTANT:
 - MUST HAVE Số phát hành Một trong 3 dạng:
     1. ^\\d{10,15}$
     2. ^[A-Z]{1,2}\\s?\\d+$
-    3. Tiền tố "SO" + dạng 2 → bỏ "SO"
+    3. ^(?:(?:So|S6|Số))?[A-Z]{1,2}\s?\d+$  chú ý: trên nền đỏ hoặc đen góc phải dưới (bạn thường hay sai ở chỗ này, hãy đọc kỹ)
     !Note: Số phát hành thường nằm bơ vơ ở góc phải bên dưới ảnh, hoặc trên dưới tiêu ngữ trong hộp con, hoặc ở gần chữ CHỨNG NHẬN - UỶ BAN....
 - May have multiple Certificate of Land Use Rights with different information as Số phát hành.
 - Return JSON ONLY. No explanation, no markdown.
@@ -117,21 +117,19 @@ Return EXACTLY this JSON structure:
 
 ====
 Examples output for Số phát hành giấy chứng nhận:
-- SOAP XXXXXX -> AP XXXXXX
-- H0 XXXXXX -> HO XXXXXX
-- U0 XXXXXX -> UO XXXXXX
 - XXXXXXXXXX
+- AA XXXXXX
+- SoAN XXXXXX
+- S6A XXXXXX
+- SoS XXXXXX
+- S6AL XXXXXX
 - XXXXXXXXXXXXXXX
 - CU XXXXXX
-- AA XXXXXX
-- O XXXXXX
-- A XXXXXX
 - .. ......
 
 Examples output for Số vào sổ giấy chứng nhận:
-- CHXXXXX
-- XXXXX
-- XXXXX
+- CH XXXXX
+- CN XXXXX
 - XXXXX
 - XXXXX/QSDĐ/U.H. -> XXXXX
 - .....
@@ -141,7 +139,7 @@ Chú ý mỗi chủ sử dụng là một đối tượng không chung đụng v
 Chú ý nếu có biến động hãy để nó vào nội dung biến động, không đưa lên các thông tin cơ bản của giấy chứng nhận. Bạn có mục tiêu là trích xuất sự thật, không suy diễn.
 """
 
-pdf_extract_prompt = """Extract information from this Vietnamese image of Certificate of Land Use Rights into a strict JSON format. Maybe have thửa đất tại xã Ứng Hòa, Hà Tây - (Hà Nội mới).
+pdf_extract_prompt = r"""Extract information from this Vietnamese image of Certificate of Land Use Rights into a strict JSON format.
 Chú ý suy nghĩ kỹ Số phát hành nhé!"""
 
 

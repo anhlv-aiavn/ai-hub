@@ -27,6 +27,13 @@ _DATE_RE = re.compile(r"\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})\b")
 _VALID_SPH_LETTER = re.compile(r"^[A-ZĐ]{1,4} ?\d{5,}$")
 _VALID_SPH_DIGITS = re.compile(r"^\d{8,15}$")
 
+# Tiền tố rác: chữ "Số" in trên phôi bị OCR dính vào mã seri
+#   "Số"/"Sô"/"So"/"S0"/"S6"/"S9"/"S°"... đứng ngay trước mã (vd "S6AP 471319")
+#   Mã seri không bao giờ có chữ số ở phần chữ → "S + ký tự không phải chữ" là rác.
+_SPH_JUNK_PREFIX_RE = re.compile(r"^S\s*[ỐỒỔỖỘÔỎÕỌÓÒƠỚO0-9°:.,]\s*")
+# Phần còn lại sau khi bỏ tiền tố phải đúng dạng mã seri thì mới chấp nhận cắt
+_SPH_CODE_RE = re.compile(r"^([A-ZĐ]{1,4})\s*([\dOI]{5,})$")
+
 
 def _is_valid_so_phat_hanh(value) -> bool:
     if not isinstance(value, str):
@@ -70,11 +77,20 @@ def _normalize_so_phat_hanh(value: str) -> str:
     - phần chữ:  0 → O, 1 → I  (vd: B0 175403 → BO 175403, D1 536373 → DI 536373)
     - phần số:   O → 0, I → 1
     - tiền tố 'SO' nếu sau đó vẫn là dạng 2 → bỏ (SOAP → AP)
+    - tiền tố rác 'Số/S6/S0/SO' dính trước mã seri → bỏ (S6AP 471319 → AP 471319)
     - dạng thuần số 10-15 chữ số → giữ nguyên (chuẩn hoá khoảng trắng)
     """
     if not isinstance(value, str) or not value.strip():
         return value
     s = re.sub(r"\s+", " ", value.strip()).upper()
+
+    # Bỏ tiền tố "Số" bị OCR dính vào, chỉ khi phần còn lại vẫn là mã seri hợp lệ
+    stripped = _SPH_JUNK_PREFIX_RE.sub("", s, count=1)
+    if stripped != s:
+        m_code = _SPH_CODE_RE.fullmatch(stripped)
+        if m_code:
+            # tách hẳn chữ/số để không bị _LETTER_DIGIT_RE nuốt nhầm (S0AK123456)
+            s = f"{m_code.group(1)} {m_code.group(2)}"
 
     no_space = s.replace(" ", "")
     if _PURE_DIGITS_RE.fullmatch(no_space):
@@ -243,7 +259,11 @@ async def _process_pdf(file_path: str):
 
 async def main():
     file_paths = [
-        "/home/vpdk02/nlp/bags/extract_gcn/tests/output/0_AA 00827763-GCN.pdf",
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp/199153.pdf",
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp/273191.pdf",
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp/421339.pdf",
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp/471319.pdf",
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp/763873.pdf"
     ]
     return await asyncio.gather(*(_process_pdf(p) for p in file_paths))
 
