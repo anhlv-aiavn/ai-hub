@@ -63,6 +63,10 @@ services:
       EXTRACT_TIMEOUT_SECONDS: ${EXTRACT_TIMEOUT_SECONDS:-3000}
       EXTRACT_RETRY_THINKING: ${EXTRACT_RETRY_THINKING:-false}
     ports: ["18002:8000"]
+    # tmp/ của repo mount READ-ONLY vào /work: sửa prompt thử nghiệm bằng VS Code
+    # trên máy serve là container thấy ngay, khỏi cp/build. CHỈ service api —
+    # worker (luồng sản xuất) vẫn chạy đúng code trong image.
+    volumes: ["./tmp:/work:ro"]
 
   worker:
     build: ./backend

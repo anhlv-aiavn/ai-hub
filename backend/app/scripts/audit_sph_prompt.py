@@ -24,20 +24,18 @@ Chạy TRONG CONTAINER (api có Mongo + MinIO + VLLM_*):
     # test bằng prompt ĐẦY ĐỦ (đường requeue toàn phần) thay vì prompt nhẹ:
     docker compose exec api python -m app.scripts.audit_sph_prompt --day-du --n-hong 30
 
-VÒNG LẶP SỬA PROMPT (không cần build lại image):
+VÒNG LẶP SỬA PROMPT (không build, không cp — tmp/ đã mount vào /work):
 
-    # 1) lấy prompt hiện tại ra file trên máy serve, sửa thoải mái bằng vim/nano
-    docker compose exec api python -c "from src.extentions.multimodal.prompt import \
-        extract_system_prompt as p; print(p, end='')" > /tmp/prompt_thu.txt
-    vim /tmp/prompt_thu.txt
+    # 1) một lần: tạo bản nháp trong tmp/ của repo trên máy serve
+    cp backend/src/extentions/multimodal/prompt.py tmp/prompt_thu.py
+    docker compose up -d api          # để mount ./tmp:/work có hiệu lực
 
-    # 2) nạp bản vừa sửa vào container rồi đo — CHỈ ĐỌC, không ghi Mongo
-    docker compose cp /tmp/prompt_thu.txt api:/tmp/prompt_thu.txt
+    # 2) sửa tmp/prompt_thu.py bằng VS Code, rồi đo — CHỈ ĐỌC, không ghi Mongo
     docker compose exec -e VLLM_ENDPOINTS=http://192.168.120.10:30001/v1 api \
         python -m app.scripts.audit_sph_prompt --day-du --so-tran \
-        --prompt-file /tmp/prompt_thu.txt --n-hong 30 --n-dung 30
+        --prompt-file /work/prompt_thu.py --n-hong 30 --n-dung 30
 
-    # 3) chấp nhận được thì mới chép vào src/.../prompt.py, commit, build image
+    # lặp bước 2 tùy ý. Ưng rồi mới chép đè vào src/.../prompt.py, commit, build.
 """
 
 import argparse
@@ -129,10 +127,26 @@ def _mat_trang(old_list: list, new_list: list) -> bool:
 
 def _nap_prompt(duong_dan: str, day_du: bool) -> str:
     """Ghi đè system prompt bằng NỘI DUNG FILE — sửa prompt không cần build lại
-    image. Patch ở module extract_gcn vì _extract_once đọc biến global ở đó."""
+    image. Patch ở module extract_gcn vì _extract_once đọc biến global ở đó.
+
+    Nhận HAI kiểu file:
+      - .py  : bản sao prompt.py (giữ cú pháp chuỗi, VS Code tô màu được) — chạy
+               file rồi lấy đúng biến cần. Đây là kiểu nên dùng.
+      - khác : coi cả file là nội dung prompt thô.
+    """
     from src.extentions.multimodal import extract_gcn as eg
 
-    text = open(duong_dan, encoding="utf-8").read()
+    ten_bien = "extract_system_prompt" if day_du else "extract_gcn_only_system_prompt"
+    raw = open(duong_dan, encoding="utf-8").read()
+    if duong_dan.endswith(".py"):
+        ns: dict = {}
+        exec(compile(raw, duong_dan, "exec"), ns)  # noqa: S102 - file của chính người chạy
+        if ten_bien not in ns:
+            raise SystemExit(f"  {duong_dan} không có biến {ten_bien!r} "
+                             f"(có: {[k for k in ns if not k.startswith('__')]})")
+        text = ns[ten_bien]
+    else:
+        text = raw
     if not text.strip():
         raise SystemExit(f"  File prompt rỗng: {duong_dan}")
     if day_du:
