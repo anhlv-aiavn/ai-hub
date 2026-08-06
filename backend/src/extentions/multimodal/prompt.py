@@ -1,11 +1,6 @@
 extract_system_prompt = r"""Extract the information from these Vietnamese images of multiple Certificate of Land Use Rights and format it into a strict JSON structure.
 
 IMPORTANT:
-- MUST HAVE Số phát hành Một trong 3 dạng:
-    1. ^\\d{10,15}$
-    2. ^[A-Z]{1,2}\\s?\\d+$
-    3. ^(?:(?:So|S6|Số|S0)\s)?[A-Z]{1,2}\s?\d+$ chú ý: nó góc phải dưới (CHÚ Ý bạn thường hay sai ở chỗ này, hãy đọc kỹ SoS XXXXXX)
-    !Note: Số phát hành thường nằm bơ vơ ở góc phải bên dưới ảnh, hoặc trên dưới tiêu ngữ trong hộp con, hoặc ở gần chữ CHỨNG NHẬN - UỶ BAN....
 - Return JSON ONLY. No explanation, no markdown.
 - Output MUST match the structure EXACTLY.
 - Do NOT add any extra fields.
@@ -13,11 +8,63 @@ IMPORTANT:
 - If information is missing → use "" for string, [] for arrays.
 - Do NOT hallucinate.
 - Keep Vietnamese text as is.
+- Nhiều bìa Giấy chứng nhận trong bộ ảnh → MỖI bìa là MỘT phần tử trong "Đăng ký",
+  mỗi phần tử có Số phát hành riêng của nó.
+
+================================================================================
+SỐ PHÁT HÀNH — ĐỌC KỸ TOÀN BỘ MỤC NÀY TRƯỚC KHI ĐIỀN
+================================================================================
+
+ĐỊNH NGHĨA. "Số phát hành" là SERI IN SẴN TRÊN PHÔI giấy (giống seri trên tờ tiền),
+do nơi in phôi đánh. Nó KHÔNG phải con số cán bộ ghi/đóng khi cấp giấy.
+
+VỊ TRÍ. Nằm MỘT MÌNH, KHÔNG có nhãn nào đi kèm, trên mặt bìa (mặt có quốc huy và dòng
+lớn "GIẤY CHỨNG NHẬN QUYỀN SỬ DỤNG ĐẤT"). Hay gặp nhất ở GÓC DƯỚI BÊN PHẢI; một số mẫu
+in ở góc trên bên phải, hoặc trong khung nhỏ ngay dưới tiêu ngữ. Mực ĐỎ hoặc ĐEN.
+
+HAI DẠNG HỢP LỆ — ngoài hai dạng này thì KHÔNG có dạng nào khác:
+  (1) 1-4 CHỮ IN HOA + dấu cách + ÍT NHẤT 5 CHỮ SỐ
+      ví dụ: "AP 471319" · "AA 00228162" · "D 0170932" · "CE 460376"
+  (2) DÃY SỐ THUẦN dài 8 đến 15 chữ số
+      ví dụ: "0103040010" · "10119050326" · "010119545602779"
+Đọc ra thứ không khớp hai dạng trên ⇒ đọc lại ảnh. Vẫn không khớp ⇒ để "".
+
+CHỮ CÁI LÀ BẮT BUỘC khi phôi có in chữ. "AB 842113" KHÔNG được rút thành "842113".
+Chữ và số cùng dòng, cùng cỡ, cùng màu mực thì chúng là MỘT giá trị duy nhất.
+
+KHÔNG BAO GIỜ CHÉP NHÃN "Số" VÀO GIÁ TRỊ.
+Trên phôi có thể in chữ "Số" ngay trước seri; chữ này hay bị nhoè/đọc nhầm thành
+"S6", "S0", "So", "SÓ", "SỐ", "S°". Đó là NHÃN, không phải dữ liệu — phải BỎ ĐI:
+      thấy "Số AP 471319"  → điền "AP 471319"
+      thấy "S6AN 421339"   → điền "AN 421339"
+      thấy "SốS 092138"    → điền "S 092138"
+      thấy "Số 0103040010" → điền "0103040010"
+Giá trị điền ra TUYỆT ĐỐI KHÔNG được bắt đầu bằng "S" + chữ số ("S6…", "S0…", "S09…"),
+cũng không bắt đầu bằng "Số"/"So"/"SỐ". Nếu sau khi bỏ nhãn mà phần còn lại không khớp
+hai dạng hợp lệ, hãy nhìn lại ảnh — đừng đoán, đừng chắp vá.
+
+ĐỪNG NHẦM VỚI CÁC SỐ KHÁC (đây là lỗi hay gặp NHẤT):
+  • SỐ VÀO SỔ — luôn CÓ NHÃN đi kèm: "Vào sổ cấp giấy chứng nhận số …", "Số vào sổ …",
+    thường 4-6 chữ số ("00963", "1337", "045707") hoặc kèm ký hiệu "CH 01234",
+    "12345/QSDĐ". Nằm ở khu vực chữ ký/con dấu của cơ quan cấp, KHÔNG nằm bơ vơ ở góc.
+    → Điền vào trường "Số vào sổ". TUYỆT ĐỐI không điền vào "Số phát hành".
+  • Số quyết định, số hồ sơ, số thửa, số tờ bản đồ, số CMND/CCCD, năm/ngày tháng.
+  Trên cùng một giấy, Số phát hành KHÔNG BAO GIỜ trùng Số vào sổ.
+  Một dãy 4-7 chữ số KHÔNG kèm chữ cái thì KHÔNG PHẢI Số phát hành.
+
+CHỈ CHÉP CÁI NHÌN THẤY:
+  • Chép đúng từng ký tự, đúng thứ tự. Không đảo, không thêm, không bớt chữ số.
+  • Không suy Số phát hành từ số vào sổ, từ tên tệp, từ giấy khác trong cùng hồ sơ.
+  • Không nối/ghép hai dãy số thành một.
+  • Bị che, mất góc, mờ không đọc nổi ⇒ để "". Để trống KHÔNG bị coi là sai;
+    ĐOÁN BỪA MỘT CON SỐ KHÁC MỚI LÀ LỖI NẶNG NHẤT.
+  • Mỗi Giấy chứng nhận có ĐÚNG MỘT Số phát hành.
+================================================================================
 
 Hướng dẫn chi tiết cho các trường quan trọng cần trích xuất:
 Giấy chứng nhận:
-  - 'Số phát hành': str. 
-  - 'Số vào sổ': Kiểu dữ liệu - str. 
+  - 'Số phát hành': str. Theo đúng mục "SỐ PHÁT HÀNH" ở trên.
+  - 'Số vào sổ': Kiểu dữ liệu - str. Con số đi kèm nhãn "vào sổ cấp GCN số…".
   - 'Ngày cấp': CHỈ điền giá trị ngày dạng dd/mm/yyyy, KHÔNG kèm tên tỉnh, cơ quan, hay bất kỳ text nào khác. Vị trí nhận biết: trước đó là tên 1 tỉnh (ví dụ: Hưng Yên, Hải Phòng,...) và ngay sau là tên 1 cơ quan tổ chức — nhưng output CHỈ giữ phần ngày tháng.
 Chủ sử dụng:
   - 'Loại đối tượng': Dữ liệu kiểu str, chọn một trong các giá trị:  \n- 'Cá nhân' – quyền thuộc về một người.  \n- 'Vợ chồng' – văn bản đề cập ông và vợ (bà).  \n- 'Hộ gia đình' – nhiều người đứng tên.  \n- 'Đồng sử dụng' – văn bản có cụm 'Đồng sử dụng'.  \n- 'Cộng đồng dân cư' – đối tượng là cộng đồng cụ thể.  \n- 'Tổ chức' – quyền thuộc về tổ chức, cơ quan.
@@ -115,21 +162,21 @@ Return EXACTLY this JSON structure:
 }
 
 ====
-Examples output for Số phát hành giấy chứng nhận:
-- XXXXXXXXXX
-- SốS XXXXXX
-- AA XXXXXX
-- SoAN XXXXXX
-- S6A XXXXXX
-- SoS XXXXXX
-- S6AL XXXXXX
-- S6AB XXXXXX
-- SoM XXXXXX
-- SốAB XXXXXX
-- SoS XXXXXX
-- XXXXXXXXXXXXXXX
-- CU XXXXXX
-- .. ......
+Số phát hành — NHÌN THẤY TRÊN ẢNH  →  ĐIỀN VÀO JSON
+(cột trái là thứ in trên phôi, kể cả phần nhãn và các kiểu nhoè; cột phải là giá trị đúng)
+- AA 00827763        -> AA 00827763
+- CU 123456          -> CU 123456
+- D 0170932          -> D 0170932
+- 0103040010         -> 0103040010
+- Số AP 471319       -> AP 471319          (bỏ nhãn "Số")
+- S6AN 421339        -> AN 421339          ("S6" là chữ "Số" bị nhoè)
+- SoM 805574         -> M 805574
+- SốS 092138         -> S 092138
+- SO AP 471319       -> AP 471319
+- 00963              -> ""                 (4-6 số trần: đây là SỐ VÀO SỔ, không phải SPH)
+- 1337               -> ""                 (nt)
+- 12345/QSDĐ         -> ""                 (nt — điền vào 'Số vào sổ')
+- (mờ, che, mất góc) -> ""
 
 Examples output for Số vào sổ giấy chứng nhận:
 - CH XXXXX
@@ -144,7 +191,11 @@ Chú ý nếu có biến động hãy để nó vào nội dung biến động, 
 """
 
 pdf_extract_prompt = r"""Extract information from this Vietnamese image of Certificate of Land Use Rights into a strict JSON format.
-Chú ý suy nghĩ kỹ Số phát hành nhé!"""
+
+Số phát hành: tìm dãy in sẵn trên phôi, nằm một mình không có nhãn, thường ở góc dưới bên
+phải mặt bìa. Chỉ nhận hai dạng: 1-4 chữ in hoa + ≥5 chữ số, hoặc 8-15 chữ số thuần.
+BỎ chữ "Số"/"So"/"S6"/"S0" đứng trước nếu có. KHÔNG lấy số vào sổ (4-6 số có nhãn đi kèm).
+Không đọc rõ thì để "" — đừng đoán."""
 
 
 
