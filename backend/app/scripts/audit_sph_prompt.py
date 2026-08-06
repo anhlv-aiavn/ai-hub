@@ -23,6 +23,21 @@ Chạy TRONG CONTAINER (api có Mongo + MinIO + VLLM_*):
     docker compose exec api python -m app.scripts.audit_sph_prompt --file "Số O 646324,776451,769181"
     # test bằng prompt ĐẦY ĐỦ (đường requeue toàn phần) thay vì prompt nhẹ:
     docker compose exec api python -m app.scripts.audit_sph_prompt --day-du --n-hong 30
+
+VÒNG LẶP SỬA PROMPT (không cần build lại image):
+
+    # 1) lấy prompt hiện tại ra file trên máy serve, sửa thoải mái bằng vim/nano
+    docker compose exec api python -c "from src.extentions.multimodal.prompt import \
+        extract_system_prompt as p; print(p, end='')" > /tmp/prompt_thu.txt
+    vim /tmp/prompt_thu.txt
+
+    # 2) nạp bản vừa sửa vào container rồi đo — CHỈ ĐỌC, không ghi Mongo
+    docker compose cp /tmp/prompt_thu.txt api:/tmp/prompt_thu.txt
+    docker compose exec -e VLLM_ENDPOINTS=http://192.168.120.10:30001/v1 api \
+        python -m app.scripts.audit_sph_prompt --day-du --so-tran \
+        --prompt-file /tmp/prompt_thu.txt --n-hong 30 --n-dung 30
+
+    # 3) chấp nhận được thì mới chép vào src/.../prompt.py, commit, build image
 """
 
 import argparse
@@ -89,6 +104,44 @@ def _doi_chieu(old_list: list, new_list: list) -> dict:
     }
 
 
+def _chi_so(s) -> str:
+    """Chỉ giữ chữ số: 'AP 471319' → '471319'. Để phân biệt 'thêm tiền tố đúng'
+    với 'đọc lại ra số KHÁC' (ca thứ hai nguy hiểm hơn nhiều: trông hợp lệ mà sai)."""
+    return re.sub(r"\D", "", s or "")
+
+
+def _so_doi(old_list: list, new_list: list) -> bool:
+    """True khi có SPH mới HỢP LỆ mà phần số KHÔNG khớp bất kỳ SPH cũ nào —
+    tức model không chỉ thêm tiền tố mà còn đọc lại ra con số khác."""
+    so_cu = {_chi_so(s).lstrip("0") for s in old_list if s} - {""}
+    for s in new_list:
+        if _valid(s) and _chi_so(s).lstrip("0") not in so_cu:
+            return True
+    return False
+
+
+def _mat_trang(old_list: list, new_list: list) -> bool:
+    """Cũ CÓ dữ liệu (dù sai form) mà mới rỗng sạch → mất trắng, tệ hơn ban đầu."""
+    co_cu = any(_chi_so(s) for s in old_list)
+    co_moi = any(_chi_so(s) for s in new_list)
+    return co_cu and not co_moi
+
+
+def _nap_prompt(duong_dan: str, day_du: bool) -> str:
+    """Ghi đè system prompt bằng NỘI DUNG FILE — sửa prompt không cần build lại
+    image. Patch ở module extract_gcn vì _extract_once đọc biến global ở đó."""
+    from src.extentions.multimodal import extract_gcn as eg
+
+    text = open(duong_dan, encoding="utf-8").read()
+    if not text.strip():
+        raise SystemExit(f"  File prompt rỗng: {duong_dan}")
+    if day_du:
+        eg.extract_system_prompt = text
+    else:
+        eg.extract_gcn_only_system_prompt = text
+    return text
+
+
 def _verdict_hong(d: dict) -> str:
     """Nhóm ĐANG HỎNG: có thêm SPH hợp lệ = tiến bộ."""
     if d["them"] > 0 and d["new_hople"] > d["old_hople"]:
@@ -141,7 +194,11 @@ def _co_hong(records) -> bool:
     return (not sph) or any(not _valid(s) for s in sph)
 
 
-async def _lay_mau(gcns, pool: int, n_hong: int, n_dung: int, files):
+_SO_TRAN_MONGO = r"^\s*[0-9]{4,7}\s*$"
+_SPH_PATH = "extractions.result.Đăng ký.Giấy chứng nhận.Số phát hành"
+
+
+async def _lay_mau(gcns, pool: int, n_hong: int, n_dung: int, files, so_tran: bool = False):
     """Trả (list doc hỏng, list doc đúng). `files` → lấy đích danh, bỏ qua pool."""
     if files:
         pats = [re.escape(f.strip()) for f in files if f.strip()]
@@ -149,6 +206,23 @@ async def _lay_mau(gcns, pool: int, n_hong: int, n_dung: int, files):
         docs = await gcns.find(q, _SPH_PROJ).limit(200).to_list(length=200)
         hong = [d for d in docs if _co_hong(d.get("extractions"))]
         dung = [d for d in docs if not _co_hong(d.get("extractions"))]
+        return hong, dung
+
+    if so_tran:
+        # Nhóm ĐÍCH DANH đang chờ chạy lại: SPH là cụm số trần 4-7 chữ số.
+        # Nhóm ĐÚNG vẫn lấy ngẫu nhiên toàn kho để đo hồi quy.
+        hong = await gcns.aggregate([
+            {"$match": {"status": "done", "s3_key": {"$exists": True},
+                        _SPH_PATH: {"$regex": _SO_TRAN_MONGO}}},
+            {"$sample": {"size": n_hong}}, {"$project": _SPH_PROJ}]).to_list(length=n_hong)
+        dung = []
+        async for d in gcns.aggregate([
+                {"$match": {"status": "done", "s3_key": {"$exists": True}}},
+                {"$sample": {"size": max(pool, n_dung * 4)}}, {"$project": _SPH_PROJ}]):
+            if not _co_hong(d.get("extractions")):
+                dung.append(d)
+                if len(dung) >= n_dung:
+                    break
         return hong, dung
 
     # $sample: mẫu NGẪU NHIÊN toàn kho (không lấy đầu ổ đĩa = 1 địa phương).
@@ -176,13 +250,21 @@ def _in_hang(tag: str, r: dict, doc: dict) -> None:
           f" {_fmt(r['old_list'])[:40]:<42} → {_fmt(r['new_list'])[:40]}")
 
 
-async def run(pool, n_hong, n_dung, day_du, song_song, files) -> None:
+async def run(pool, n_hong, n_dung, day_du, song_song, files,
+              prompt_file=None, so_tran=False) -> None:
+    import hashlib
+
     from app import config
     from app.db import gcns as gcns_col
 
+    if prompt_file:
+        text = _nap_prompt(prompt_file, day_du)
+        print(f"  PROMPT NGOÀI: {prompt_file}  ·  {len(text):,} ký tự  ·  "
+              f"md5={hashlib.md5(text.encode()).hexdigest()[:8]}", flush=True)
+
     gcns = gcns_col()
     print("  đang lấy mẫu…", flush=True)
-    hong, dung = await _lay_mau(gcns, pool, n_hong, n_dung, files)
+    hong, dung = await _lay_mau(gcns, pool, n_hong, n_dung, files, so_tran)
     print(f"  mẫu: {len(hong)} hỏng · {len(dung)} đúng · prompt="
           f"{'ĐẦY ĐỦ' if day_du else 'nhẹ (gcn_only)'}\n", flush=True)
     if not hong and not dung:
@@ -208,12 +290,18 @@ async def run(pool, n_hong, n_dung, day_du, song_song, files) -> None:
         ngan = (doc.get("page_count") or r.get("n_trang") or 99) <= DETECT_MIN_PAGES
         if cohort == "hong":
             v = _verdict_hong(d)
+            if _mat_trang(r["old_list"], r["new_list"]):
+                v = "MẤT TRẮNG"
+            elif v == "SỬA ĐƯỢC" and _so_doi(r["old_list"], r["new_list"]):
+                v = "SỬA?SỐ ĐỔI"
             st[f"hong_{v}"] += 1
             if ngan and v == "chưa sửa":
                 st["hong_ngan_chua_sua"] += 1   # nghi KHÔNG phải giấy, không tính vào lỗi prompt
             _in_hang(v, r, doc)
         else:
             v = _verdict_dung(d)
+            if v == "giữ nguyên" and _mat_trang(r["old_list"], r["new_list"]):
+                v = "MẤT TRẮNG"
             st[f"dung_{v}"] += 1
             _in_hang(v, r, doc)
 
@@ -235,6 +323,12 @@ def _tong_ket(st, n_hong, n_dung) -> None:
     if st["hong_ngan_chua_sua"]:
         print(f"    trong 'chưa sửa' có {st['hong_ngan_chua_sua']} hồ sơ ≤{DETECT_MIN_PAGES} trang"
               "  ← nhiều khả năng KHÔNG phải giấy, prompt không lỗi ở đây")
+    if st["hong_SỬA?SỐ ĐỔI"]:
+        print(f"    ⚠ {st['hong_SỬA?SỐ ĐỔI']} ca 'sửa' nhưng ĐỔI LUÔN CON SỐ — không phải thêm"
+              " tiền tố mà đọc ra số khác. Soi tay trước khi tin.")
+    if st["hong_MẤT TRẮNG"] or st["dung_MẤT TRẮNG"]:
+        print(f"    ⚠ MẤT TRẮNG {st['hong_MẤT TRẮNG'] + st['dung_MẤT TRẮNG']} ca —"
+              " cũ có số, chạy lại ra rỗng. Đây là PHÁ dữ liệu.")
     hoi_quy = st["dung_HỒI QUY"]
     giu = st["dung_giữ nguyên"]
     print(f" NHÓM ĐÚNG ({n_dung}):  giữ nguyên {giu}  ·  HỒI QUY {hoi_quy}")
@@ -283,7 +377,17 @@ def _smoke() -> None:
     # multiset: 2 GCN cùng dạng, mất 1 vẫn là hồi quy
     assert _verdict_dung(_doi_chieu(["A 11111", "A 11111"], ["A 11111"])) == "HỒI QUY", "KILL [14]"
 
-    print("audit_sph_prompt PURE: 14 KILL ✓")
+    assert _chi_so("AP 471319") == "471319", "KILL [15] _chi_so sai"
+    # thêm tiền tố, số GIỮ NGUYÊN → không phải 'số đổi'
+    assert not _so_doi(["471319"], ["AP 471319"]), "KILL [16]"
+    # đọc lại ra số khác hẳn → phải bắt được
+    assert _so_doi(["858519"], ["050134000100"]), "KILL [17]"
+    # số 0 ở đầu không tính là đổi số
+    assert not _so_doi(["65845"], ["AN 065845"]), "KILL [18]"
+    assert _mat_trang(["37474", "37448"], ["", ""]), "KILL [19] mất trắng phải bắt được"
+    assert not _mat_trang(["", ""], ["", ""]), "KILL [20] cũ đã rỗng thì không tính mất"
+
+    print("audit_sph_prompt PURE: 20 KILL ✓")
 
 
 async def main() -> None:
@@ -294,13 +398,18 @@ async def main() -> None:
     p.add_argument("--day-du", action="store_true", help="Dùng prompt ĐẦY ĐỦ (extract) thay vì nhẹ.")
     p.add_argument("--song-song", type=int, default=4, help="Số hồ sơ chạy đồng thời.")
     p.add_argument("--file", default=None, help="Lấy đích danh theo tên tệp (phân tách phẩy).")
+    p.add_argument("--prompt-file", default=None,
+                   help="Nạp system prompt TỪ FILE (sửa prompt không cần build lại image).")
+    p.add_argument("--so-tran", action="store_true",
+                   help="Nhóm hỏng lấy ĐÚNG ca 'SPH là cụm số trần 4-7' (nhóm đang chờ chạy lại).")
     p.add_argument("--smoke", action="store_true", help="Chạy PURE smoke rồi thoát.")
     args = p.parse_args()
     if args.smoke:
         _smoke()
         return
     files = args.file.split(",") if args.file else None
-    await run(args.pool, args.n_hong, args.n_dung, args.day_du, args.song_song, files)
+    await run(args.pool, args.n_hong, args.n_dung, args.day_du, args.song_song, files,
+              args.prompt_file, args.so_tran)
 
 
 if __name__ == "__main__":
