@@ -2,8 +2,8 @@ extract_system_prompt = r"""
 IMPORTANT:
 - MUST HAVE Số phát hành bắt buộc Một trong 2 dạng Rule Regex (Bạn là chuyên gia regex):
     1. ^\\d{10,15}$ - Từ 10 đến 15 chữ số
-    2. ^(?:(?:So|Số)\s)?[A-Z]{1,2}\s?\d+$ (CHÚ Ý bạn thường hay sai ở chỗ này - BẮT BUỘC kèm theo 1 hoặc 2 kí tự in Hoa)
-    !Note: Số phát hành thường nằm bơ vơ ở góc phải bên dưới ảnh, hoặc trên dưới tiêu ngữ trong hộp con, hoặc ở gần chữ CHỨNG NHẬN - UỶ BAN....
+    2. ^(?:(?:So|Số)\s)?[A-Z]{1,2}\s?\d+$ (CHÚ Ý bạn thường hay sai ở chỗ này - BẮT BUỘC kèm theo 1 hoặc 2 kí tự in Hoa SốXX XXXXXX; SốX XXXXXX)
+    !Note: Số phát hành thường nằm bơ vơ ở góc phải bên dưới ảnh đỏ, hoặc trên dưới tiêu ngữ trong hộp con, hoặc ở gần chữ CHỨNG NHẬN - UỶ BAN (rất to)....
 - Return JSON ONLY. No explanation, no markdown.
 - Output MUST match the structure EXACTLY.
 - Do NOT add any extra fields.
@@ -157,18 +157,15 @@ Chú ý suy nghĩ kỹ Số phát hành nhé!"""
 
 
 
-extract_gcn_only_system_prompt = """Extract the information from these Vietnamese images of multiple Certificate of Land Use Rights and format it into a strict JSON structure.
-
+extract_gcn_only_system_prompt = r"""
 NHIỆM VỤ:
 - Có nhiều Giấy chứng nhận, hãy xếp vào trong thành mảng Đăng ký nhé.
 - Chỉ lấy 3 trường: Số phát hành, Số vào sổ, Ngày cấp.
 
-QUY TẮC:
-- Số phát hành — một trong 3 dạng:
-    1. ^\\d{10,15}$
-    2. ^[A-Z]{1,2}\\s?\\d+$
-    3. Tiền tố "SO" + dạng 2 → bỏ "SO"
-    4. Không trùng với số vào sổ
+- MUST HAVE Số phát hành bắt buộc Một trong 2:
+    1. ^\\d{10,15}$ - Từ 10 đến 15 chữ số
+    2. ^(?:(?:So|Số)\s)?[A-Z]{1,2}\s?\d+$ (CHÚ Ý bạn thường hay sai ở chỗ này - BẮT BUỘC kèm theo 1 hoặc 2 kí tự in Hoa SnX XXXXXX)
+!Note: Số phát hành thường nằm bơ vơ ở góc phải bên dưới ảnh đỏ, hoặc trên dưới tiêu ngữ trong hộp con, hoặc ở gần chữ CHỨNG NHẬN - UỶ BAN (rất to)....
 
   - 'Số vào sổ': Kiểu dữ liệu - str. thường là XXXXX hoặc là CH XXXXX
   - 'Ngày cấp': CHỈ điền giá trị ngày dạng dd/mm/yyyy, KHÔNG kèm tên tỉnh, cơ quan, hay bất kỳ text nào khác. Vị trí nhận biết: trước đó là tên 1 tỉnh (ví dụ: Hưng Yên, Hải Phòng,...) và ngay sau là tên 1 cơ quan tổ chức — nhưng output CHỈ giữ phần ngày tháng.
@@ -191,15 +188,16 @@ Trả về JSON đúng cấu trúc sau:
 
 ====
 Examples output for Số phát hành giấy chứng nhận (hay ở góc phải bên dưới ảnh - hoặc bên trên dưới tiêu ngữ trong hộp con):
-- SOAP XXXXXX -> AP XXXXXX
-- HO XXXXXX
-- UO XXXXXX
+- SốM XXXXXX
 - XXXXXXXXXX
+- SốS XXXXXX
+- AA XXXXXX
+- SoAN XXXXXX
+- SoS XXXXXX
+- SốAB XXXXXX
+- SoS XXXXXX
 - XXXXXXXXXXXXXXX
 - CU XXXXXX
-- AA XXXXXX
-- O XXXXXX
-- A XXXXXX
 - .. ......
 
 Examples output for Số vào sổ giấy chứng nhận:
