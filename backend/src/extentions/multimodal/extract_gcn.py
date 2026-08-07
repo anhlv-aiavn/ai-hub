@@ -7,6 +7,7 @@ from src.extentions.multimodal.make import pdf_to_corrected_images
 from src.extentions.multimodal.prompt import (
     extract_gcn_only_system_prompt,
     extract_system_prompt,
+    gcn_only_goi_y_prompt,
     pdf_extract_gcn_only_prompt,
     pdf_extract_prompt,
 )
@@ -29,6 +30,9 @@ SPH_LUOT_HAI_THINKING = os.getenv("SPH_LUOT_HAI_THINKING", "false").strip().lowe
 #   timeout   : lượt PHỤ không được phép ăn hết ngân sách EXTRACT_TIMEOUT của doc
 SPH_LUOT_HAI_MAX_TOKENS = int(os.getenv("SPH_LUOT_HAI_MAX_TOKENS", "1500"))
 SPH_LUOT_HAI_TIMEOUT = float(os.getenv("SPH_LUOT_HAI_TIMEOUT", "300"))
+# Kèm giá trị SPH lượt một (đang sai) vào prompt lượt hai để model biết đường soi
+# lại. Tắt được để so kèo A/B: SPH_LUOT_HAI_GOI_Y=false.
+SPH_LUOT_HAI_GOI_Y = os.getenv("SPH_LUOT_HAI_GOI_Y", "true").strip().lower() == "true"
 
 
 _PURE_DIGITS_RE = re.compile(r"^\d{10,15}$")
@@ -245,6 +249,28 @@ def _ghep_sph(result: dict, items: list) -> dict:
     return dem
 
 
+def _goi_y_sph(gcns: list[dict]) -> str:
+    """Dựng đoạn gợi ý cho lượt hai từ các SPH lượt một. THUẦN (test được).
+
+    Chỉ liệt kê giấy ĐANG SAI FORM. Giấy đọc đúng thì không nhắc — nhắc vào là
+    mời model đọc lại cái đang đúng, mà _ghep_sph có nhận đâu.
+
+    Đánh số giấy theo ĐÚNG thứ tự trong kết quả lượt một, vì _ghep_sph ghép theo
+    thứ tự; số thứ tự lệch nhau là gợi ý trỏ nhầm giấy.
+    """
+    dong = []
+    for i, g in enumerate(gcns, 1):
+        sph = g.get("Số phát hành") if isinstance(g, dict) else None
+        if _is_valid_so_phat_hanh(sph):
+            continue
+        v = str(sph or "").strip()
+        dong.append(f'  - Giấy thứ {i}: lượt trước đọc ra "{v}"' if v
+                    else f"  - Giấy thứ {i}: lượt trước KHÔNG đọc được (bỏ trống)")
+    if not dong:
+        return ""
+    return gcn_only_goi_y_prompt.format(danh_sach="\n".join(dong))
+
+
 async def _luot_hai_sph(images_b64: list[str], result: dict) -> dict:
     """Hỏi lại bằng prompt NHẸ + thinking khi có entry SPH sai form.
 
@@ -263,7 +289,8 @@ async def _luot_hai_sph(images_b64: list[str], result: dict) -> dict:
         nhe = await asyncio.wait_for(
             extract_gcn_only(images_b64,
                              enable_thinking=True if SPH_LUOT_HAI_THINKING else None,
-                             max_tokens=SPH_LUOT_HAI_MAX_TOKENS),
+                             max_tokens=SPH_LUOT_HAI_MAX_TOKENS,
+                             goi_y=_goi_y_sph(gcns) if SPH_LUOT_HAI_GOI_Y else None),
             timeout=SPH_LUOT_HAI_TIMEOUT)
     except Exception:  # noqa: BLE001 - lượt phụ: hỏng/quá giờ thì giữ kết quả chính
         return trong
@@ -354,17 +381,26 @@ async def extract_gcn_only(
     images_b64: list[str],
     enable_thinking: bool | None = None,
     max_tokens: int | None = None,
+    goi_y: str | None = None,
 ) -> dict:
     """Phiên bản nhẹ: chỉ lấy Số phát hành / Số vào sổ / Ngày cấp.
+
+    goi_y: đoạn nhắc thêm vào user prompt (lượt hai dùng để chỉ ra SPH lượt một
+    đọc sai cái gì). Để trong USER chứ không nhét vào SYSTEM: system prompt là
+    phần dùng chung, giữ nguyên thì prefix cache của vLLM còn ăn được.
 
     Returns: {"Giấy chứng nhận": [{"Số phát hành": "", "Số vào sổ": "", "Ngày cấp": ""}, ...]}
     """
     if not images_b64:
         return {"Giấy chứng nhận": []}
 
+    user_text = pdf_extract_gcn_only_prompt
+    if goi_y and goi_y.strip():
+        user_text = f"{user_text}\n{goi_y.strip()}"
+
     result = await chat_json(
         system_prompt=extract_gcn_only_system_prompt,
-        user_text=pdf_extract_gcn_only_prompt,
+        user_text=user_text,
         images_b64=images_b64,
         enable_thinking=enable_thinking,
         max_tokens=max_tokens,
@@ -468,7 +504,20 @@ def _smoke() -> None:
     assert d["sph"] == 1 and d["so_vao_so"] == 2, f"KILL [35] {d}"
     assert lay(r) == ["N 342398", "AP 471319"], "KILL [36] SPH đúng không bị đè"
 
-    print("extract_gcn PURE: 36 KILL ✓")
+    # ── Gợi ý cho lượt hai ──────────────────────────────────────────────────
+    g = _goi_y_sph(_entries_sph(res("845530", "AP 471319", "111")))
+    assert '"845530"' in g, "KILL [37] phải nêu giá trị sai để model soi lại"
+    liet_ke = [d for d in g.splitlines() if d.lstrip().startswith("- Giấy thứ")]
+    assert not any("471319" in d for d in liet_ke), "KILL [38] giấy ĐANG ĐÚNG không được nhắc"
+    assert "Giấy thứ 1:" in g and "Giấy thứ 3:" in g, "KILL [39] số thứ tự theo lượt một"
+    assert "Giấy thứ 2:" not in g, "KILL [40]"
+    assert "bỏ trống" in _goi_y_sph(_entries_sph(res(""))), "KILL [41] SPH rỗng"
+    # không có giấy nào hỏng → KHÔNG gợi ý (đỡ tốn token, đỡ mời đọc lại cái đúng)
+    assert _goi_y_sph(_entries_sph(res("AP 471319"))) == "", "KILL [42]"
+    assert _goi_y_sph([]) == "", "KILL [43]"
+    assert "{danh_sach}" not in g, "KILL [44] template phải được điền"
+
+    print("extract_gcn PURE: 44 KILL ✓")
 
 
 async def _process_pdf(file_path: str):
@@ -476,7 +525,7 @@ async def _process_pdf(file_path: str):
         pdf_bytesio = io.BytesIO(f.read())
     loop = asyncio.get_running_loop()
     images = await loop.run_in_executor(None, pdf_to_corrected_images, pdf_bytesio)
-    result = await extract_gcn_only(images)
+    result = await extract(images)
     print(f"\n{'=' * 30}\n{file_path}\n{result}")
     return result
 
