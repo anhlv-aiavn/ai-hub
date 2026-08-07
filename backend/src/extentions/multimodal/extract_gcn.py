@@ -16,6 +16,13 @@ from src.extentions.multimodal.vlm_client import ENABLE_THINKING, chat_json
 # trám vào sẽ có ý nghĩa hơn — bật lại bằng EXTRACT_RETRY_THINKING=true.
 EXTRACT_RETRY_THINKING = os.getenv("EXTRACT_RETRY_THINKING", "false").strip().lower() == "true"
 
+# LƯỢT HAI cho Số phát hành: entry nào SPH sai form thì hỏi lại bằng prompt NHẸ
+# (extract_gcn_only) + thinking. Đo tay trên 11 hồ sơ: prompt đầy đủ đọc seri kém
+# hẳn prompt nhẹ (I 2250 vs S 012250; 845530 vs S 845590; 342398 vs N 342398) —
+# ít trường phải lo nên model soi kỹ được góc bìa. Rẻ hơn chạy lại extract đầy đủ.
+SPH_LUOT_HAI = os.getenv("SPH_LUOT_HAI", "true").strip().lower() == "true"
+SPH_LUOT_HAI_THINKING = os.getenv("SPH_LUOT_HAI_THINKING", "true").strip().lower() == "true"
+
 
 _PURE_DIGITS_RE = re.compile(r"^\d{10,15}$")
 _LETTER_DIGIT_RE = re.compile(r"^([A-Z01]{1,4})\s*([\dOI]+)$")
@@ -30,9 +37,16 @@ _VALID_SPH_DIGITS = re.compile(r"^\d{8,15}$")
 # Tiền tố rác: chữ "Số" in trên phôi bị OCR dính vào mã seri
 #   "Số"/"Sô"/"So"/"S0"/"S6"/"S9"/"S°"... đứng ngay trước mã (vd "S6AP 471319")
 #   Mã seri không bao giờ có chữ số ở phần chữ → "S + ký tự không phải chữ" là rác.
-_SPH_JUNK_PREFIX_RE = re.compile(r"^S\s*[ỐỒỔỖỘÔỎÕỌÓÒƠỚO0-9°:.,]\s*")
+# Có cả "SĐ" (chữ "Số" đọc thành S+Đ, vd "SĐ A 998055"): Đ là chữ cái thật nhưng
+# chốt bên dưới bắt phần còn lại phải đúng form seri mới cho cắt, nên seri thật
+# hai chữ "SĐ 124668" vẫn được giữ nguyên.
+_SPH_JUNK_PREFIX_RE = re.compile(r"^S\s*[ỐỒỔỖỘÔỎÕỌÓÒƠỚOĐ0-9°:.,]\s*")
 # Phần còn lại sau khi bỏ tiền tố phải đúng dạng mã seri thì mới chấp nhận cắt
 _SPH_CODE_RE = re.compile(r"^([A-ZĐ]{1,4})\s*([\dOI]{5,})$")
+# Nhãn "Số" viết bằng CHỮ, dính liền: "SỐ 005324", "SO 254325", "SĐ 124668".
+# HẸP hơn _SPH_JUNK_PREFIX_RE có chủ đích: không nhận chữ số và không cho khoảng
+# trắng chen giữa — nếu không thì seri một chữ "S 845590" bị ăn mất số 8 đầu.
+_SPH_NHAN_CHU_RE = re.compile(r"^S[ỐỒỔỖỘÔỎÕỌÓÒƠỚOĐ]\s*")
 
 
 def _is_valid_so_phat_hanh(value) -> bool:
@@ -84,13 +98,21 @@ def _normalize_so_phat_hanh(value: str) -> str:
         return value
     s = re.sub(r"\s+", " ", value.strip()).upper()
 
-    # Bỏ tiền tố "Số" bị OCR dính vào, chỉ khi phần còn lại vẫn là mã seri hợp lệ
-    stripped = _SPH_JUNK_PREFIX_RE.sub("", s, count=1)
+    # Bỏ tiền tố "Số" bị OCR dính vào, chỉ khi phần còn lại còn ra hồn mã seri
+    stripped = _SPH_JUNK_PREFIX_RE.sub("", s, count=1).strip()
     if stripped != s:
         m_code = _SPH_CODE_RE.fullmatch(stripped)
         if m_code:
             # tách hẳn chữ/số để không bị _LETTER_DIGIT_RE nuốt nhầm (S0AK123456)
             s = f"{m_code.group(1)} {m_code.group(2)}"
+        elif (_SPH_NHAN_CHU_RE.match(s) and stripped.isdigit()
+              and 4 <= len(stripped) <= 15):
+            # "SỐ 005324" → "005324": còn lại số trần, VẪN sai form nhưng đã sạch
+            # nhãn — luật vá theo tên tệp (app/sph_ten_tep) nối tiếp được để ra
+            # "S 005324". Giữ nguyên "SỐ 005324" thì cả hai đường đều tắc.
+            # TRẢ LUÔN: đi tiếp thì _LETTER_DIGIT_RE bắt nhầm "0053"+"24" rồi rơi
+            # vào nhánh `return value` — mất sạch công cắt nhãn.
+            return stripped
 
     no_space = s.replace(" ", "")
     if _PURE_DIGITS_RE.fullmatch(no_space):
@@ -150,6 +172,61 @@ def _normalize_result(result: dict) -> dict:
     return result
 
 
+def _entries_sph(result: dict) -> list[dict]:
+    """Các dict "Giấy chứng nhận" trong kết quả extract đầy đủ, theo thứ tự."""
+    out = []
+    for e in (result or {}).get("Đăng ký") or []:
+        gcn = e.get("Giấy chứng nhận") if isinstance(e, dict) else None
+        if isinstance(gcn, dict):
+            out.append(gcn)
+    return out
+
+
+def _ghep_sph(result: dict, items: list) -> int:
+    """Ghép SPH từ kết quả prompt NHẸ vào kết quả đầy đủ. THUẦN (test được).
+
+    Chỉ ghi đè khi giá trị CŨ sai form và giá trị MỚI đúng form — lượt hai không
+    bao giờ được phép làm hỏng một SPH đang đúng.
+
+    Ghép theo THỨ TỰ khi hai bên cùng số lượng giấy. Lệch số lượng thì chỉ nhận
+    trường hợp không thể nhầm: đúng một entry hỏng và đúng một ứng viên hợp lệ.
+    Ngoài ra bỏ qua — ghép mò giữa các giấy khác nhau còn tệ hơn để nguyên."""
+    gcns = _entries_sph(result)
+    if not gcns or not items:
+        return 0
+    moi = [it.get("Số phát hành") if isinstance(it, dict) else None for it in items]
+    hong = [i for i, g in enumerate(gcns) if not _is_valid_so_phat_hanh(g.get("Số phát hành"))]
+    if not hong:
+        return 0
+
+    cap: list[tuple[int, str]] = []
+    if len(moi) == len(gcns):
+        cap = [(i, moi[i]) for i in hong]
+    else:
+        hop_le = [v for v in moi if _is_valid_so_phat_hanh(v)]
+        if len(hong) == 1 and len(hop_le) == 1:
+            cap = [(hong[0], hop_le[0])]
+
+    n = 0
+    for i, v in cap:
+        if _is_valid_so_phat_hanh(v):
+            gcns[i]["Số phát hành"] = v.strip().upper()
+            n += 1
+    return n
+
+
+async def _luot_hai_sph(images_b64: list[str], result: dict) -> int:
+    """Hỏi lại Số phát hành bằng prompt NHẸ + thinking cho các entry sai form."""
+    if not SPH_LUOT_HAI or _bad_sph_count(result) == 0:
+        return 0
+    try:
+        nhe = await extract_gcn_only(
+            images_b64, enable_thinking=True if SPH_LUOT_HAI_THINKING else None)
+    except Exception:  # noqa: BLE001 - lượt phụ: hỏng thì giữ nguyên kết quả chính
+        return 0
+    return _ghep_sph(result, nhe.get("Giấy chứng nhận") or [])
+
+
 async def _extract_once(images_b64: list[str], enable_thinking: bool | None) -> dict:
     result = await chat_json(
         system_prompt=extract_system_prompt,
@@ -180,7 +257,10 @@ async def extract(
     if EXTRACT_RETRY_THINKING and not used_thinking and _bad_sph_count(result) > 0:
         retry = await _extract_once(images_b64, enable_thinking=True)
         if _bad_sph_count(retry) < _bad_sph_count(result):
-            return retry
+            result = retry
+
+    # Lượt hai: chỉ chạm vào entry có SPH sai form, các trường khác giữ nguyên.
+    await _luot_hai_sph(images_b64, result)
     return result
 
 
@@ -247,24 +327,92 @@ async def extract_gcn_only(
     return _normalize_gcn_only_result(result)
 
 
+def _smoke() -> None:
+    """Test THUẦN cho normalize + ghép lượt hai (không cần VLM/ảnh).
+
+        python -c "from src.extentions.multimodal.extract_gcn import _smoke; _smoke()"
+    """
+    n = _normalize_so_phat_hanh
+    # nhãn "Số" dính liền → bỏ, phần còn lại là mã seri
+    assert n("S6AP 471319") == "AP 471319", "KILL [1]"
+    assert n("SĐ A 998055") == "A 998055", "KILL [2] SĐ = Số"
+    # nhãn "Số" + số trần → bỏ nhãn, để luật tên tệp nối tiếp (app/sph_ten_tep)
+    assert n("SỐ 005324") == "005324", "KILL [3]"
+    assert n("SO 254325") == "254325", "KILL [4]"
+    # SERI MỘT CHỮ: tuyệt đối KHÔNG được ăn mất chữ số đầu
+    assert n("S 845590") == "S 845590", "KILL [5]"
+    assert n("S 012250") == "S 012250", "KILL [6]"
+    assert n("S 216419") == "S 216419", "KILL [7]"
+    # hành vi cũ giữ nguyên
+    assert n("B0 175403") == "BO 175403", "KILL [8]"
+    assert n("D1 536373") == "DI 536373", "KILL [9]"
+    assert n("0103040010") == "0103040010", "KILL [10]"
+    assert n("12 345") == "12 345", "KILL [11] chuỗi toàn số giữ nguyên"
+    assert n("") == "" and n(None) is None, "KILL [12]"
+
+    def res(*sph):
+        return {"Đăng ký": [{"Giấy chứng nhận": {"Số phát hành": v}} for v in sph]}
+
+    def lay(r):
+        return [e["Giấy chứng nhận"]["Số phát hành"] for e in r["Đăng ký"]]
+
+    # 1 hỏng ↔ 1 ứng viên hợp lệ → vá
+    r = res("845530")
+    assert _ghep_sph(r, [{"Số phát hành": "S 845590"}]) == 1, "KILL [13]"
+    assert lay(r) == ["S 845590"], "KILL [14]"
+    # SPH đang ĐÚNG → lượt hai không được phép đụng
+    r = res("AP 471319")
+    assert _ghep_sph(r, [{"Số phát hành": "XX 999999"}]) == 0, "KILL [15]"
+    assert lay(r) == ["AP 471319"], "KILL [16]"
+    # ứng viên mới cũng sai form → giữ nguyên
+    r = res("111")
+    assert _ghep_sph(r, [{"Số phát hành": "SN 53"}]) == 0, "KILL [17]"
+    # cùng số lượng → ghép theo thứ tự, chỉ chạm entry hỏng
+    r = res("342398", "AP 471319")
+    assert _ghep_sph(r, [{"Số phát hành": "N 342398"},
+                         {"Số phát hành": "ZZ 111111"}]) == 1, "KILL [18]"
+    assert lay(r) == ["N 342398", "AP 471319"], f"KILL [19] {lay(r)}"
+    # lệch số lượng + nhiều entry hỏng → BỎ QUA (ghép mò còn tệ hơn để nguyên)
+    r = res("111", "222")
+    assert _ghep_sph(r, [{"Số phát hành": "N 342398"}]) == 0, "KILL [20]"
+    assert lay(r) == ["111", "222"], "KILL [21]"
+    # lệch số lượng nhưng KHÔNG THỂ NHẦM: đúng 1 hỏng, đúng 1 ứng viên hợp lệ
+    r = res("111", "AP 471319")
+    assert _ghep_sph(r, [{"Số phát hành": "N 342398"}, {"Số phát hành": "rác"}]) == 1, "KILL [22]"
+    assert lay(r) == ["N 342398", "AP 471319"], "KILL [23]"
+    assert _ghep_sph({}, [{"Số phát hành": "N 342398"}]) == 0, "KILL [24]"
+    assert _ghep_sph(res("111"), []) == 0, "KILL [25]"
+
+    print("extract_gcn PURE: 25 KILL ✓")
+
+
 async def _process_pdf(file_path: str):
     with open(file_path, "rb") as f:
         pdf_bytesio = io.BytesIO(f.read())
     loop = asyncio.get_running_loop()
     images = await loop.run_in_executor(None, pdf_to_corrected_images, pdf_bytesio)
-    result = await extract(images)
+    result = await extract_gcn_only(images)
     print(f"\n{'=' * 30}\n{file_path}\n{result}")
     return result
 
 
 async def main():
     file_paths = [
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp/10105015072.pdf",
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp/199153.pdf",
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp/273191.pdf",
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp/421339.pdf",
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp/471319.pdf",
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp/763873.pdf"
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/00424-GCN-S 132398.pdf",
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/00613-GCN-Y 905245-G5Uui9OC.pdf",
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/09835-GCN-N 342398.pdf",
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/09835-GCN-N 433457 (1).pdf",
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/09835-GCN-N 433457.pdf",
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/10183-C-S 845590.pdf",
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/10210-C-I 612853.pdf",
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/10225-C-I 612206.pdf",
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/10231-C-P 765650.pdf",
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/10231-C-U 053754.pdf",
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/10234-C-A 998055 (1).pdf",
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/M 649864.pdf",
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/S 005324 (1).pdf",
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/S 012250.pdf",
+        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/U 459828.pdf"
     ]
     return await asyncio.gather(*(_process_pdf(p) for p in file_paths))
 
