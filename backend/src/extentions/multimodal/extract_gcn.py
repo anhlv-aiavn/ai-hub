@@ -401,8 +401,8 @@ async def extract_gcn_only(
         images_b64=images_b64,
         enable_thinking=enable_thinking,
         max_tokens=max_tokens,
-        repetition_penalty=1.4,
-        temperature=0.2,
+        repetition_penalty=1.25,
+        temperature=0.0,
     )
     print("sph: ", sph)
     print(_normalize_gcn_only_result(result))
