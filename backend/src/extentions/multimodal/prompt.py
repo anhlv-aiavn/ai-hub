@@ -171,8 +171,6 @@ NHIỆM VỤ:
   - 'Ngày cấp': CHỈ điền giá trị ngày dạng dd/mm/yyyy, KHÔNG kèm tên tỉnh, cơ quan, hay bất kỳ text nào khác. Vị trí nhận biết: trước đó là tên 1 tỉnh (ví dụ: Hưng Yên, Hải Phòng,...) và ngay sau là tên 1 cơ quan tổ chức — nhưng output CHỈ giữ phần ngày tháng.
 
 Trả về JSON đúng cấu trúc sau. MỖI Giấy chứng nhận là MỘT phần tử trong "Đăng kí",
-và "Giấy chứng nhận" là MỘT object (không phải mảng) — một giấy chỉ có ĐÚNG MỘT
-Số phát hành. Có 2 giấy thì "Đăng kí" có 2 phần tử.
 {
   "Đăng kí": [
     {
