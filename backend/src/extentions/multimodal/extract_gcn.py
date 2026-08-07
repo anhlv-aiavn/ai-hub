@@ -24,10 +24,12 @@ EXTRACT_RETRY_THINKING = os.getenv("EXTRACT_RETRY_THINKING", "false").strip().lo
 # ít trường phải lo nên model soi kỹ được góc bìa. Rẻ hơn chạy lại extract đầy đủ.
 SPH_LUOT_HAI = os.getenv("SPH_LUOT_HAI", "false").strip().lower() == "true"
 SPH_LUOT_HAI_THINKING = os.getenv("SPH_LUOT_HAI_THINKING", "false").strip().lower() == "true"
-# Hai cái hãm cho lượt hai — CẦN vì thinking sinh dài và GPU đang decode-bound:
-#   trần token: chặn ca model lảm nhảm/lặp vòng ngốn hàng nghìn token
-#   timeout   : lượt PHỤ không được phép ăn hết ngân sách EXTRACT_TIMEOUT của doc
-SPH_LUOT_HAI_MAX_TOKENS = int(os.getenv("SPH_LUOT_HAI_MAX_TOKENS", "1500"))
+# Trần token: MẶC ĐỊNH KHÔNG ĐẶT (0 = không gửi max_tokens, để server quyết).
+# Từng để 1500: thinking sinh <think> dài, JSON bị cắt giữa chừng → json.loads
+# hỏng → trả {"raw": ...} → lượt hai rỗng sạch. Hãm nhầm chỗ, tốn GPU mà không
+# thu được gì. Cái hãm thật là SPH_LUOT_HAI_TIMEOUT ở dưới: lượt PHỤ không được
+# ăn hết ngân sách EXTRACT_TIMEOUT của doc.
+SPH_LUOT_HAI_MAX_TOKENS = int(os.getenv("SPH_LUOT_HAI_MAX_TOKENS", "0")) or None
 SPH_LUOT_HAI_TIMEOUT = float(os.getenv("SPH_LUOT_HAI_TIMEOUT", "300"))
 
 
@@ -391,8 +393,9 @@ async def extract_gcn_only(
         enable_thinking=enable_thinking,
         max_tokens=max_tokens,
     )
+    print("sph: ", sph)
+    print(_normalize_gcn_only_result(result))
     return _normalize_gcn_only_result(result)
-
 
 def _smoke() -> None:
     """Test THUẦN cho normalize + ghép lượt hai (không cần VLM/ảnh).
@@ -507,8 +510,8 @@ async def _process_pdf(file_path: str):
         pdf_bytesio = io.BytesIO(f.read())
     loop = asyncio.get_running_loop()
     images = await loop.run_in_executor(None, pdf_to_corrected_images, pdf_bytesio)
-    result = await extract_gcn_only(images)
-    print(f"\n{'=' * 30}\n{file_path}\n{result}")
+    result = await extract(images)
+    # print(f"\n{'=' * 30}\n{file_path}\n{result}")
     return result
 
 
