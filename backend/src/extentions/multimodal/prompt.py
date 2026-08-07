@@ -187,7 +187,7 @@ Trả về JSON đúng cấu trúc sau:
 
 
 ====
-Examples output for Số phát hành giấy chứng nhận (hay ở góc phải bên dưới ảnh - hoặc bên trên dưới tiêu ngữ trong hộp con):
+Examples output for Số phát hành giấy chứng nhận (hay ở góc phải bên dưới ảnh - hoặc bên trên dưới tiêu ngữ trong hộp con): A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y
 - SốM XXXXXX
 - XXXXXXXXXX
 - SốS XXXXXX
