@@ -28,8 +28,11 @@ import re
 # SỐ phải trùng cụm số đọc được mới cho vá.
 # Nhóm "S?" đầu nuốt nhãn "Số" bị dính ("S6AN 421339" → AN); có backtrack nên
 # "S 266529" vẫn ra tiền tố "S".
+# Phần chữ: 1-4 chữ liền ("AD"), HOẶC các chữ ĐƠN cách nhau đúng một dấu cách
+# ("A Đ339173" = "AĐ 339173" bị gõ lạc dấu cách). Không cho nối kiểu "GCN T".
+_CHU = r"(?:[A-ZĐ]{1,4}|[A-ZĐ](?: [A-ZĐ]){1,3})"
 _CUM_RE = re.compile(
-    r"(?<![A-Z0-9ĐÀ-Ỹ])(?:S[ỐỒỔỖỘÔỎÕỌÓÒƠỚO0-9]\s*)?([A-ZĐ]{1,4})[ _-]?(\d{4,7})(?![0-9])")
+    rf"(?:S[ỐỒỔỖỘÔỎÕỌÓÒƠỚO0-9]\s*)?({_CHU})[ _-]?(\d{{4,7}})(?![0-9])")
 # Nhãn "Số" dính liền tiền tố trong tên tệp ("SoS 216419" → lấy "S").
 _NHAN_SO_RE = re.compile(r"^S[ỐỒỔỖỘÔỎÕỌÓÒƠỚO0-9]$")
 # Cụm số TRẦN 4-7 chữ số = seri bản cũ bị mất tiền tố. Từ 8 chữ số trở lên là SPH
@@ -48,14 +51,26 @@ def _go_nhan_so(tien_to: str) -> str:
     return tien_to[2:] if len(tien_to) > 1 and _NHAN_SO_RE.fullmatch(tien_to[:2]) else tien_to
 
 
+def _duyet_cum(ten: str):
+    """Sinh (tien_to, so) cho từng cụm CHỮ+SỐ hợp lệ trong tên tệp đã chuẩn hoá.
+
+    CHẶN CỤM NẰM TRONG CHỮ THƯỜNG: "GIẤY XÁC NHẬN ĐĂNG KÍ ĐẤT ĐAI 6112" từng cho
+    ra tiền tố rác "ĐAI" (Đ, A, I đều là chữ cái hợp lệ!). Luật: ký tự khác dấu
+    cách ngay TRƯỚC cụm không được là CHỮ CÁI — seri luôn đứng đầu tên, hoặc sau
+    dấu phân cách, hoặc sau một cụm số."""
+    for m in _CUM_RE.finditer(ten):
+        truoc = ten[:m.start()].rstrip(" ")
+        if truoc and truoc[-1].isalpha():
+            continue
+        tt = _go_nhan_so(m.group(1).replace(" ", ""))
+        if tt:
+            yield tt, m.group(2)
+
+
 def tach_ten_tep(filename) -> tuple[str, str] | None:
     """Cụm CHỮ+SỐ ĐẦU TIÊN trong tên tệp: ('AD', '597734') từ 'AD 597734.pdf'.
     Chỉ dùng để lọc sơ/đếm — việc vá luôn đi qua `tim_tien_to` (có đối chiếu số)."""
-    for m in _CUM_RE.finditer(_chuan(filename)):
-        tt = _go_nhan_so(m.group(1))
-        if tt:
-            return (tt, m.group(2))
-    return None
+    return next(_duyet_cum(_chuan(filename)), None)
 
 
 def tim_tien_to(filename, so_luu: str) -> tuple[str, str] | None:
@@ -66,11 +81,9 @@ def tim_tien_to(filename, so_luu: str) -> tuple[str, str] | None:
     goc = (so_luu or "").lstrip("0")
     if not goc:
         return None
-    for m in _CUM_RE.finditer(_chuan(filename)):
-        if m.group(2).lstrip("0") == goc:
-            tt = _go_nhan_so(m.group(1))
-            if tt:
-                return (tt, m.group(2))
+    for tt, so in _duyet_cum(_chuan(filename)):
+        if so.lstrip("0") == goc:
+            return (tt, so)
     return None
 
 
@@ -157,7 +170,24 @@ def _smoke() -> None:
     assert va_sph_tu_ten_tep([{"result": None}], "AD 597734.pdf") == 0, "KILL [29]"
     assert va_sph_tu_ten_tep(ex("597734"), None) == 0, "KILL [30] không có tên tệp"
 
-    print("sph_ten_tep PURE: 30 KILL ✓")
+    # ── Bẫy thật gặp trong dry-run ──────────────────────────────────────────
+    # Tên tệp là CÂU CHỮ: "ĐAI" trong "đất đai" từng bị nhận nhầm làm tiền tố
+    assert tim_tien_to("Giấy xác nhận đăng kí đất đai 6112.pdf", "6112") is None, "KILL [31]"
+    assert tach_ten_tep("Giấy xác nhận đăng kí đất đai 6112.pdf") is None, "KILL [32]"
+    assert tim_tien_to("Đơn đăng ký biến động 1234.pdf", "1234") is None, "KILL [33]"
+    # Dấu cách lạc giữa tiền tố: "A Đ339173" = "AĐ 339173", KHÔNG phải "Đ 339173"
+    assert tim_tien_to("A Đ339173.pdf", "339173") == ("AĐ", "339173"), "KILL [34]"
+    assert tim_tien_to("A Đ 515935.pdf", "515935") == ("AĐ", "515935"), "KILL [35]"
+    assert tim_tien_to("A A226525.pdf", "226525") == ("AA", "226525"), "KILL [36]"
+    # nhưng KHÔNG nối bừa cụm nhiều chữ cách nhau: "GCN T 009812" → không phải "GCNT"
+    assert tim_tien_to("GCN T 009812.pdf", "009812") is None, "KILL [37]"
+    # hai seri trong một tên: cụm thứ hai vẫn dùng được (sau cụm SỐ, không phải chữ)
+    assert tim_tien_to("A854780 A854779.pdf", "854779") == ("A", "854779"), "KILL [38]"
+    assert tim_tien_to("A854780 A854779.pdf", "854780") == ("A", "854780"), "KILL [39]"
+    # sau dấu phân cách vẫn nhận
+    assert tim_tien_to("10003-GCN-T 009812-p64.pdf", "009812") == ("T", "009812"), "KILL [40]"
+
+    print("sph_ten_tep PURE: 40 KILL ✓")
 
 
 if __name__ == "__main__":
