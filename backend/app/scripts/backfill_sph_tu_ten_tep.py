@@ -51,9 +51,10 @@ async def run(mongo, limit, batch_id, dry_run, ke_ca_da_hau_kiem) -> None:
     q: dict = {
         "status": "done",
         "extractions.result.Đăng ký.Giấy chứng nhận.Số phát hành": {"$regex": _MONGO_RE},
-        # Lọc sơ ở DB: chỉ hồ sơ có tên tệp mang tiền tố chữ (khối 70% rẻ tiền).
-        "filename": {"$regex": r"^\s*(?:S[ỐÔO0-9]\s*)?[A-ZĐ]{1,4} ?[0-9]{4,7}\.pdf$",
-                     "$options": "i"},
+        # Lọc sơ ở DB: tên tệp có CHỨA cụm "chữ + 4-7 số" ở bất kỳ đâu. KHÔNG neo
+        # \.pdf$ — tên thật hay có đuôi ("Y 905108-GCN.pdf") và bản neo đuôi trước
+        # đây đã chặn sạch nhóm đó khỏi phạm vi. Lọc thật vẫn do tim_tien_to lo.
+        "filename": {"$regex": r"[A-ZĐ]{1,4}[ _-]?[0-9]{4,7}", "$options": "i"},
     }
     if batch_id:
         q["batch_id"] = batch_id
