@@ -1,4 +1,5 @@
 import asyncio
+import os
 import io
 
 from src.extentions.multimodal.make import pdf_to_corrected_images
@@ -114,6 +115,10 @@ async def classify_page(image_b64: str, enable_thinking: bool | None = None) -> 
         user_text=classify_page_user_prompt,
         images_b64=[image_b64],
         enable_thinking=enable_thinking,
+        # Output đúng một nhãn ({"role":"cover"}) — vài chục token là thừa. Trần
+        # chặt ở đây chặn ca lặp vòng ngốn slot của cả pipeline (detect gọi MỖI
+        # trang: 1 file 10 trang = 10 call).
+        max_tokens=int(os.getenv("CLASSIFY_MAX_TOKENS", "64")),
     )
     role = (d.get("role") or "").strip().lower() if isinstance(d, dict) else ""
     return role if role in _ROLES else "content"

@@ -16,12 +16,14 @@ from src.extentions.multimodal.vlm_client import ENABLE_THINKING, chat_json
 # trám vào sẽ có ý nghĩa hơn — bật lại bằng EXTRACT_RETRY_THINKING=true.
 EXTRACT_RETRY_THINKING = os.getenv("EXTRACT_RETRY_THINKING", "false").strip().lower() == "true"
 
+# MẶC ĐỊNH TẮT. Bật bằng SPH_LUOT_HAI=true khi GPU còn dư — nó nhân đôi số call
+# cho mọi hồ sơ đọc hỏng, đúng nhóm đang chiếm phần lớn hàng đợi.
 # LƯỢT HAI cho Số phát hành: entry nào SPH sai form thì hỏi lại bằng prompt NHẸ
 # (extract_gcn_only) + thinking. Đo tay trên 11 hồ sơ: prompt đầy đủ đọc seri kém
 # hẳn prompt nhẹ (I 2250 vs S 012250; 845530 vs S 845590; 342398 vs N 342398) —
 # ít trường phải lo nên model soi kỹ được góc bìa. Rẻ hơn chạy lại extract đầy đủ.
-SPH_LUOT_HAI = os.getenv("SPH_LUOT_HAI", "true").strip().lower() == "true"
-SPH_LUOT_HAI_THINKING = os.getenv("SPH_LUOT_HAI_THINKING", "true").strip().lower() == "true"
+SPH_LUOT_HAI = os.getenv("SPH_LUOT_HAI", "false").strip().lower() == "true"
+SPH_LUOT_HAI_THINKING = os.getenv("SPH_LUOT_HAI_THINKING", "false").strip().lower() == "true"
 # Hai cái hãm cho lượt hai — CẦN vì thinking sinh dài và GPU đang decode-bound:
 #   trần token: chặn ca model lảm nhảm/lặp vòng ngốn hàng nghìn token
 #   timeout   : lượt PHỤ không được phép ăn hết ngân sách EXTRACT_TIMEOUT của doc

@@ -35,6 +35,18 @@ PER_ENDPOINT_CONCURRENCY = int(os.getenv("MAX_VLM_CONCURRENT", "8"))
 # 0 = tắt tính năng (giữ hành vi cũ: chọn thuần theo inflight).
 ENDPOINT_COOLDOWN = float(os.getenv("VLM_ENDPOINT_COOLDOWN_SECONDS", "15"))
 
+# TRẦN TOKEN mặc định cho MỌI call (caller có thể ghi đè). 0 = không đặt.
+# Không có trần thì một lần model lặp vòng là sinh tới max_model_len — đo thật:
+# goi_that=3000s tức ~24k token cho một bìa GCN. Đây là nguyên nhân gốc của
+# chuỗi timeout, không phải GPU yếu.
+VLM_MAX_TOKENS = int(os.getenv("VLM_MAX_TOKENS", "4096"))
+
+# TIMEOUT ở TẦNG HTTP. Quan trọng hơn vẻ ngoài: asyncio.wait_for chỉ huỷ task phía
+# client, request vẫn chạy tiếp trên vLLM (log server giữ nguyên 128 running dù
+# client đã bỏ). Đặt timeout cho litellm/httpx thì kết nối bị ĐÓNG, vLLM thấy
+# client ngắt và huỷ luôn — không còn tích rác trên GPU. 0 = không đặt.
+VLM_REQUEST_TIMEOUT = float(os.getenv("VLM_REQUEST_TIMEOUT", "600"))
+
 
 # ── Khai báo endpoint ────────────────────────────────────────────────────────
 #
@@ -147,6 +159,7 @@ async def _call_endpoint(ep: "_Endpoint", messages: list, extra: dict,
         response_format={"type": "json_object"},
         messages=messages,
         **({"max_tokens": max_tokens} if max_tokens else {}),
+        **({"timeout": VLM_REQUEST_TIMEOUT} if VLM_REQUEST_TIMEOUT > 0 else {}),
         **extra,
     )
     content = response.choices[0].message.content
@@ -182,6 +195,8 @@ async def chat_json(
     token, mà GPU đang decode-bound (~14 tok/s mỗi request khi 43 request chạy
     song song) nên một ca như thế giữ chỗ hàng phút, kéo tụt cả hàng đợi.
     """
+    if max_tokens is None and VLM_MAX_TOKENS > 0:
+        max_tokens = VLM_MAX_TOKENS
     use_thinking = ENABLE_THINKING if enable_thinking is None else enable_thinking
     extra = (
         {"extra_body": {
