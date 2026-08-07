@@ -51,13 +51,6 @@ services:
       # Máy vLLM vừa lỗi kết nối → "làm nguội" N giây, né chọn lại (khỏi phí thử
       # máy chết mỗi request). 0 = tắt. Mọi máy nguội thì vẫn probe 1 máy.
       VLM_ENDPOINT_COOLDOWN_SECONDS: ${VLM_ENDPOINT_COOLDOWN_SECONDS:-15}
-      # TRẦN TOKEN mỗi call (0 = bỏ trần). Không có trần thì một lần model lặp
-      # vòng sinh tới max_model_len — đo thật: một bìa GCN ngốn 3000s.
-      VLM_MAX_TOKENS: ${VLM_MAX_TOKENS:-4096}
-      CLASSIFY_MAX_TOKENS: ${CLASSIFY_MAX_TOKENS:-64}
-      # Timeout TẦNG HTTP: đóng kết nối để vLLM huỷ request, không để nó chạy tiếp
-      # trên GPU sau khi client đã bỏ cuộc (asyncio.wait_for KHÔNG làm được việc đó).
-      VLM_REQUEST_TIMEOUT: ${VLM_REQUEST_TIMEOUT:-600}
       # false = KHÔNG tạo file cắt per-GCN (bỏ tải ghi hàng loạt lên S3 đích).
       # Phân trang vẫn nằm trong extractions → cắt lại từ JSON khi cần.
       AIHUB_BUILD_CUTS: ${AIHUB_BUILD_CUTS:-true}
