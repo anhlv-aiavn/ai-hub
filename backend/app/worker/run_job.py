@@ -141,13 +141,25 @@ async def _pipeline(pdf_buf: io.BytesIO, timings: dict | None = None) -> tuple[l
     if not groups:
         return [], images
 
+    # Đo TÁCH BẠCH: chờ slot VLM (hàng đợi nội bộ) vs gọi thật. Gộp chung thì
+    # timings["extract"] = chờ + gọi, nhìn ra 1720s trong khi timeout là 800s và
+    # tưởng nhầm là một call chạy quá giờ.
+    cho_slot: list[float] = []
+    goi_that: list[float] = []
+
     async def _run(group: list[int]) -> dict:
         base = {"page_indices": group, "result": None, "error": None,
                 "page_count": page_count, "skip_reason": None}
         imgs = [images[i] for i in group if 0 <= i < len(images)]
+        _t_cho = time.monotonic()
         try:
             async with _vlm_sem():
-                base["result"] = await asyncio.wait_for(extract(imgs), timeout=EXTRACT_TIMEOUT)
+                cho_slot.append(time.monotonic() - _t_cho)
+                _t_goi = time.monotonic()
+                try:
+                    base["result"] = await asyncio.wait_for(extract(imgs), timeout=EXTRACT_TIMEOUT)
+                finally:
+                    goi_that.append(time.monotonic() - _t_goi)
         except asyncio.TimeoutError:
             base["error"] = f"timeout>{EXTRACT_TIMEOUT}s"
         except Exception as e:  # noqa: BLE001
@@ -159,6 +171,13 @@ async def _pipeline(pdf_buf: io.BytesIO, timings: dict | None = None) -> tuple[l
     records = await asyncio.gather(*(_run(g) for g in groups))
     if timings is not None:
         timings["extract"] = round(time.monotonic() - _t, 3)
+        # cho_slot cao = GPU bão hoà, hạ MAX_VLM_CONCURRENT/MAX_IN_FLIGHT chứ
+        # không phải nới EXTRACT_TIMEOUT. goi_that cao = call thật sự chậm
+        # (thinking, ảnh to) → hạ max_tokens hoặc tắt thinking.
+        if cho_slot:
+            timings["cho_slot"] = round(max(cho_slot), 3)
+        if goi_that:
+            timings["goi_that"] = round(max(goi_that), 3)
     return records, images
 
 
