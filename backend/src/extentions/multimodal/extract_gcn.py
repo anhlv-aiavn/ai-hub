@@ -27,6 +27,8 @@ SPH_LUOT_HAI_THINKING = os.getenv("SPH_LUOT_HAI_THINKING", "true").strip().lower
 _PURE_DIGITS_RE = re.compile(r"^\d{10,15}$")
 _LETTER_DIGIT_RE = re.compile(r"^([A-Z01]{1,4})\s*([\dOI]+)$")
 _DATE_RE = re.compile(r"\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})\b")
+# Ngày đã chuẩn hoá xong (dd/mm/yyyy) — dùng để biết giá trị cũ có dùng được không.
+_DATE_CHUAN_RE = re.compile(r"^\d{2}/\d{2}/\d{4}$")
 
 # Form hợp lệ của Số phát hành (sau normalize):
 #   - bản cũ:  1-4 chữ in hoa + 5+ số      (vd "DD 999053", "AA 00827763")
@@ -182,48 +184,73 @@ def _entries_sph(result: dict) -> list[dict]:
     return out
 
 
-def _ghep_sph(result: dict, items: list) -> int:
-    """Ghép SPH từ kết quả prompt NHẸ vào kết quả đầy đủ. THUẦN (test được).
+def _ghep_sph(result: dict, items: list) -> dict:
+    """Ghép kết quả prompt NHẸ vào kết quả đầy đủ. THUẦN (test được).
 
-    Chỉ ghi đè khi giá trị CŨ sai form và giá trị MỚI đúng form — lượt hai không
-    bao giờ được phép làm hỏng một SPH đang đúng.
+    Ba trường, ba mức tin cậy khác nhau — cố ý KHÔNG đối xử như nhau:
+
+    • Số phát hành: ghi đè khi cũ SAI FORM và mới ĐÚNG FORM. Đây là trường lượt
+      hai thực sự giỏi hơn (đo tay: I 2250 → S 012250, 845530 → S 845590).
+    • Số vào sổ: CHỈ LẤP CHỖ TRỐNG. Hai lượt hay bất đồng ('1376/QSDĐ' vs
+      '00144') mà không có trọng tài nào phân xử, nên đè là đánh bạc.
+    • Ngày cấp: lấp chỗ trống, HOẶC thay khi cũ không phải dd/mm/yyyy còn mới thì
+      phải. Cũng bất đồng được (10/11/2001 vs 10/10/2001) nên không đè giá trị
+      cũ đã đúng dạng.
 
     Ghép theo THỨ TỰ khi hai bên cùng số lượng giấy. Lệch số lượng thì chỉ nhận
-    trường hợp không thể nhầm: đúng một entry hỏng và đúng một ứng viên hợp lệ.
-    Ngoài ra bỏ qua — ghép mò giữa các giấy khác nhau còn tệ hơn để nguyên."""
+    trường hợp không thể nhầm: đúng một entry hỏng SPH và đúng một ứng viên hợp
+    lệ. Ngoài ra bỏ qua — ghép mò giữa các giấy khác nhau còn tệ hơn để nguyên."""
+    dem = {"sph": 0, "so_vao_so": 0, "ngay_cap": 0}
     gcns = _entries_sph(result)
     if not gcns or not items:
-        return 0
-    moi = [it.get("Số phát hành") if isinstance(it, dict) else None for it in items]
+        return dem
+    moi = [it if isinstance(it, dict) else {} for it in items]
     hong = [i for i, g in enumerate(gcns) if not _is_valid_so_phat_hanh(g.get("Số phát hành"))]
     if not hong:
-        return 0
+        return dem
 
-    cap: list[tuple[int, str]] = []
+    cap: list[tuple[dict, dict]] = []
     if len(moi) == len(gcns):
-        cap = [(i, moi[i]) for i in hong]
+        cap = list(zip(gcns, moi))
     else:
-        hop_le = [v for v in moi if _is_valid_so_phat_hanh(v)]
+        hop_le = [it for it in moi if _is_valid_so_phat_hanh(it.get("Số phát hành"))]
         if len(hong) == 1 and len(hop_le) == 1:
-            cap = [(hong[0], hop_le[0])]
+            cap = [(gcns[hong[0]], hop_le[0])]
 
-    n = 0
-    for i, v in cap:
-        if _is_valid_so_phat_hanh(v):
-            gcns[i]["Số phát hành"] = v.strip().upper()
-            n += 1
-    return n
+    for g, it in cap:
+        sph_moi = it.get("Số phát hành")
+        if (not _is_valid_so_phat_hanh(g.get("Số phát hành"))
+                and _is_valid_so_phat_hanh(sph_moi)):
+            g["Số phát hành"] = sph_moi.strip().upper()
+            dem["sph"] += 1
+
+        vs_moi = it.get("Số vào sổ")
+        if isinstance(vs_moi, str) and vs_moi.strip() and not str(g.get("Số vào sổ") or "").strip():
+            g["Số vào sổ"] = vs_moi.strip()
+            dem["so_vao_so"] += 1
+
+        nc_moi = it.get("Ngày cấp")
+        nc_cu = str(g.get("Ngày cấp") or "").strip()
+        if (isinstance(nc_moi, str) and _DATE_CHUAN_RE.fullmatch(nc_moi.strip())
+                and not _DATE_CHUAN_RE.fullmatch(nc_cu)):
+            g["Ngày cấp"] = nc_moi.strip()
+            dem["ngay_cap"] += 1
+    return dem
 
 
-async def _luot_hai_sph(images_b64: list[str], result: dict) -> int:
-    """Hỏi lại Số phát hành bằng prompt NHẸ + thinking cho các entry sai form."""
+async def _luot_hai_sph(images_b64: list[str], result: dict) -> dict:
+    """Hỏi lại bằng prompt NHẸ + thinking khi có entry SPH sai form.
+
+    KÍCH HOẠT vẫn chỉ bởi SPH sai form — không gọi thêm call chỉ để lấp số vào sổ
+    hay ngày cấp. Đã gọi rồi thì tận dụng nốt hai trường kia (xem _ghep_sph)."""
+    trong = {"sph": 0, "so_vao_so": 0, "ngay_cap": 0}
     if not SPH_LUOT_HAI or _bad_sph_count(result) == 0:
-        return 0
+        return trong
     try:
         nhe = await extract_gcn_only(
             images_b64, enable_thinking=True if SPH_LUOT_HAI_THINKING else None)
     except Exception:  # noqa: BLE001 - lượt phụ: hỏng thì giữ nguyên kết quả chính
-        return 0
+        return trong
     return _ghep_sph(result, nhe.get("Giấy chứng nhận") or [])
 
 
@@ -350,40 +377,76 @@ def _smoke() -> None:
     assert n("12 345") == "12 345", "KILL [11] chuỗi toàn số giữ nguyên"
     assert n("") == "" and n(None) is None, "KILL [12]"
 
-    def res(*sph):
-        return {"Đăng ký": [{"Giấy chứng nhận": {"Số phát hành": v}} for v in sph]}
+    def res(*sph, vs="", nc=""):
+        return {"Đăng ký": [{"Giấy chứng nhận": {"Số phát hành": v, "Số vào sổ": vs,
+                                                 "Ngày cấp": nc}} for v in sph]}
 
     def lay(r):
         return [e["Giấy chứng nhận"]["Số phát hành"] for e in r["Đăng ký"]]
 
     # 1 hỏng ↔ 1 ứng viên hợp lệ → vá
     r = res("845530")
-    assert _ghep_sph(r, [{"Số phát hành": "S 845590"}]) == 1, "KILL [13]"
+    assert _ghep_sph(r, [{"Số phát hành": "S 845590"}])["sph"] == 1, "KILL [13]"
     assert lay(r) == ["S 845590"], "KILL [14]"
     # SPH đang ĐÚNG → lượt hai không được phép đụng
     r = res("AP 471319")
-    assert _ghep_sph(r, [{"Số phát hành": "XX 999999"}]) == 0, "KILL [15]"
+    assert _ghep_sph(r, [{"Số phát hành": "XX 999999"}])["sph"] == 0, "KILL [15]"
     assert lay(r) == ["AP 471319"], "KILL [16]"
     # ứng viên mới cũng sai form → giữ nguyên
     r = res("111")
-    assert _ghep_sph(r, [{"Số phát hành": "SN 53"}]) == 0, "KILL [17]"
+    assert _ghep_sph(r, [{"Số phát hành": "SN 53"}])["sph"] == 0, "KILL [17]"
     # cùng số lượng → ghép theo thứ tự, chỉ chạm entry hỏng
     r = res("342398", "AP 471319")
     assert _ghep_sph(r, [{"Số phát hành": "N 342398"},
-                         {"Số phát hành": "ZZ 111111"}]) == 1, "KILL [18]"
+                         {"Số phát hành": "ZZ 111111"}])["sph"] == 1, "KILL [18]"
     assert lay(r) == ["N 342398", "AP 471319"], f"KILL [19] {lay(r)}"
     # lệch số lượng + nhiều entry hỏng → BỎ QUA (ghép mò còn tệ hơn để nguyên)
     r = res("111", "222")
-    assert _ghep_sph(r, [{"Số phát hành": "N 342398"}]) == 0, "KILL [20]"
+    assert _ghep_sph(r, [{"Số phát hành": "N 342398"}])["sph"] == 0, "KILL [20]"
     assert lay(r) == ["111", "222"], "KILL [21]"
     # lệch số lượng nhưng KHÔNG THỂ NHẦM: đúng 1 hỏng, đúng 1 ứng viên hợp lệ
     r = res("111", "AP 471319")
-    assert _ghep_sph(r, [{"Số phát hành": "N 342398"}, {"Số phát hành": "rác"}]) == 1, "KILL [22]"
+    assert _ghep_sph(r, [{"Số phát hành": "N 342398"}, {"Số phát hành": "rác"}])["sph"] == 1, "KILL [22]"
     assert lay(r) == ["N 342398", "AP 471319"], "KILL [23]"
-    assert _ghep_sph({}, [{"Số phát hành": "N 342398"}]) == 0, "KILL [24]"
-    assert _ghep_sph(res("111"), []) == 0, "KILL [25]"
+    assert _ghep_sph({}, [{"Số phát hành": "N 342398"}])["sph"] == 0, "KILL [24]"
+    assert _ghep_sph(res("111"), [])["sph"] == 0, "KILL [25]"
 
-    print("extract_gcn PURE: 25 KILL ✓")
+    # ── Số vào sổ: CHỈ lấp chỗ trống ────────────────────────────────────────
+    r = res("111", vs="")
+    d = _ghep_sph(r, [{"Số phát hành": "N 342398", "Số vào sổ": "01417"}])
+    assert d["so_vao_so"] == 1, "KILL [26]"
+    assert r["Đăng ký"][0]["Giấy chứng nhận"]["Số vào sổ"] == "01417", "KILL [27]"
+    # đã có giá trị → KHÔNG đè (hai lượt hay bất đồng, không có trọng tài)
+    r = res("111", vs="1376/QSDĐ")
+    d = _ghep_sph(r, [{"Số phát hành": "N 342398", "Số vào sổ": "00144"}])
+    assert d["so_vao_so"] == 0, "KILL [28]"
+    assert r["Đăng ký"][0]["Giấy chứng nhận"]["Số vào sổ"] == "1376/QSDĐ", "KILL [29]"
+
+    # ── Ngày cấp: lấp trống, hoặc thay khi cũ KHÔNG đúng dạng dd/mm/yyyy ─────
+    r = res("111", nc="")
+    d = _ghep_sph(r, [{"Số phát hành": "N 342398", "Ngày cấp": "12/08/1999"}])
+    assert d["ngay_cap"] == 1 and r["Đăng ký"][0]["Giấy chứng nhận"]["Ngày cấp"] == "12/08/1999", "KILL [30]"
+    # cũ đã đúng dạng → giữ, dù lượt hai đọc khác (10/11 vs 10/10)
+    r = res("111", nc="10/11/2001")
+    d = _ghep_sph(r, [{"Số phát hành": "N 342398", "Ngày cấp": "10/10/2001"}])
+    assert d["ngay_cap"] == 0, "KILL [31]"
+    assert r["Đăng ký"][0]["Giấy chứng nhận"]["Ngày cấp"] == "10/11/2001", "KILL [32]"
+    # cũ là rác/không đủ dạng → thay
+    r = res("111", nc="ngày 24 tháng 6")
+    d = _ghep_sph(r, [{"Số phát hành": "N 342398", "Ngày cấp": "24/06/1992"}])
+    assert d["ngay_cap"] == 1 and r["Đăng ký"][0]["Giấy chứng nhận"]["Ngày cấp"] == "24/06/1992", "KILL [33]"
+    # mới rỗng/rác → không đụng
+    r = res("111", vs="A", nc="10/11/2001")
+    d = _ghep_sph(r, [{"Số phát hành": "N 342398", "Số vào sổ": "  ", "Ngày cấp": "abc"}])
+    assert d["so_vao_so"] == 0 and d["ngay_cap"] == 0, "KILL [34]"
+    # entry có SPH ĐÚNG vẫn được lấp hai trường kia (đã tốn call rồi)
+    r = res("111", "AP 471319", vs="")
+    d = _ghep_sph(r, [{"Số phát hành": "N 342398", "Số vào sổ": "01"},
+                      {"Số phát hành": "ZZ 999999", "Số vào sổ": "02"}])
+    assert d["sph"] == 1 and d["so_vao_so"] == 2, f"KILL [35] {d}"
+    assert lay(r) == ["N 342398", "AP 471319"], "KILL [36] SPH đúng không bị đè"
+
+    print("extract_gcn PURE: 36 KILL ✓")
 
 
 async def _process_pdf(file_path: str):
