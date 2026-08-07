@@ -30,60 +30,18 @@ lọc "cụm số trần" nữa nên tự động rơi khỏi phạm vi chạy V
 
 import argparse
 import asyncio
-import re
 from collections import Counter
 
 from pymongo import UpdateOne
 
 from app import config
 from app.scripts.requeue_sph_thieu_chu import _MONGO_RE, _da_hau_kiem
+from app.sph_ten_tep import tach_ten_tep, va_sph_tu_ten_tep
 
 BULK = 500
 
-# Tên tệp mang tiền tố: "AD 597734.pdf", "AĐ381126.pdf", "S 266529.pdf",
-# kèm biến thể còn dính chữ "Số"/"So"/"S6" ở đầu ("So AN 065845.pdf").
-_TEN_TEP_RE = re.compile(
-    r"^(?:S[ỐỒỔỖỘÔỎÕỌÓÒƠỚO0-9]\s*)?([A-ZĐ]{1,4})\s*(\d{4,7})$")
-# Cụm số trần trong SPH đang lưu (khớp _MONGO_RE phía DB).
-_SO_TRAN_RE = re.compile(r"^\s*(\d{4,7})\s*$")
-
-
-def _tu_ten_tep(filename: str) -> tuple[str, str] | None:
-    """('AD', '597734') từ 'AD 597734.pdf'. None nếu tên tệp không mang tiền tố."""
-    if not isinstance(filename, str) or not filename.strip():
-        return None
-    ten = filename.strip().rsplit("/", 1)[-1]
-    ten = re.sub(r"\.pdf$", "", ten, flags=re.IGNORECASE)
-    m = _TEN_TEP_RE.fullmatch(re.sub(r"\s+", " ", ten).strip().upper())
-    return (m.group(1), m.group(2)) if m else None
-
-
-def _khop(so_luu: str, so_ten: str) -> bool:
-    """Cùng một con số, bỏ qua số 0 ở đầu ('065845' ≡ '65845')."""
-    return so_luu.lstrip("0") == so_ten.lstrip("0") and so_luu.lstrip("0") != ""
-
-
-def _va_extractions(extractions, prefix: str, so_ten: str) -> int:
-    """Sửa TẠI CHỖ mọi entry có SPH là cụm số trần trùng `so_ten`. Trả số entry đã sửa."""
-    n = 0
-    for r in extractions or []:
-        res = r.get("result") if isinstance(r, dict) else None
-        if not isinstance(res, dict):
-            continue
-        for e in res.get("Đăng ký") or []:
-            g = e.get("Giấy chứng nhận") if isinstance(e, dict) else None
-            if not isinstance(g, dict):
-                continue
-            sph = g.get("Số phát hành")
-            if not isinstance(sph, str):
-                continue
-            m = _SO_TRAN_RE.fullmatch(sph)
-            if m and _khop(m.group(1), so_ten):
-                # Lấy cụm số của TÊN TỆP, không phải cụm đang lưu: seri in trên
-                # phôi có số 0 ở đầu ("AN 065845"), model hay nuốt mất số 0 đó.
-                g["Số phát hành"] = f"{prefix} {so_ten}"
-                n += 1
-    return n
+# Luật ghép nằm ở app/sph_ten_tep.py — DÙNG CHUNG với pipeline (run_job) để hồ sơ
+# mới được vá ngay lúc ingest, khỏi phải backfill lại vòng nữa.
 
 
 async def run(mongo, limit, batch_id, dry_run, ke_ca_da_hau_kiem) -> None:
@@ -122,17 +80,16 @@ async def run(mongo, limit, batch_id, dry_run, ke_ca_da_hau_kiem) -> None:
 
     async for doc in cur:
         st["xet"] += 1
-        cap = _tu_ten_tep(doc.get("filename"))
+        cap = tach_ten_tep(doc.get("filename"))
         if not cap:
             st["ten_tep_khong_dung_dang"] += 1
             continue
         if _da_hau_kiem(doc) and not ke_ca_da_hau_kiem:
             st["bo_qua_da_hau_kiem"] += 1
             continue
-        prefix, so_ten = cap
         extractions = doc.get("extractions") or []
         truoc = collect_so_phat_hanhs(extractions)
-        if not _va_extractions(extractions, prefix, so_ten):
+        if not va_sph_tu_ten_tep(extractions, doc.get("filename")):
             # Tên tệp có tiền tố nhưng SỐ KHÔNG TRÙNG → model đọc sai hẳn, để VLM lo.
             st["so_khong_trung"] += 1
             continue

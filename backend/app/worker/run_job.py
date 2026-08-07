@@ -27,6 +27,7 @@ from app import config, storage
 from app.batch_counters import bump
 from app.bus import publish_sync
 from app.storage import DestinationNotConfigured, SourceObjectMissing, SourceObjectUnavailable
+from app.sph_ten_tep import va_sph_tu_ten_tep
 from app.summary import collect_so_phat_hanhs, group_key_of, per_gcn, summarize
 from src.extentions.mongo_helper import AsyncMongo
 from src.extentions.multimodal.detect_gcn import classify_page, groups_from_roles
@@ -360,6 +361,15 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
             status, err = "error", str(e)
         except Exception as e:  # noqa: BLE001
             log.warning("build_cuts %s lỗi: %s", gcn_id, e)
+
+    # Vá SPH thiếu tiền tố chữ bằng tên tệp — SỬA TẠI CHỖ, phải chạy TRƯỚC
+    # collect_so_phat_hanhs/group_key_of/summarize để mọi thứ suy ra từ records
+    # đều thấy giá trị đã vá. Thuần chuỗi, chỉ động khi phần SỐ trùng khớp
+    # (xem app/sph_ten_tep.py) nên không thêm rủi ro bịa dữ liệu.
+    n_va = va_sph_tu_ten_tep(records, doc.get("filename"))
+    if n_va:
+        log.info("va_sph_ten_tep %s: %d SPH lấy tiền tố từ tên tệp %r",
+                 gcn_id, n_va, doc.get("filename"))
 
     sph_list = collect_so_phat_hanhs(records)
 
