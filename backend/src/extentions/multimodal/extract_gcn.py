@@ -392,6 +392,8 @@ async def extract_gcn_only(
         images_b64=images_b64,
         enable_thinking=enable_thinking,
         max_tokens=max_tokens,
+        repetition_penalty=1.4,
+        temperature=0.2,
     )
     print("sph: ", sph)
     print(_normalize_gcn_only_result(result))
@@ -505,35 +507,45 @@ def _smoke() -> None:
     print("extract_gcn PURE: 41 KILL ✓")
 
 
-async def _process_pdf(file_path: str):
-    with open(file_path, "rb") as f:
-        pdf_bytesio = io.BytesIO(f.read())
-    loop = asyncio.get_running_loop()
-    images = await loop.run_in_executor(None, pdf_to_corrected_images, pdf_bytesio)
-    result = await extract(images)
-    # print(f"\n{'=' * 30}\n{file_path}\n{result}")
+THU_MUC_MAC_DINH = "/home/vpdkhn/bags/ai-hub/tmp/tmp_2"
+
+
+async def _process_pdf(file_path: str, cong: asyncio.Semaphore):
+    # Cổng đếm theo FILE (render + gọi VLM). Không có nó thì 40 file render một
+    # lượt, mỗi PDF vài trang ảnh 2000px nằm hết trong RAM — chết vì bộ nhớ chứ
+    # không phải vì GPU. Trần GPU là chuyện của MAX_VLM_CONCURRENT trong vlm_client.
+    async with cong:
+        try:
+            with open(file_path, "rb") as f:
+                pdf_bytesio = io.BytesIO(f.read())
+            loop = asyncio.get_running_loop()
+            images = await loop.run_in_executor(None, pdf_to_corrected_images, pdf_bytesio)
+            result = await extract(images)
+        except Exception as e:  # noqa: BLE001 - chạy tay: 1 file hỏng không được giết cả mẻ
+            print(f"LỖI  {os.path.basename(file_path)}: {type(e).__name__}: {e}", flush=True)
+            return None
+    sph = [g.get("Số phát hành") for g in _entries_sph(result)]
+    print(f"{os.path.basename(file_path):<42} → {sph}", flush=True)
     return result
 
 
 async def main():
-    file_paths = [
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/00424-GCN-S 132398.pdf",
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/00613-GCN-Y 905245-G5Uui9OC.pdf",
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/09835-GCN-N 342398.pdf",
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/09835-GCN-N 433457 (1).pdf",
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/09835-GCN-N 433457.pdf",
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/10183-C-S 845590.pdf",
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/10210-C-I 612853.pdf",
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/10225-C-I 612206.pdf",
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/10231-C-P 765650.pdf",
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/10231-C-U 053754.pdf",
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/10234-C-A 998055 (1).pdf",
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/M 649864.pdf",
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/S 005324 (1).pdf",
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/S 012250.pdf",
-        "/home/vpdkhn/bags/ai-hub/tmp/tmp_2/U 459828.pdf"
-    ]
-    return await asyncio.gather(*(_process_pdf(p) for p in file_paths))
+    import glob
+    import sys
+
+    args = sys.argv[1:]
+    song_song = int(os.getenv("SONG_SONG", "40"))
+    paths: list[str] = []
+    for a in args or [THU_MUC_MAC_DINH]:
+        paths.extend(sorted(glob.glob(os.path.join(a, "*.pdf"))) if os.path.isdir(a) else [a])
+    if not paths:
+        print("Không tìm thấy PDF nào.")
+        return []
+
+    print(f"{len(paths)} file · song song {song_song} · trần VLM/máy "
+          f"{os.getenv('MAX_VLM_CONCURRENT', '8')}\n", flush=True)
+    cong = asyncio.Semaphore(song_song)
+    return await asyncio.gather(*(_process_pdf(p, cong) for p in paths))
 
 
 if __name__ == "__main__":
