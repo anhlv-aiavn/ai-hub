@@ -56,6 +56,10 @@ _SPH_CODE_RE = re.compile(r"^([A-ZĐ]{1,4})\s*([\dOI]{5,})$")
 # HẸP hơn _SPH_JUNK_PREFIX_RE có chủ đích: không nhận chữ số và không cho khoảng
 # trắng chen giữa — nếu không thì seri một chữ "S 845590" bị ăn mất số 8 đầu.
 _SPH_NHAN_CHU_RE = re.compile(r"^S[ỐỒỔỖỘÔỎÕỌÓÒƠỚOĐ]\s*")
+# Dấu ngăn giữa phần chữ và phần số: model hay viết "S.012250", "N-342398".
+# Đổi thành khoảng trắng, KHÔNG phải sửa nội dung — đọc đúng rồi mà bị loại vì
+# một dấu chấm thì phí cả lượt hai. Hẹp: phải là chữ + MỘT dấu + ≥4 số.
+_SPH_DAU_NGAN_RE = re.compile(r"^([A-ZĐ]{1,4})[.\-_:/]\s*([\dOI]{4,})$")
 
 
 def _is_valid_so_phat_hanh(value) -> bool:
@@ -122,6 +126,11 @@ def _normalize_so_phat_hanh(value: str) -> str:
             # TRẢ LUÔN: đi tiếp thì _LETTER_DIGIT_RE bắt nhầm "0053"+"24" rồi rơi
             # vào nhánh `return value` — mất sạch công cắt nhãn.
             return stripped
+
+    # "S.012250" → "S 012250" trước khi soi form (xem _SPH_DAU_NGAN_RE)
+    m_dau = _SPH_DAU_NGAN_RE.fullmatch(s)
+    if m_dau:
+        s = f"{m_dau.group(1)} {m_dau.group(2)}"
 
     no_space = s.replace(" ", "")
     if _PURE_DIGITS_RE.fullmatch(no_space):
@@ -421,6 +430,13 @@ def _smoke() -> None:
     assert n("0103040010") == "0103040010", "KILL [10]"
     assert n("12 345") == "12 345", "KILL [11] chuỗi toàn số giữ nguyên"
     assert n("") == "" and n(None) is None, "KILL [12]"
+    # dấu ngăn lạ giữa chữ và số → khoảng trắng (lượt hai đọc đúng, đừng vứt)
+    assert n("S.012250") == "S 012250", "KILL [12a]"
+    assert n("N-342398") == "N 342398", "KILL [12b]"
+    assert n("AP_471319") == "AP 471319", "KILL [12c]"
+    # KHÔNG đụng vào số vào sổ dạng có dấu (không phải chữ+số thuần)
+    assert n("1376/QSDĐ") == "1376/QSDĐ", "KILL [12d]"
+    assert n("S.12") == "S.12", "KILL [12e] quá ít số → không nhận"
 
     def res(*sph, vs="", nc=""):
         return {"Đăng ký": [{"Giấy chứng nhận": {"Số phát hành": v, "Số vào sổ": vs,
