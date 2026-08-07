@@ -27,10 +27,8 @@ SPH_LUOT_HAI_THINKING = os.getenv("SPH_LUOT_HAI_THINKING", "false").strip().lowe
 # Trần token: MẶC ĐỊNH KHÔNG ĐẶT (0 = không gửi max_tokens, để server quyết).
 # Từng để 1500: thinking sinh <think> dài, JSON bị cắt giữa chừng → json.loads
 # hỏng → trả {"raw": ...} → lượt hai rỗng sạch. Hãm nhầm chỗ, tốn GPU mà không
-# thu được gì. Cái hãm thật là SPH_LUOT_HAI_TIMEOUT ở dưới: lượt PHỤ không được
-# ăn hết ngân sách EXTRACT_TIMEOUT của doc.
+# thu được gì. Timeout riêng cho lượt hai cũng đã bỏ — xem _luot_hai_sph.
 SPH_LUOT_HAI_MAX_TOKENS = int(os.getenv("SPH_LUOT_HAI_MAX_TOKENS", "0")) or None
-SPH_LUOT_HAI_TIMEOUT = float(os.getenv("SPH_LUOT_HAI_TIMEOUT", "300"))
 
 
 _PURE_DIGITS_RE = re.compile(r"^\d{10,15}$")
@@ -277,14 +275,16 @@ async def _luot_hai_sph(images_b64: list[str], result: dict) -> dict:
     gcns = _entries_sph(result)
     if not gcns or all(_is_valid_so_phat_hanh(g.get("Số phát hành")) for g in gcns):
         return trong
+    # KHÔNG hãm: không trần token, không timeout riêng. Cả doc vẫn nằm trong
+    # EXTRACT_TIMEOUT_SECONDS của run_job, nên lượt hai chậm thì hỏng cả doc chứ
+    # không âm thầm mất mỗi lượt hai — đúng ý muốn: thà thấy lỗi còn hơn thấy rỗng.
     try:
-        nhe = await asyncio.wait_for(
-            extract_gcn_only(images_b64,
-                             enable_thinking=True if SPH_LUOT_HAI_THINKING else None,
-                             max_tokens=SPH_LUOT_HAI_MAX_TOKENS,
-                             sph=_sph_luot_mot(gcns)),
-            timeout=SPH_LUOT_HAI_TIMEOUT)
-    except Exception:  # noqa: BLE001 - lượt phụ: hỏng/quá giờ thì giữ kết quả chính
+        nhe = await extract_gcn_only(
+            images_b64,
+            enable_thinking=True if SPH_LUOT_HAI_THINKING else None,
+            max_tokens=SPH_LUOT_HAI_MAX_TOKENS,
+            sph=_sph_luot_mot(gcns))
+    except Exception:  # noqa: BLE001 - lượt phụ hỏng thì giữ kết quả chính
         return trong
     return _ghep_sph(result, nhe.get("Giấy chứng nhận") or [])
 
