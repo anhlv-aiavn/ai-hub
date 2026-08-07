@@ -215,30 +215,6 @@ Số vào sổ not in Số phát hành
 pdf_extract_gcn_only_prompt = """Trích xuất Số phát hành, Số vào sổ và Ngày cấp của tất cả Giấy chứng nhận có trong ảnh.
 Lưu ý: ảnh có thể chứa nhiều Giấy chứng nhận."""
 
-# Gợi ý cho LƯỢT HAI: nói thẳng lượt trước đọc ra cái gì và sai ở đâu.
-# {danh_sach} = mỗi giấy một dòng, xem _goi_y_sph() trong extract_gcn.py.
-# Cố ý KHÔNG bảo "hãy sửa thành X" — chỉ nêu giá trị nghi sai để model soi lại
-# đúng chỗ; chốt cuối vẫn do _ghep_sph kiểm form trước khi nhận.
-gcn_only_goi_y_prompt = """
-LƯU Ý — lượt đọc trước đã đọc SAI/THIẾU Số phát hành ở những giấy sau:
-{danh_sach}
-
-Số phát hành ĐÚNG chỉ có hai dạng:
-  1. 1-4 chữ IN HOA + ít nhất 5 chữ số  → "AP 471319", "S 845590", "N 342398"
-  2. 8-15 chữ số liền nhau              → "0103040010"
-
-Các giá trị nêu trên KHÔNG đúng dạng, hầu hết vì một trong ba lý do:
-  - MẤT chữ cái seri đứng trước dãy số (đọc "845530" trong khi trên phôi là "S 845590");
-  - đọc nhầm chữ cái seri (đọc "I 612853" trong khi là "L 612853");
-  - nuốt/nhầm chữ số (đọc "I 2250" trong khi là "S 012250").
-
-Vì vậy: soi lại ĐÚNG vùng in mã seri (mực đỏ, thường ở góc dưới bên phải mặt bìa,
-hoặc ngay trên/dưới tiêu ngữ), đọc lại từ KÝ TỰ ĐẦU TIÊN của mã — chữ cái trước,
-rồi từng chữ số một, kể cả số 0 đứng đầu.
-
-TUYỆT ĐỐI KHÔNG chép lại giá trị sai ở trên. Nếu nhìn kỹ vẫn không thấy chữ cái
-seri thì trả về đúng dãy số đọc được, đừng bịa thêm chữ cái."""
-
 detect_system_prompt = """Bạn là chuyên gia phân tích tài liệu pháp lý Việt Nam, chuyên nhận diện Giấy chứng nhận quyền sử dụng đất (GCN/sổ đỏ/sổ hồng).
 
 ## CẤU TRÚC VẬT LÝ CỦA MỘT BỘ GCN

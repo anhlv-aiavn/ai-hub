@@ -67,8 +67,6 @@ services:
       SPH_LUOT_HAI_THINKING: ${SPH_LUOT_HAI_THINKING:-false}
       SPH_LUOT_HAI_MAX_TOKENS: ${SPH_LUOT_HAI_MAX_TOKENS:-1500}
       SPH_LUOT_HAI_TIMEOUT: ${SPH_LUOT_HAI_TIMEOUT:-300}
-      # Kèm giá trị SPH lượt một (đang sai) vào prompt lượt hai. false = so kèo A/B.
-      SPH_LUOT_HAI_GOI_Y: ${SPH_LUOT_HAI_GOI_Y:-true}
       EXTRACT_RETRY_THINKING: ${EXTRACT_RETRY_THINKING:-false}
     ports: ["18002:8000"]
     # tmp/ của repo mount READ-ONLY vào /work: sửa prompt thử nghiệm bằng VS Code
