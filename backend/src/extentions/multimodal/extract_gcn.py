@@ -358,12 +358,17 @@ def _normalize_gcn_only_result(result: dict) -> dict:
 
     items: list[dict] = []
 
-    # Schema mới: Đăng kí / Đăng ký → list entry → Giấy chứng nhận → list item
+    # Schema: Đăng kí / Đăng ký → list entry → Giấy chứng nhận.
+    # Prompt yêu cầu MỘT object mỗi entry (một giấy = một Số phát hành), nhưng
+    # model vẫn trả mảng như trước được → nhận cả hai, đừng mất dữ liệu vì cái
+    # dấu ngoặc. Chính ca "199153" đẻ ra 2 phần tử cho 1 giấy rồi bị _ghep_sph
+    # loại vì không biết cái nào của giấy nào.
     dang_ky_list = result.get("Đăng kí") or result.get("Đăng ký") or []
     for entry in dang_ky_list:
         if not isinstance(entry, dict):
             continue
-        for it in entry.get("Giấy chứng nhận", []) or []:
+        gcn = entry.get("Giấy chứng nhận")
+        for it in (gcn if isinstance(gcn, list) else [gcn] if isinstance(gcn, dict) else []):
             n = _norm_item(it)
             if n is not None:
                 items.append(n)
