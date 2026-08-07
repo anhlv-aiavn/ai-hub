@@ -213,7 +213,7 @@ Số vào sổ not in Số phát hành
 """
 
 pdf_extract_gcn_only_prompt = """Trích xuất Số phát hành, Số vào sổ và Ngày cấp của tất cả Giấy chứng nhận có trong ảnh.
-Lưu ý: ảnh có thể chứa nhiều Giấy chứng nhận."""
+đây là số phát hành sai hoặc thiếu rồi rồi {sph} bạn cần đưa ra số phát hành đầy đủ - hoặc là số phát hành đúng."""
 
 detect_system_prompt = """Bạn là chuyên gia phân tích tài liệu pháp lý Việt Nam, chuyên nhận diện Giấy chứng nhận quyền sử dụng đất (GCN/sổ đỏ/sổ hồng).
 

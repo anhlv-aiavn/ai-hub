@@ -245,6 +245,22 @@ def _ghep_sph(result: dict, items: list) -> dict:
     return dem
 
 
+def _sph_luot_mot(gcns: list[dict]) -> str:
+    """Chuỗi Số phát hành lượt một để điền vào {sph} của prompt lượt hai. THUẦN.
+
+    Chỉ nêu giấy ĐANG SAI FORM — giấy đọc đúng mà nhắc là mời model đọc lại cái
+    đang đúng, mà _ghep_sph cũng không nhận giá trị mới cho entry đúng.
+    """
+    ra = []
+    for g in gcns:
+        sph = g.get("Số phát hành") if isinstance(g, dict) else None
+        if _is_valid_so_phat_hanh(sph):
+            continue
+        v = str(sph or "").strip()
+        ra.append(f'"{v}"' if v else "(bỏ trống)")
+    return ", ".join(ra)
+
+
 async def _luot_hai_sph(images_b64: list[str], result: dict) -> dict:
     """Hỏi lại bằng prompt NHẸ + thinking khi có entry SPH sai form.
 
@@ -263,7 +279,8 @@ async def _luot_hai_sph(images_b64: list[str], result: dict) -> dict:
         nhe = await asyncio.wait_for(
             extract_gcn_only(images_b64,
                              enable_thinking=True if SPH_LUOT_HAI_THINKING else None,
-                             max_tokens=SPH_LUOT_HAI_MAX_TOKENS),
+                             max_tokens=SPH_LUOT_HAI_MAX_TOKENS,
+                             sph=_sph_luot_mot(gcns)),
             timeout=SPH_LUOT_HAI_TIMEOUT)
     except Exception:  # noqa: BLE001 - lượt phụ: hỏng/quá giờ thì giữ kết quả chính
         return trong
@@ -354,8 +371,13 @@ async def extract_gcn_only(
     images_b64: list[str],
     enable_thinking: bool | None = None,
     max_tokens: int | None = None,
+    sph: str = "",
 ) -> dict:
     """Phiên bản nhẹ: chỉ lấy Số phát hành / Số vào sổ / Ngày cấp.
+
+    sph: Số phát hành lượt một đọc ra (đang sai/thiếu), điền vào {sph} của
+    pdf_extract_gcn_only_prompt. Chỉ ở USER prompt — system prompt giữ nguyên để
+    vLLM còn ăn được prefix cache.
 
     Returns: {"Giấy chứng nhận": [{"Số phát hành": "", "Số vào sổ": "", "Ngày cấp": ""}, ...]}
     """
@@ -364,7 +386,7 @@ async def extract_gcn_only(
 
     result = await chat_json(
         system_prompt=extract_gcn_only_system_prompt,
-        user_text=pdf_extract_gcn_only_prompt,
+        user_text=pdf_extract_gcn_only_prompt.format(sph=sph),
         images_b64=images_b64,
         enable_thinking=enable_thinking,
         max_tokens=max_tokens,
@@ -468,7 +490,16 @@ def _smoke() -> None:
     assert d["sph"] == 1 and d["so_vao_so"] == 2, f"KILL [35] {d}"
     assert lay(r) == ["N 342398", "AP 471319"], "KILL [36] SPH đúng không bị đè"
 
-    print("extract_gcn PURE: 36 KILL ✓")
+    # ── {sph} điền vào prompt lượt hai ──────────────────────────────────────
+    s = _sph_luot_mot(_entries_sph(res("845530", "AP 471319", "")))
+    assert '"845530"' in s, "KILL [37] phải nêu giá trị sai để model soi lại"
+    assert "471319" not in s, "KILL [38] giấy ĐANG ĐÚNG không được nhắc"
+    assert "(bỏ trống)" in s, "KILL [39] SPH rỗng"
+    assert _sph_luot_mot(_entries_sph(res("AP 471319"))) == "", "KILL [40]"
+    # prompt phải điền được, không vỡ vì dấu ngoặc nào khác
+    assert "{sph}" not in pdf_extract_gcn_only_prompt.format(sph=s), "KILL [41]"
+
+    print("extract_gcn PURE: 41 KILL ✓")
 
 
 async def _process_pdf(file_path: str):
