@@ -136,7 +136,8 @@ def _images_to_content(images_b64: list[str]) -> list[dict]:
 
 
 async def _call_endpoint(ep: "_Endpoint", messages: list, extra: dict,
-                         temperature: float, repetition_penalty: float) -> dict:
+                         temperature: float, repetition_penalty: float,
+                         max_tokens: int | None = None) -> dict:
     response = await acompletion(
         model=f"openai/{ep.model}",
         api_base=ep.base_url,
@@ -145,6 +146,7 @@ async def _call_endpoint(ep: "_Endpoint", messages: list, extra: dict,
         repetition_penalty=repetition_penalty,
         response_format={"type": "json_object"},
         messages=messages,
+        **({"max_tokens": max_tokens} if max_tokens else {}),
         **extra,
     )
     content = response.choices[0].message.content
@@ -164,6 +166,7 @@ async def chat_json(
     enable_thinking: bool | None = None,
     temperature: float = 0.0,
     repetition_penalty: float = 1.0,
+    max_tokens: int | None = None,
 ) -> dict:
     """Gọi VLM, ép response_format JSON, trả về dict đã parse.
 
@@ -173,6 +176,11 @@ async def chat_json(
 
     enable_thinking: None→env, True→bật CoT (retry), False→tắt.
     Sampling: temperature=0 (tất định) + repetition_penalty=1; không ép top_p/k.
+
+    max_tokens: TRẦN token sinh ra. None = không đặt (theo server). Đặt trần rất
+    đáng khi bật thinking: một lần model lảm nhảm/lặp vòng là ngốn hàng nghìn
+    token, mà GPU đang decode-bound (~14 tok/s mỗi request khi 43 request chạy
+    song song) nên một ca như thế giữ chỗ hàng phút, kéo tụt cả hàng đợi.
     """
     use_thinking = ENABLE_THINKING if enable_thinking is None else enable_thinking
     extra = (
@@ -199,7 +207,8 @@ async def chat_json(
         ep.inflight += 1  # tăng NGAY (đồng bộ) để lần chọn kế cân sang máy khác
         try:
             async with ep.sem:
-                result = await _call_endpoint(ep, messages, extra, temperature, repetition_penalty)
+                result = await _call_endpoint(ep, messages, extra, temperature,
+                                              repetition_penalty, max_tokens)
             ep.cooldown_until = 0.0  # gọi được → gỡ cooldown ngay (half-open đã khỏi)
             return result
         except _FAILOVER_ERRORS as e:

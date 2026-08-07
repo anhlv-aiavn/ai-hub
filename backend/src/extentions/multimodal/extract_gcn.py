@@ -22,6 +22,11 @@ EXTRACT_RETRY_THINKING = os.getenv("EXTRACT_RETRY_THINKING", "false").strip().lo
 # ít trường phải lo nên model soi kỹ được góc bìa. Rẻ hơn chạy lại extract đầy đủ.
 SPH_LUOT_HAI = os.getenv("SPH_LUOT_HAI", "true").strip().lower() == "true"
 SPH_LUOT_HAI_THINKING = os.getenv("SPH_LUOT_HAI_THINKING", "true").strip().lower() == "true"
+# Hai cái hãm cho lượt hai — CẦN vì thinking sinh dài và GPU đang decode-bound:
+#   trần token: chặn ca model lảm nhảm/lặp vòng ngốn hàng nghìn token
+#   timeout   : lượt PHỤ không được phép ăn hết ngân sách EXTRACT_TIMEOUT của doc
+SPH_LUOT_HAI_MAX_TOKENS = int(os.getenv("SPH_LUOT_HAI_MAX_TOKENS", "1500"))
+SPH_LUOT_HAI_TIMEOUT = float(os.getenv("SPH_LUOT_HAI_TIMEOUT", "300"))
 
 
 _PURE_DIGITS_RE = re.compile(r"^\d{10,15}$")
@@ -247,9 +252,12 @@ async def _luot_hai_sph(images_b64: list[str], result: dict) -> dict:
     if not SPH_LUOT_HAI or _bad_sph_count(result) == 0:
         return trong
     try:
-        nhe = await extract_gcn_only(
-            images_b64, enable_thinking=True if SPH_LUOT_HAI_THINKING else None)
-    except Exception:  # noqa: BLE001 - lượt phụ: hỏng thì giữ nguyên kết quả chính
+        nhe = await asyncio.wait_for(
+            extract_gcn_only(images_b64,
+                             enable_thinking=True if SPH_LUOT_HAI_THINKING else None,
+                             max_tokens=SPH_LUOT_HAI_MAX_TOKENS),
+            timeout=SPH_LUOT_HAI_TIMEOUT)
+    except Exception:  # noqa: BLE001 - lượt phụ: hỏng/quá giờ thì giữ kết quả chính
         return trong
     return _ghep_sph(result, nhe.get("Giấy chứng nhận") or [])
 
@@ -337,6 +345,7 @@ def _normalize_gcn_only_result(result: dict) -> dict:
 async def extract_gcn_only(
     images_b64: list[str],
     enable_thinking: bool | None = None,
+    max_tokens: int | None = None,
 ) -> dict:
     """Phiên bản nhẹ: chỉ lấy Số phát hành / Số vào sổ / Ngày cấp.
 
@@ -350,6 +359,7 @@ async def extract_gcn_only(
         user_text=pdf_extract_gcn_only_prompt,
         images_b64=images_b64,
         enable_thinking=enable_thinking,
+        max_tokens=max_tokens,
     )
     return _normalize_gcn_only_result(result)
 
