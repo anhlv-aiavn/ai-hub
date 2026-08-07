@@ -249,7 +249,13 @@ async def _luot_hai_sph(images_b64: list[str], result: dict) -> dict:
     KÍCH HOẠT vẫn chỉ bởi SPH sai form — không gọi thêm call chỉ để lấp số vào sổ
     hay ngày cấp. Đã gọi rồi thì tận dụng nốt hai trường kia (xem _ghep_sph)."""
     trong = {"sph": 0, "so_vao_so": 0, "ngay_cap": 0}
-    if not SPH_LUOT_HAI or _bad_sph_count(result) == 0:
+    if not SPH_LUOT_HAI:
+        return trong
+    # Phải có entry để GHÉP VÀO. _bad_sph_count trả 1 cả khi hồ sơ KHÔNG có giấy
+    # nào (không phải GCN / detect không ra bìa) — chạy lượt hai cho mấy ca đó là
+    # đốt GPU rồi vứt, vì _ghep_sph không có chỗ nào để ghi.
+    gcns = _entries_sph(result)
+    if not gcns or all(_is_valid_so_phat_hanh(g.get("Số phát hành")) for g in gcns):
         return trong
     try:
         nhe = await asyncio.wait_for(
@@ -420,6 +426,10 @@ def _smoke() -> None:
     assert lay(r) == ["N 342398", "AP 471319"], "KILL [23]"
     assert _ghep_sph({}, [{"Số phát hành": "N 342398"}])["sph"] == 0, "KILL [24]"
     assert _ghep_sph(res("111"), [])["sph"] == 0, "KILL [25]"
+    # Điều kiện KÍCH HOẠT lượt hai (không gọi VLM — chỉ kiểm phần thuần)
+    assert _bad_sph_count({"Đăng ký": []}) == 1, "KILL [25a] hồ sơ rỗng vẫn tính là 'hỏng'"
+    assert _entries_sph({"Đăng ký": []}) == [], "KILL [25b] … nhưng KHÔNG có chỗ để ghép"
+    assert len(_entries_sph(res("111", "AP 471319"))) == 2, "KILL [25c]"
 
     # ── Số vào sổ: CHỈ lấp chỗ trống ────────────────────────────────────────
     r = res("111", vs="")
