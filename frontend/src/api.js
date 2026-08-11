@@ -533,6 +533,10 @@ export async function getQcSyncStatsSeries({ configId, days = 90 } = {}) {
   if (configId) p.set("config_id", configId);
   return handle(await fetch(`/v1/qc-sync/stats/series?${p.toString()}`, { headers: headers() }));
 }
+// Đếm theo TỪNG kênh (= từng Phường/Xã) cho 1 khung — bảng "Theo Phường/Xã" ở Tổng quan.
+export async function getQcSyncStatsByConfig(range = "all") {
+  return handle(await fetch(`/v1/qc-sync/stats/by-config?range=${encodeURIComponent(range)}`, { headers: headers() }));
+}
 
 export async function downloadExportJob(id) {
   const p = new URLSearchParams();

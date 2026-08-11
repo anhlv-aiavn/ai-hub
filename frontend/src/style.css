@@ -1208,11 +1208,64 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .qc-chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .qc-chart-legend i { width: 9px; height: 9px; border-radius: 3px; flex: none; }
 
-.qc-kpi-row { display: flex; flex-wrap: wrap; gap: 10px; }
+/* Khối "Tổng chất lượng QC" — hero heuristic: 1 chỉ số quan trọng (% đạt)
+   không cần vẽ chart, chỉ cần số to + progress bar mảnh. */
+.qc-hero { display: flex; align-items: center; gap: 20px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px; margin-bottom: 12px; }
+.qc-hero-pct-wrap { display: flex; flex-direction: column; align-items: center; flex: none;
+  min-width: 92px; border-right: 1px solid var(--border); padding-right: 18px; }
+.qc-hero-pct { font-size: 30px; font-weight: 800; color: var(--brand); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.qc-hero-pct-label { font-size: 11px; color: var(--text-3); margin-top: 2px; white-space: nowrap; }
+.qc-hero-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.qc-hero-bar { height: 10px; border-radius: 5px; background: var(--surface-3); overflow: hidden; }
+.qc-hero-bar-fill { height: 100%; background: var(--ok); border-radius: 5px; transition: width .3s; }
+.qc-hero-nums { display: flex; flex-wrap: wrap; gap: 14px 20px; font-size: 13px; color: var(--text-2); }
+.qc-hero-nums b { color: var(--text); font-variant-numeric: tabular-nums; }
+.qc-hero-ok, .qc-hero-err { display: inline-flex; align-items: center; gap: 5px; }
+.qc-hero-ok i, .qc-hero-err i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.qc-hero-ok i { background: var(--ok); }
+.qc-hero-err i { background: var(--err); }
+@media (max-width: 640px) {
+  .qc-hero { flex-direction: column; align-items: stretch; gap: 12px; }
+  .qc-hero-pct-wrap { flex-direction: row; justify-content: space-between; border-right: none;
+    border-bottom: 1px solid var(--border); padding: 0 0 10px; min-width: 0; }
+}
+
+.qc-kpi-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
 .qc-kpi-tile { flex: 1 1 110px; background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius-sm); padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
 .qc-kpi-n { font-size: 20px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
 .qc-kpi-label { font-size: 11.5px; color: var(--text-3); }
+
+/* Bảng "Theo Phường/Xã" — liệt kê mọi kênh, xem nhanh danh sách file tại chỗ. */
+.qc-ward-sec { margin-top: 18px; }
+.qc-ward-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.qc-ward-head h4 { margin: 0; font-size: 13px; color: var(--text-2); text-transform: uppercase; letter-spacing: .03em; }
+.qc-ward-tbl .qc-ward-row {
+  display: grid; grid-template-columns: 1.3fr .8fr .8fr .9fr .8fr .9fr .7fr auto;
+  align-items: center; height: auto; min-height: 34px; padding: 6px 10px; gap: 8px;
+}
+.qc-ward-tbl .qc-ward-row > * { min-width: 0; }
+.qc-ward-tbl .qc-ward-rowhead { background: var(--surface-3); color: var(--text-3); font-size: 11px;
+  text-transform: uppercase; letter-spacing: .04em; font-weight: 600; height: auto; padding: 7px 10px; }
+.qc-t-ok { color: var(--ok); font-weight: 600; }
+.qc-t-err { color: var(--err); font-weight: 600; }
+
+/* Chi tiết file của 1 Phường/Xã, mở ngay dưới dòng (không phải modal riêng)
+   — nền hơi khác để phân biệt với hàng bảng cha. */
+.qc-ward-detail { background: var(--surface-2); border-bottom: 1px solid var(--border); padding: 8px 10px 10px; }
+.qc-ward-items-tbl .qc-ward-item-row {
+  display: grid; grid-template-columns: 1.6fr .9fr .8fr 1.3fr .7fr 1fr;
+  align-items: center; height: auto; min-height: 32px; padding: 5px 8px; gap: 8px; font-size: 12.5px;
+}
+.qc-ward-items-tbl .qc-ward-item-row > * { min-width: 0; }
+.qc-ward-items-tbl .qc-ward-item-head { background: var(--surface-3); color: var(--text-3); font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: .04em; font-weight: 600; height: auto; padding: 6px 8px; }
+
+/* Modal "Xem OCR" — JSON thô, đơn giản nhưng đủ đọc (cuộn riêng, không tràn modal). */
+.qc-ocr-json { margin: 0; padding: 12px; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); font-family: var(--mono); font-size: 12px; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word; max-height: 65vh; overflow: auto; }
 
 /* ============ Cấu hình hệ thống (AdminSettings) ============ */
 .admin-settings { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; max-width: 920px; }

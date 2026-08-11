@@ -1,14 +1,19 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Icon from "./Icon.jsx";
-import { getQcSyncConfigs, getQcSyncStats, getQcSyncStatsSeries } from "../api.js";
+import Modal from "./Modal.jsx";
+import {
+  getQcSyncConfigs, getQcSyncStats, getQcSyncStatsSeries, getQcSyncStatsByConfig, getQcSyncItems,
+  qcSyncSourcePdfUrl, qcSyncCutPdfUrl,
+} from "../api.js";
 import { toastErr } from "../toast.js";
 
 // Thống kê pipeline QC Sync (F-16, xem docs/algorithm.md §9) trên trang Tổng
-// quan — viewer trở lên xem được, khác trang quản trị "QC Sync" (admin-only).
+// quan — viewer trở lên xem được, khác trang quản trị "QC Sync" (admin-only,
+// có thêm thao tác Chạy lại/Xóa/Dừng — ở đây CHỈ xem, không sửa dữ liệu).
 // Không có chart library trong repo (chỉ react/vite) — tự vẽ bar chart SVG
 // nhẹ, theo skill dataviz: 1 trục, màu status-palette có sẵn (--ok/--warn/
-// --err), legend cho ≥2 chuỗi, hover tooltip per-mark, "Tổng" = KPI tile chứ
-// không phải bar chart cho 1 giá trị duy nhất.
+// --err/--info), legend cho ≥2 chuỗi, hover tooltip + nhãn số trực tiếp trên
+// cột, "Tổng" = khối KPI/hero chứ không phải bar chart cho 1 giá trị duy nhất.
 
 const RANGES = [
   ["day", "Ngày", 30],
@@ -30,21 +35,34 @@ const OCR_SERIES = [
 ];
 const CUTS_SERIES = [{ key: "cuts_created", label: "File đã cắt", color: "var(--accent)" }];
 
-const fmt = (n) => (n || 0).toLocaleString("vi-VN");
+const VERDICT_LABEL = { pass: "Đạt", warn: "Đạt (cảnh báo)", fail: "Không đạt" };
+const VERDICT_CLASS = { pass: "dot-ok", warn: "dot-unknown", fail: "dot-err" };
 
+const fmt = (n) => (n || 0).toLocaleString("vi-VN");
+const pct = (n, total) => (total ? Math.round(((n || 0) / total) * 1000) / 10 : 0);
+function fmtDate(d) {
+  if (!d) return "—";
+  try { return new Date(d).toLocaleString("vi-VN"); } catch { return String(d); }
+}
+
+// ── Gom ngày → tuần/tháng ────────────────────────────────────────────────
 function isoWeekKey(dateStr) {
   const d = new Date(`${dateStr}T00:00:00Z`);
   const dow = (d.getUTCDay() + 6) % 7; // 0=Thứ 2
   d.setUTCDate(d.getUTCDate() - dow); // lùi về Thứ 2 đầu tuần
   return d.toISOString().slice(0, 10);
 }
-function periodLabel(key, granularity) {
-  if (granularity === "month") {
-    const [y, m] = key.split("-");
-    return `Thg ${Number(m)}/${y}`;
-  }
-  const [, m, d] = key.split("-");
-  return `${d}/${m}`;
+const dd = (d) => `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+function dayLabel(dateStr) { const [, m, day] = dateStr.split("-"); return `${day}/${m}`; }
+function monthLabel(key) { const [y, m] = key.split("-"); return `Thg ${Number(m)}/${y}`; }
+// Nhãn TUẦN là 1 khoảng ngày (Thứ 2–Chủ nhật), KHÔNG phải 1 ngày đơn — trước
+// đây chỉ hiện ngày Thứ 2 đầu tuần khiến người xem tưởng nhầm là "hôm nay"
+// (vd hôm nay 11/08 nhưng cột tuần lại ghi 10/08, gây hiểu lầm là sai số liệu).
+function weekRangeLabel(mondayKey) {
+  const start = new Date(`${mondayKey}T00:00:00Z`);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 6);
+  return `${dd(start)}–${dd(end)}`;
 }
 
 // Gom `series` (mỗi phần tử {date, counts}, chỉ có ngày THỰC SỰ có dữ liệu —
@@ -52,7 +70,7 @@ function periodLabel(key, granularity) {
 // thứ tự thời gian. Cắt bớt giữ `maxBars` cột GẦN NHẤT cho biểu đồ khỏi rối.
 function resample(series, granularity, maxBars) {
   if (granularity === "day") {
-    return series.slice(-maxBars).map((s) => ({ key: s.date, label: periodLabel(s.date, "day"), counts: s.counts }));
+    return series.slice(-maxBars).map((s) => ({ key: s.date, label: dayLabel(s.date), counts: s.counts }));
   }
   const keyFn = granularity === "week" ? (s) => isoWeekKey(s.date) : (s) => s.date.slice(0, 7);
   const byKey = new Map();
@@ -63,17 +81,18 @@ function resample(series, granularity, maxBars) {
     byKey.set(k, bucket);
   }
   const keys = [...byKey.keys()].sort();
-  return keys.slice(-maxBars).map((k) => ({ key: k, label: periodLabel(k, granularity), counts: byKey.get(k) }));
+  const labelFn = granularity === "week" ? weekRangeLabel : monthLabel;
+  return keys.slice(-maxBars).map((k) => ({ key: k, label: labelFn(k), counts: byKey.get(k) }));
 }
 
 // ── Bar chart SVG tối giản: N cột theo thời gian, mỗi cột 1 hoặc nhiều đoạn
-// (stacked) theo `seriesSpec`. Đủ dùng cho 3 biểu đồ này — không tổng quát
-// hoá quá mức thành 1 thư viện chart riêng.
-const CHART_H = 176;
+// (stacked) theo `seriesSpec`, có nhãn TỔNG số trực tiếp trên đầu mỗi cột.
+// Đủ dùng cho 3 biểu đồ này — không tổng quát hoá quá mức thành 1 lib riêng.
+const CHART_H = 184;
 const BAR_GAP = 6;
 
 function BarChart({ title, periods, seriesSpec }) {
-  const [hover, setHover] = useState(null); // {x, y, label, value, color}
+  const [hover, setHover] = useState(null);
   const total = (p) => seriesSpec.reduce((s, x) => s + (p.counts[x.key] || 0), 0);
   const max = Math.max(1, ...periods.map(total));
   const showLegend = seriesSpec.length > 1;
@@ -93,40 +112,45 @@ function BarChart({ title, periods, seriesSpec }) {
       ) : (
         <div className="qc-chart-svg-wrap">
           <svg viewBox={`0 0 100 ${CHART_H}`} preserveAspectRatio="none" className="qc-chart-svg">
-            {/* Gridline mờ tại 0%/50%/100% chiều cao vẽ */}
             {[0, 0.5, 1].map((f) => (
-              <line key={f} x1={0} x2={100} y1={4 + (CHART_H - 24) * f} y2={4 + (CHART_H - 24) * f}
+              <line key={f} x1={0} x2={100} y1={12 + (CHART_H - 32) * f} y2={12 + (CHART_H - 32) * f}
                 stroke="var(--border)" strokeWidth={0.3} />
             ))}
             {periods.map((p, i) => {
               const x = i * (100 / n) + (100 / n - barW) / 2;
               let yTop = CHART_H - 20; // đáy vẽ, chừa chỗ nhãn trục X
-              const plotH = CHART_H - 24;
+              const plotH = CHART_H - 32; // chừa thêm chỗ nhãn tổng số phía trên
+              const barTotal = total(p);
+              const segs = seriesSpec.map((s) => {
+                const v = p.counts[s.key] || 0;
+                if (!v) return null;
+                const h = (v / max) * plotH;
+                yTop -= h;
+                const y = yTop;
+                yTop -= 1.2; // khoảng cách giữa các đoạn stack
+                return (
+                  <rect key={s.key} x={x} y={y} width={barW} height={Math.max(0.6, h)} rx={0.8} fill={s.color}
+                    onMouseEnter={(e) => {
+                      const box = e.currentTarget.ownerSVGElement.getBoundingClientRect();
+                      setHover({
+                        label: `${p.label} · ${s.label}`, value: v, color: s.color,
+                        cx: box.left + ((x + barW / 2) / 100) * box.width,
+                        cy: box.top + (y / CHART_H) * box.height,
+                      });
+                    }}
+                    onMouseLeave={() => setHover(null)} />
+                );
+              });
               return (
                 <g key={p.key}>
-                  {seriesSpec.map((s) => {
-                    const v = p.counts[s.key] || 0;
-                    if (!v) return null;
-                    const h = (v / max) * plotH;
-                    yTop -= h;
-                    const y = yTop;
-                    yTop -= 1.2; // khoảng cách 2px giữa các đoạn stack (đơn vị viewBox)
-                    return (
-                      <rect key={s.key} x={x} y={y} width={barW} height={Math.max(0.6, h)}
-                        rx={0.8} fill={s.color}
-                        onMouseEnter={(e) => setHover({
-                          label: `${p.label} · ${s.label}`, value: v, color: s.color,
-                          cx: e.currentTarget.ownerSVGElement.getBoundingClientRect().left + (x + barW / 2) / 100
-                            * e.currentTarget.ownerSVGElement.getBoundingClientRect().width,
-                          cy: e.currentTarget.ownerSVGElement.getBoundingClientRect().top + (y / CHART_H)
-                            * e.currentTarget.ownerSVGElement.getBoundingClientRect().height,
-                        })}
-                        onMouseLeave={() => setHover(null)} />
-                    );
-                  })}
+                  {segs}
+                  {barTotal > 0 && (
+                    <text x={i * (100 / n) + (100 / n) / 2} y={Math.max(6, yTop - 1)} textAnchor="middle"
+                      fontSize={4.4} fontWeight={700} fill="var(--text-2)">{fmt(barTotal)}</text>
+                  )}
                   {i % labelEvery === 0 && (
                     <text x={i * (100 / n) + (100 / n) / 2} y={CHART_H - 6} textAnchor="middle"
-                      fontSize={4.6} fill="var(--text-3)">{p.label}</text>
+                      fontSize={4.2} fill="var(--text-3)">{p.label}</text>
                   )}
                 </g>
               );
@@ -150,9 +174,36 @@ function BarChart({ title, periods, seriesSpec }) {
   );
 }
 
-function KpiRow({ counts }) {
+// ── Khối "Tổng chất lượng QC" — số + % đạt, hero heuristic (1 chỉ số quan
+// trọng không cần vẽ chart, xem skill dataviz §choosing-a-form). ─────────────
+function QcQualityHero({ counts }) {
+  const scanned = counts?.scanned || 0;
+  const dat = (counts?.pass || 0) + (counts?.warn || 0);
+  const fail = counts?.fail || 0;
+  const datPct = pct(dat, scanned);
+  return (
+    <div className="qc-hero">
+      <div className="qc-hero-pct-wrap">
+        <span className="qc-hero-pct">{scanned ? `${datPct}%` : "—"}</span>
+        <span className="qc-hero-pct-label">tỉ lệ đạt QC</span>
+      </div>
+      <div className="qc-hero-body">
+        <div className="qc-hero-bar">
+          <div className="qc-hero-bar-fill" style={{ width: `${datPct}%` }} />
+        </div>
+        <div className="qc-hero-nums">
+          <span><b>{fmt(scanned)}</b> đã quét</span>
+          <span className="qc-hero-ok"><i />Đạt <b>{fmt(dat)}</b> ({datPct}%)</span>
+          <span className="qc-hero-err"><i />Không đạt <b>{fmt(fail)}</b> ({pct(fail, scanned)}%)</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Dải KPI phụ (OCR/cắt) — bổ sung cho hero, không lặp lại pass/warn/fail/scanned.
+function OcrKpiStrip({ counts }) {
   const TILES = [
-    ["scanned", "Đã quét"], ["pass", "Đạt"], ["warn", "Đạt (cảnh báo)"], ["fail", "Không đạt"],
     ["ocr_done", "Đã cắt (item)"], ["cuts_created", "File đã cắt"],
     ["no_gcn", "Không thấy GCN"], ["no_file", "Không thấy file"], ["error", "Lỗi"],
   ];
@@ -164,6 +215,134 @@ function KpiRow({ counts }) {
           <span className="qc-kpi-label">{label}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ── Bảng "Theo Phường/Xã" — liệt kê MỌI kênh (kể cả kênh chưa có hoạt động
+// nào) + xem nhanh danh sách file/OCR/file cắt của từng kênh ngay tại chỗ. ──
+function WardTable({ range }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState("");
+  const [sortBy, setSortBy] = useState("name");
+
+  useEffect(() => {
+    setLoading(true);
+    getQcSyncStatsByConfig(range).then((d) => setRows(d.rows || []))
+      .catch((e) => toastErr(e.message || e)).finally(() => setLoading(false));
+  }, [range]);
+
+  const sorted = useMemo(() => {
+    const arr = [...rows];
+    if (sortBy === "scanned") arr.sort((a, b) => (b.counts.scanned || 0) - (a.counts.scanned || 0));
+    else arr.sort((a, b) => (a.ward_name || a.name).localeCompare(b.ward_name || b.name, "vi"));
+    return arr;
+  }, [rows, sortBy]);
+
+  return (
+    <div className="qc-ward-sec">
+      <div className="qc-ward-head">
+        <h4>Theo Phường/Xã</h4>
+        <div className="seg-toggle sm">
+          <button type="button" className={sortBy === "name" ? "active" : ""} onClick={() => setSortBy("name")}>Tên A→Z</button>
+          <button type="button" className={sortBy === "scanned" ? "active" : ""} onClick={() => setSortBy("scanned")}>Quét nhiều nhất</button>
+        </div>
+      </div>
+      <div className="tbl-dense qc-ward-tbl">
+        <div className="file-row qc-ward-row qc-ward-rowhead">
+          <span>Phường/Xã</span><span>Đã quét</span><span>Đạt</span><span>Không đạt</span>
+          <span>Đã cắt</span><span>Không GCN</span><span>Lỗi</span><span />
+        </div>
+        {sorted.map((r) => {
+          const c = r.counts || {};
+          const isOpen = expanded === r.config_id;
+          return (
+            <React.Fragment key={r.config_id}>
+              <div className="file-row qc-ward-row">
+                <span className="fr-name">{r.ward_name || r.name}</span>
+                <span className="fr-meta">{fmt(c.scanned)}</span>
+                <span className="fr-meta qc-t-ok">{fmt((c.pass || 0) + (c.warn || 0))}</span>
+                <span className="fr-meta qc-t-err">{fmt(c.fail)}</span>
+                <span className="fr-meta">{fmt(c.ocr_done)}</span>
+                <span className="fr-meta">{fmt(c.no_gcn)}</span>
+                <span className="fr-meta">{fmt(c.error)}</span>
+                <span className="s3-actions">
+                  <button className="ghost xs" onClick={() => setExpanded(isOpen ? "" : r.config_id)}>
+                    {isOpen ? "Ẩn" : "Xem"}
+                  </button>
+                </span>
+              </div>
+              {isOpen && <WardItemsPanel configId={r.config_id} />}
+            </React.Fragment>
+          );
+        })}
+        {!sorted.length && (
+          <div className="muted center" style={{ padding: 16 }}>{loading ? "Đang tải…" : "Chưa có kênh nào."}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Danh sách file gần đây của 1 kênh — CHỈ XEM (không có Chạy lại/Xóa, những
+// thao tác đó nằm ở trang quản trị "QC Sync" admin-only).
+function WardItemsPanel({ configId }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [ocrItem, setOcrItem] = useState(null);
+
+  useEffect(() => {
+    setLoading(true);
+    getQcSyncItems({ configId, pageSize: 20 }).then((d) => setItems(d.items || []))
+      .catch(() => setItems([])).finally(() => setLoading(false));
+  }, [configId]);
+
+  return (
+    <div className="qc-ward-detail">
+      {loading ? (
+        <div className="muted small" style={{ padding: 8 }}>Đang tải…</div>
+      ) : items.length ? (
+        <div className="tbl-dense qc-ward-items-tbl">
+          <div className="file-row qc-ward-item-row qc-ward-item-head">
+            <span>S3 key</span><span>Verdict</span><span>Trạng thái</span><span>File đã cắt</span><span>OCR</span><span>Lúc</span>
+          </div>
+          {items.map((it) => (
+            <div className="file-row qc-ward-item-row" key={it.id}>
+              <a className="fr-name" href={qcSyncSourcePdfUrl(it.id)} target="_blank" rel="noopener noreferrer"
+                title={`Xem PDF nguồn: ${it.s3_key}`}>{it.s3_key}</a>
+              <span className="fr-meta">
+                {it.qc?.verdict && (
+                  <><span className={`dot ${VERDICT_CLASS[it.qc.verdict] || "dot-unknown"}`} />{" "}
+                  {VERDICT_LABEL[it.qc.verdict] || it.qc.verdict}</>
+                )}
+              </span>
+              <span className="fr-meta">{it.status}</span>
+              <span className="qc-cuts-cell">
+                {(it.ocr?.cuts || []).length
+                  ? it.ocr.cuts.map((cut) => (
+                      <a key={cut.index} href={qcSyncCutPdfUrl(it.id, cut.index)} target="_blank"
+                        rel="noopener noreferrer" title={`Xem file đã cắt: ${cut.name}`}>{cut.name}</a>
+                    ))
+                  : <span className="muted small">—</span>}
+              </span>
+              <span>
+                {(it.ocr?.records || []).length
+                  ? <button className="ghost xs" onClick={() => setOcrItem(it)}>Xem OCR</button>
+                  : <span className="muted small">—</span>}
+              </span>
+              <span className="fr-meta">{fmtDate(it.finished_at || it.created_at)}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="muted center" style={{ padding: 16 }}>Chưa có file nào.</div>
+      )}
+      {ocrItem && (
+        <Modal title={`Nội dung OCR — ${ocrItem.s3_key}`} onClose={() => setOcrItem(null)} wide>
+          <pre className="qc-ocr-json">{JSON.stringify(ocrItem.ocr?.records ?? {}, null, 2)}</pre>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -184,13 +363,10 @@ export default function QcSyncStats() {
 
   useEffect(() => {
     setLoading(true);
-    if (range === "all") {
-      getQcSyncStats({ configId: configId || undefined, range: "all" })
-        .then((d) => setTotalCounts(d.counts || {}))
-        .catch((e) => toastErr(e.message || e))
-        .finally(() => setLoading(false));
-      return;
-    }
+    getQcSyncStats({ configId: configId || undefined, range })
+      .then((d) => setTotalCounts(d.counts || {}))
+      .catch((e) => toastErr(e.message || e));
+    if (range === "all") { setSeries([]); setLoading(false); return; }
     getQcSyncStatsSeries({ configId: configId || undefined, days: rangeDef[2] })
       .then((d) => setSeries(d.series || []))
       .catch((e) => toastErr(e.message || e))
@@ -224,17 +400,19 @@ export default function QcSyncStats() {
         </div>
       </div>
 
-      {loading && <div className="muted small" style={{ padding: "0 4px 8px" }}>Đang tải…</div>}
+      <QcQualityHero counts={totalCounts} />
+      <OcrKpiStrip counts={totalCounts} />
 
-      {range === "all" ? (
-        <KpiRow counts={totalCounts} />
-      ) : (
+      {range !== "all" && (
         <div className="qc-chart-grid">
           <BarChart title="Kiểm chất lượng (QC)" periods={periods} seriesSpec={QC_SERIES} />
           <BarChart title="Kết quả OCR" periods={periods} seriesSpec={OCR_SERIES} />
           <BarChart title="Số file đã cắt" periods={periods} seriesSpec={CUTS_SERIES} />
         </div>
       )}
+      {loading && <div className="muted small" style={{ padding: "6px 2px" }}>Đang tải…</div>}
+
+      {!configId && <WardTable range={range} />}
     </div>
   );
 }

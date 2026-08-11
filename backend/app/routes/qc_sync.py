@@ -220,26 +220,55 @@ async def cancel_job(job_id: str, admin: dict = Depends(require_admin)):
     return {"ok": True}
 
 
+def _range_match(range: str) -> dict:
+    """`date` match cho `range` day|week|month|all — dùng chung giữa `/stats`
+    và `/stats/by-config` (tránh lặp lại logic quy đổi range→ngưỡng ngày)."""
+    today = datetime.now(timezone.utc).date()
+    if range == "day":
+        return {"date": today.isoformat()}
+    if range == "week":
+        return {"date": {"$gte": (today - timedelta(days=6)).isoformat()}}
+    if range == "month":
+        return {"date": {"$gte": (today - timedelta(days=29)).isoformat()}}
+    return {}
+
+
 @router.get("/stats")
 async def get_stats(config_id: str | None = Query(default=None),
                     range: str = Query(default="all", pattern="^(day|week|month|all)$")):
     """Tổng đếm từ `qc_stats_daily` (rollup ngày, atomic $inc) — KHÔNG
     `count_documents` trên `qc_items` (nguyên tắc bất biến #3 của dự án)."""
-    match: dict = {}
+    match = _range_match(range)
     if config_id:
         match["config_id"] = config_id
-    today = datetime.now(timezone.utc).date()
-    if range == "day":
-        match["date"] = today.isoformat()
-    elif range == "week":
-        match["date"] = {"$gte": (today - timedelta(days=6)).isoformat()}
-    elif range == "month":
-        match["date"] = {"$gte": (today - timedelta(days=29)).isoformat()}
     totals: dict = {}
     async for d in qc_stats_daily().find(match):
         for k, v in (d.get("counts") or {}).items():
             totals[k] = totals.get(k, 0) + v
     return {"range": range, "config_id": config_id, "counts": totals}
+
+
+@router.get("/stats/by-config")
+async def get_stats_by_config(range: str = Query(default="all", pattern="^(day|week|month|all)$")):
+    """Đếm theo TỪNG kênh (= từng Phường/Xã, xem `ward_name`) cho `range` —
+    phục vụ bảng "Theo Phường/Xã" ở Tổng quan (`QcSyncStats.jsx`), 1 lần gọi
+    thay vì N lần gọi `/stats?config_id=` phía FE. Liệt kê ĐỦ mọi kênh (kể cả
+    kênh chưa có hoạt động nào trong khoảng — vẫn hiện dòng, counts rỗng) để
+    bảng phản ánh đúng danh sách Phường/Xã đang quản lý, không chỉ kênh có
+    dữ liệu."""
+    match = _range_match(range)
+    by_config: dict[str, dict] = {}
+    async for d in qc_stats_daily().find(match):
+        bucket = by_config.setdefault(d["config_id"], {})
+        for k, v in (d.get("counts") or {}).items():
+            bucket[k] = bucket.get(k, 0) + v
+    configs = await qc_sync_configs().find().sort("name", 1).to_list(length=500)
+    rows = [
+        {"config_id": c["_id"], "name": c.get("name"), "ward_name": c.get("ward_name") or "",
+         "counts": by_config.get(c["_id"], {})}
+        for c in configs
+    ]
+    return {"range": range, "rows": rows}
 
 
 @router.get("/stats/series")

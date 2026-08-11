@@ -341,23 +341,40 @@ giữa chừng), chỉ file CHƯA claim mới bị chặn nhận. Tắt tạm d�
 claim kế tiếp.
 
 **Thống kê ở trang "Tổng quan"** (`ExportView.jsx` + component mới `QcSyncStats.jsx`, viewer trở
-lên xem được — khác trang quản trị "QC Sync" admin-only): 3 biểu đồ SVG tự vẽ (không dùng chart
-library, repo chỉ có react/vite) — QC (pass/warn/fail), OCR (ocr_done/no_gcn/no_file/error), số
-file đã cắt (`cuts_created` — KHÁC `ocr_done` là số item, 1 item có thể ra >1 file cắt) — theo
-ngày/tuần/tháng, cộng "Tổng" hiện dạng KPI tile (không vẽ chart cho 1 giá trị). Nguồn dữ liệu:
-- `GET /v1/qc-sync/stats/series?config_id=&days=` — chuỗi theo NGÀY từ `qc_stats_daily` (rollup có
-  sẵn, gộp theo ngày bằng vòng lặp Python giống `get_stats`, KHÔNG aggregation pipeline riêng).
-  Tuần/tháng = FE tự resample từ chuỗi ngày (cộng theo ISO week / tháng dương lịch, JS thuần).
-- Bộ lọc kênh trên biểu đồ dùng `qc_sync_configs.ward_name` (tên Phường/Xã, field mới — người dùng
-  tự nhập vì đã có sẵn bảng mã→tên, hệ thống không tự ánh xạ) làm nhãn thay cho `name` nội bộ nếu
-  có set; mỗi kênh QC Sync vốn đã ứng với đúng 1 prefix/thư mục nguồn (thường đặt `name` trùng mã
-  P/X, vd "00004") nên lọc theo kênh ≈ lọc theo P/X, không cần gộp nhiều kênh.
-- 2 bump còn thiếu đã vá để biểu đồ đủ số liệu: `no_file` (trước đây nhánh `SourceObjectMissing`
-  trong `process_qc_item` không bump gì cả) và `cuts_created` (số FILE cắt thật, cộng cùng lúc với
+lên xem được, CHỈ XEM — khác trang quản trị "QC Sync" admin-only có thêm thao tác Chạy lại/Xóa/Dừng):
+
+- **Khối "Tổng chất lượng QC"** (hero): % đạt (pass+warn / scanned) to, kèm thanh progress mảnh +
+  số liệu quét/đạt/không đạt — heuristic "1 chỉ số quan trọng không cần vẽ chart" (skill `dataviz`).
+  Dải KPI phụ bên dưới (`OcrKpiStrip`): đã cắt (item)/file đã cắt/không thấy GCN/không thấy file/lỗi.
+- **3 biểu đồ SVG tự vẽ** (không dùng chart library, repo chỉ có react/vite) — QC (pass/warn/fail),
+  OCR (ocr_done/no_gcn/no_file/error), số file đã cắt (`cuts_created` — KHÁC `ocr_done` là số item,
+  1 item có thể ra >1 file cắt) — theo ngày/tuần/tháng, MỖI CỘT có nhãn tổng số trực tiếp phía trên
+  (không chỉ dựa hover). Nhãn cột TUẦN là 1 khoảng ngày "10/08–16/08" (Thứ 2–Chủ nhật), KHÔNG phải
+  1 ngày đơn — tránh hiểu lầm "hôm nay 11/08 sao cột lại ghi 10/08" (bug thực tế đã gặp: nhãn tuần
+  trước đây chỉ hiện ngày Thứ 2 đầu tuần). "Tổng" hiện dạng khối hero + KPI, không vẽ chart cho 1
+  giá trị. Nguồn dữ liệu: `GET /v1/qc-sync/stats/series?config_id=&days=` — chuỗi theo NGÀY từ
+  `qc_stats_daily` (rollup có sẵn, gộp theo ngày bằng vòng lặp Python giống `get_stats`, KHÔNG
+  aggregation pipeline riêng). Tuần/tháng = FE tự resample từ chuỗi ngày (cộng theo ISO week / tháng
+  dương lịch, JS thuần).
+- **Bảng "Theo Phường/Xã"** (`WardTable`, chỉ hiện khi đang xem "Tất cả kênh"): liệt kê MỌI kênh
+  (kể cả kênh chưa hoạt động) kèm đã quét/đạt/không đạt/đã cắt/không GCN/lỗi trong khung đang chọn,
+  sắp theo tên hoặc theo số đã quét. Bấm "Xem" mở ngay danh sách file gần đây của kênh đó
+  (`WardItemsPanel`, tái dùng `GET /items`) — link xem PDF nguồn, link xem từng file đã cắt, nút
+  "Xem OCR" mở modal JSON nội dung đã trích xuất (`qc_items.ocr.records`, đã lưu đầy đủ — xem mục
+  trên). CHỈ XEM, không có Chạy lại/Xóa (những thao tác đó ở trang quản trị). Nguồn dữ liệu:
+  `GET /v1/qc-sync/stats/by-config?range=` — đếm theo TỪNG kênh cho 1 khung (`day|week|month|all`,
+  dùng chung hàm `_range_match` với `/stats`), 1 lần gọi thay vì N lần gọi `/stats?config_id=` phía
+  FE cho từng kênh.
+- Bộ lọc kênh trên toàn bộ khối dùng `qc_sync_configs.ward_name` (tên Phường/Xã, field mới — người
+  dùng tự nhập vì đã có sẵn bảng mã→tên, hệ thống không tự ánh xạ) làm nhãn thay cho `name` nội bộ
+  nếu có set; mỗi kênh QC Sync vốn đã ứng với đúng 1 prefix/thư mục nguồn (thường đặt `name` trùng
+  mã P/X, vd "00004") nên lọc theo kênh ≈ lọc theo P/X, không cần gộp nhiều kênh.
+- 2 bump còn thiếu đã vá để đủ số liệu: `no_file` (trước đây nhánh `SourceObjectMissing` trong
+  `process_qc_item` không bump gì cả) và `cuts_created` (số FILE cắt thật, cộng cùng lúc với
   `ocr_done` khi `_build_cuts` thành công).
 - Index mới `qc_stats_daily().create_index("date")` — truy vấn theo khoảng ngày KHÔNG lọc
-  `config_id` (biểu đồ "tất cả kênh") cần index riêng trên `date`, unique index `(config_id,date)`
-  có sẵn không phục vụ được kiểu truy vấn này.
+  `config_id` (biểu đồ/bảng "tất cả kênh") cần index riêng trên `date`, unique index
+  `(config_id,date)` có sẵn không phục vụ được kiểu truy vấn này.
 
 ### 9e. Chưa làm (phase 2 — theo đúng yêu cầu)
 
