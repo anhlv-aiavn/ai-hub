@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { qcSyncCutPdfUrl } from "../api.js";
+import { qcSyncCutPdfUrl, qcSyncSourcePdfUrl } from "../api.js";
+import Modal from "./Modal.jsx";
 
 // Dùng chung giữa trang quản trị "QC Sync" (QcSync.jsx) và thống kê "Tổng
 // quan" (QcSyncStats.jsx) — tránh lặp lại nhãn/màu verdict + logic hiện chi
@@ -84,21 +85,48 @@ export function VerdictBadge({ verdict, reasons }) {
   );
 }
 
-// Danh sách link "File đã cắt" (mở tab mới xem PDF) — đánh dấu riêng file
-// KHÔNG đọc được Số phát hành (`cut.so_phat_hanh` rỗng, khác `no_gcn`: vẫn
-// tìm thấy + cắt được trang GCN, chỉ là không đọc ra số trên đó) để admin
-// bấm xem trực tiếp thay vì phải dò cả danh sách.
+// Modal so sánh PDF NGUỒN (trái) với file ĐÃ CẮT (phải) — thay cho việc mở
+// file cắt ở tab trình duyệt mới (bấm vào là rời khỏi trang, phải quay lại
+// mới xem tiếp được danh sách) — 2 khung xem cạnh nhau để đối chiếu ngay.
+function CutCompareModal({ itemId, cut, onClose }) {
+  return (
+    <Modal title={`So sánh — ${cut.name}`} onClose={onClose} wide>
+      <div className="qc-compare-grid">
+        <div className="qc-compare-pane">
+          <div className="qc-compare-pane-head">File gốc (nguồn)</div>
+          <iframe title="PDF nguồn" src={qcSyncSourcePdfUrl(itemId)} />
+        </div>
+        <div className="qc-compare-pane">
+          <div className="qc-compare-pane-head">File đã cắt</div>
+          <iframe title="PDF đã cắt" src={qcSyncCutPdfUrl(itemId, cut.index)} />
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// Danh sách "File đã cắt" — bấm mở modal SO SÁNH với file gốc (thay vì mở tab
+// mới, xem CutCompareModal ở trên) — đánh dấu riêng file KHÔNG đọc được Số
+// phát hành (`cut.so_phat_hanh` rỗng, khác `no_gcn`: vẫn tìm thấy + cắt được
+// trang GCN, chỉ là không đọc ra số trên đó) để admin bấm xem trực tiếp thay
+// vì phải dò cả danh sách.
 export function CutLinks({ itemId, cuts }) {
+  const [compareCut, setCompareCut] = useState(null);
   const list = cuts || [];
   if (!list.length) return <span className="muted small">—</span>;
-  return list.map((cut) => {
-    const missingSph = !cut.so_phat_hanh;
-    return (
-      <a key={cut.index} href={qcSyncCutPdfUrl(itemId, cut.index)} target="_blank" rel="noopener noreferrer"
-        className={missingSph ? "qc-cut-nosph" : undefined}
-        title={missingSph ? `Chưa đọc được Số phát hành — ${cut.name}` : `Xem file đã cắt: ${cut.name}`}>
-        {missingSph && "⚠ "}{cut.name}
-      </a>
-    );
-  });
+  return (
+    <>
+      {list.map((cut) => {
+        const missingSph = !cut.so_phat_hanh;
+        return (
+          <button key={cut.index} type="button" className={`qc-cut-link ${missingSph ? "qc-cut-nosph" : ""}`}
+            onClick={() => setCompareCut(cut)}
+            title={missingSph ? `Chưa đọc được Số phát hành — ${cut.name}` : `So sánh với file gốc: ${cut.name}`}>
+            {missingSph && "⚠ "}{cut.name}
+          </button>
+        );
+      })}
+      {compareCut && <CutCompareModal itemId={itemId} cut={compareCut} onClose={() => setCompareCut(null)} />}
+    </>
+  );
 }

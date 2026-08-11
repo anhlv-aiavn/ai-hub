@@ -22,6 +22,7 @@ from app.land_normalizer.pipeline import build_payload
 from app.land_normalizer.registry import build_default_registry
 from app.land_normalizer_adapter import first_entry, raw_record_from_cut
 from app.storage import SourceObjectMissing, SourceObjectUnavailable
+from app.worker.qc_pipeline import _classify_cuts
 
 _REGISTRY = build_default_registry()
 
@@ -520,28 +521,84 @@ async def list_classifications(config_id: str | None = Query(default=None),
     if q:
         pipeline.append({"$match": {"ocr.cuts.so_phat_hanh": {"$regex": re.escape(q.strip()), "$options": "i"}}})
     skip = (page - 1) * page_size
-    pipeline += [
-        {"$sort": {"finished_at": -1}},
-        {"$skip": skip}, {"$limit": page_size},
-        {"$project": {
-            "_id": 0, "item_id": "$_id", "config_id": "$config_id",
-            "cut_index": "$ocr.cuts.index", "so_phat_hanh": "$ocr.cuts.so_phat_hanh",
-            "name": "$ocr.cuts.name", "classification": "$ocr.cuts.classification",
-            # "Loại giấy" (Loại GCN, suy từ SoHieuGiayChungNhan + ngày cấp —
-            # xem resolvers/giay_chung_nhan.py) đã có sẵn trong `refined`, chỉ
-            # lấy đúng field cần hiện ở bảng, tránh kéo cả payload lớn về FE.
-            "loai_giay": {"$arrayElemAt": [
-                "$ocr.cuts.refined.GiayChungNhans.GiayChungNhan.TenLoaiGiayChungNhan", 0]},
-        }},
-    ]
-    rows = await qc_items().aggregate(pipeline).to_list(length=page_size)
+    # $facet dùng LẠI đúng $match/$unwind ở trên cho cả 2 nhánh (trang dữ liệu +
+    # đếm tổng) — không phải quét thêm 1 lần riêng như `count_documents` trên
+    # toàn bộ collection (nguyên tắc bất biến #3 chỉ cấm đếm KHÔNG lọc gì).
+    pipeline.append({"$facet": {
+        "data": [
+            {"$sort": {"finished_at": -1}},
+            {"$skip": skip}, {"$limit": page_size},
+            {"$project": {
+                "_id": 0, "item_id": "$_id", "config_id": "$config_id",
+                "cut_index": "$ocr.cuts.index", "so_phat_hanh": "$ocr.cuts.so_phat_hanh",
+                "name": "$ocr.cuts.name", "classification": "$ocr.cuts.classification",
+                # "Loại giấy" (Loại GCN, suy từ SoHieuGiayChungNhan + ngày cấp —
+                # xem resolvers/giay_chung_nhan.py) đã có sẵn trong `refined`, chỉ
+                # lấy đúng field cần hiện ở bảng, tránh kéo cả payload lớn về FE.
+                "loai_giay": {"$arrayElemAt": [
+                    "$ocr.cuts.refined.GiayChungNhans.GiayChungNhan.TenLoaiGiayChungNhan", 0]},
+            }},
+        ],
+        "count": [{"$count": "n"}],
+    }})
+    res = await qc_items().aggregate(pipeline).to_list(length=1)
+    facet = res[0] if res else {"data": [], "count": []}
+    rows = facet["data"]
+    total = (facet["count"][0]["n"] if facet["count"] else 0)
 
     configs = await qc_sync_configs().find().to_list(length=500)
     ward_map = await _ward_map()
     ward_names = {c["_id"]: (c.get("ward_name") or ward_map.get(c.get("name"), "")) for c in configs}
     for r in rows:
         r["ward_name"] = ward_names.get(r["config_id"], "")
-    return {"rows": rows, "page": page, "page_size": page_size}
+    return {"rows": rows, "total": total, "page": page, "page_size": page_size}
+
+
+@router.post("/classifications/backfill")
+async def backfill_classifications(config_id: str | None = Query(default=None),
+                                    limit: int = Query(default=300, ge=1, le=2000),
+                                    admin: dict = Depends(require_admin)):
+    """Phân loại/làm mịn dữ liệu cho các item ĐÃ XONG (`status=done`) từ TRƯỚC
+    khi tính năng này ra đời, hoặc lần tính tự động (worker) trước đó lỗi —
+    `process_qc_item` chỉ tự động tính cho item xử lý SAU khi thêm tính năng
+    (xem docs/algorithm.md §10). Xử lý tối đa `limit` item/lần gọi (đồng bộ,
+    thuần Python — không gọi API ngoài nào nên đủ rẻ để chạy theo lô lớn); FE
+    gọi lặp lại (nút "Phân loại các bản ghi cũ") tới khi `has_more=false`.
+    KHÔNG dùng `count_documents` để báo "còn lại bao nhiêu" (nguyên tắc bất
+    biến #3) — chỉ báo còn hay hết dựa vào có lấy đủ `limit` item hay không."""
+    match: dict = {
+        "status": "done",
+        "ocr.cuts": {"$elemMatch": {"$or": [{"refined": {"$exists": False}}, {"refined": None}]}},
+    }
+    if config_id:
+        match["config_id"] = config_id
+    items = await qc_items().find(
+        match, {"config_id": 1, "ocr.cuts": 1, "ocr.records": 1},
+    ).limit(limit).to_list(length=limit)
+
+    configs = await qc_sync_configs().find().to_list(length=500)
+    dest_ids = [c["dest_connection_id"] for c in configs if c.get("dest_connection_id")]
+    dests = (await s3_connections().find({"_id": {"$in": dest_ids}}, {"bucket": 1}).to_list(length=500)
+             if dest_ids else [])
+    dest_bucket_by_id = {d["_id"]: d.get("bucket") or "" for d in dests}
+    meta_by_config = {
+        c["_id"]: (c.get("name") or "", dest_bucket_by_id.get(c.get("dest_connection_id"), ""))
+        for c in configs
+    }
+
+    n_items = 0
+    for item in items:
+        item_id = item["_id"]
+        cuts = ((item.get("ocr") or {}).get("cuts")) or []
+        records = ((item.get("ocr") or {}).get("records")) or []
+        ward_code, dest_bucket = meta_by_config.get(item.get("config_id"), ("", ""))
+        _classify_cuts(records, cuts, ward_code=ward_code, dest_bucket=dest_bucket, item_id=item_id)
+        await qc_items().update_one({"_id": item_id}, {"$set": {"ocr.cuts": cuts}})
+        n_items += 1
+
+    await log_action(admin["username"], AuditAction.QC_SYNC_ITEM_RECLASSIFY, config_id or "(all)",
+                     {"backfill": True, "processed_items": n_items})
+    return {"processed": n_items, "has_more": len(items) == limit}
 
 
 @router.get("/items/{item_id}/cuts/{cut_index}/refined-payload")

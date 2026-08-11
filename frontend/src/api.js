@@ -574,6 +574,15 @@ export async function getQcRefinedPayload(itemId, cutIndex) {
     headers: headers(),
   }));
 }
+// Phân loại/làm mịn dữ liệu cho các item ĐÃ XONG từ TRƯỚC khi tính năng này ra
+// đời — xử lý tối đa `limit` item/lần gọi, trả `has_more` để gọi lặp lại.
+export async function backfillQcClassifications({ configId, limit = 300 } = {}) {
+  const p = new URLSearchParams({ limit: String(limit) });
+  if (configId) p.set("config_id", configId);
+  return handle(await fetch(`/v1/qc-sync/classifications/backfill?${p.toString()}`, {
+    method: "POST", headers: headers(),
+  }));
+}
 
 export async function downloadExportJob(id) {
   const p = new URLSearchParams();

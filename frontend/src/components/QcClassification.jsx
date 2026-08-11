@@ -3,7 +3,7 @@ import Icon from "./Icon.jsx";
 import Modal from "./Modal.jsx";
 import {
   getQcSyncConfigs, getQcClassifications, reclassifyQcCut,
-  getQcRefinedPayload, qcSyncCutPdfUrl,
+  getQcRefinedPayload, qcSyncCutPdfUrl, backfillQcClassifications,
 } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 
@@ -44,10 +44,12 @@ export default function QcClassification() {
   const [structuralLabel, setStructuralLabel] = useState("");
   const [loaiGiay, setLoaiGiay] = useState("");
   const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [busyKey, setBusyKey] = useState(""); // `${itemId}:${cutIndex}` đang "Phân loại lại"
   const [jsonModal, setJsonModal] = useState(null); // {itemId, cutIndex, soGcn, data} | null
+  const [backfilling, setBackfilling] = useState(false);
 
   useEffect(() => { getQcSyncConfigs().then((d) => setConfigs(d.configs || [])).catch(() => {}); }, []);
   useEffect(() => { setPage(1); }, [configId, q, structuralLabel, loaiGiay]);
@@ -57,10 +59,30 @@ export default function QcClassification() {
     try {
       const res = await getQcClassifications({ configId, q, structuralLabel, loaiGiay, page, pageSize: PAGE_SIZE });
       setRows(res.rows || []);
+      setTotal(res.total || 0);
     } catch (e) { toastErr(e.message || e); }
     finally { setLoading(false); }
   }
   useEffect(() => { load(); }, [configId, q, structuralLabel, loaiGiay, page]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Chỉ item xử lý SAU khi tính năng này ra đời mới tự động có classification/
+  // refined (worker tính lúc OCR xong) — item CŨ cần chạy bù thủ công. Gọi lặp
+  // lại endpoint backfill (mỗi lần tối đa 300 item) tới khi hết, rồi tải lại bảng.
+  async function backfillOld() {
+    setBackfilling(true);
+    try {
+      let totalProcessed = 0;
+      let hasMore = true;
+      while (hasMore) {
+        const res = await backfillQcClassifications({ configId, limit: 300 });
+        totalProcessed += res.processed || 0;
+        hasMore = Boolean(res.has_more);
+      }
+      toastOk(totalProcessed ? `Đã phân loại bù ${totalProcessed} bản ghi cũ` : "Không có bản ghi cũ nào cần phân loại bù");
+      await load();
+    } catch (e) { toastErr(e.message || e); }
+    finally { setBackfilling(false); }
+  }
 
   async function reclassify(row) {
     const key = `${row.item_id}:${row.cut_index}`;
@@ -104,11 +126,16 @@ export default function QcClassification() {
     <div className="panel">
       <div className="panel-head">
         <h3><Icon name="layers" size={16} /> Phân loại hồ sơ</h3>
+        <button className="ghost sm" disabled={backfilling} onClick={backfillOld}>
+          <Icon name="refresh" size={13} /> {backfilling ? "Đang phân loại bù…" : "Phân loại các bản ghi cũ"}
+        </button>
       </div>
       <p className="muted small" style={{ padding: "0 16px" }}>
         Sau khi OCR xong (pipeline "QC Sync"), hệ thống tự "làm mịn dữ liệu" (chuẩn hoá thành
         payload) và phân loại cấu trúc hồ sơ (số chủ/số thửa/đa mục đích/chung-riêng) — miễn phí,
-        không gọi API ngoài nào. Bấm "Xem JSON" để copy/tải payload đã chuẩn hoá.
+        không gọi API ngoài nào. Bấm "Xem JSON" để copy/tải payload đã chuẩn hoá. Các bản ghi đã xử
+        lý TỪ TRƯỚC khi có tính năng này chưa có sẵn kết quả — bấm "Phân loại các bản ghi cũ" để
+        chạy bù (chỉ tính toán lại, không chạy lại QC/OCR).
       </p>
 
       <div className="row" style={{ gap: 8, padding: "0 16px 12px", flexWrap: "wrap" }}>
@@ -133,19 +160,20 @@ export default function QcClassification() {
 
       <div className="tbl-dense qc-cls-tbl">
         <div className="file-row qc-cls-row qc-cls-head">
-          <span>Số phát hành</span><span>Loại giấy</span><span>Nhãn cấu trúc</span><span>Số chủ</span>
-          <span>Số thửa</span><span>Đa mục đích</span><span>Chung/riêng</span><span>Thao tác</span>
+          <span>STT</span><span>Số phát hành</span><span>Loại giấy</span><span>Nhãn cấu trúc</span>
+          <span>Số chủ</span><span>Số thửa</span><span>Đa mục đích</span><span>Chung/riêng</span><span>Thao tác</span>
         </div>
-        {rows.map((r) => {
+        {rows.map((r, idx) => {
           const cls = r.classification || {};
           const key = `${r.item_id}:${r.cut_index}`;
           return (
             <div className="file-row qc-cls-row" key={key}>
+              <span className="fr-meta">{(page - 1) * PAGE_SIZE + idx + 1}</span>
               <a className="fr-name" href={qcSyncCutPdfUrl(r.item_id, r.cut_index)} target="_blank"
                 rel="noopener noreferrer" title={`Xem file đã cắt: ${r.name || ""}`}>
                 {r.so_phat_hanh || r.name || "—"}
               </a>
-              <span className="fr-meta qc-reason-cell" title={r.loai_giay || ""}>{r.loai_giay || "—"}</span>
+              <span className="fr-meta qc-cls-loai-cell" title={r.loai_giay || ""}>{r.loai_giay || "—"}</span>
               <span className="fr-meta qc-reason-cell" title={(cls.NhanCauTruc || []).join(", ")}>
                 {(cls.NhanCauTruc || []).join(", ") || "—"}
               </span>
@@ -166,9 +194,9 @@ export default function QcClassification() {
         })}
         {!loading && !rows.length && <div className="muted center" style={{ padding: 16 }}>Chưa có dữ liệu.</div>}
       </div>
-      <div className="row" style={{ gap: 8, margin: "8px 16px" }}>
+      <div className="row" style={{ gap: 8, margin: "8px 16px", alignItems: "center" }}>
         <button className="ghost xs" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>← Trang trước</button>
-        <span className="muted small">Trang {page}</span>
+        <span className="muted small">Trang {page} · Tổng {total.toLocaleString("vi-VN")} bản ghi</span>
         <button className="ghost xs" disabled={rows.length < PAGE_SIZE} onClick={() => setPage((p) => p + 1)}>Trang sau →</button>
       </div>
 

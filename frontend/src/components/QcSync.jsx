@@ -21,13 +21,19 @@ const EMPTY_FORM = {
 };
 
 const ITEM_STATUS_OPTIONS = [
-  ["", "— Mọi trạng thái —"], ["error", "Lỗi"], ["no_file", "Không thấy file"],
+  ["", "— Mọi trạng thái xử lý —"], ["error", "Lỗi"], ["no_file", "Không thấy file"],
   ["queued", "Đang chờ"], ["processing", "Đang xử lý"], ["done", "Xong"], ["no_gcn", "Không thấy GCN"],
 ];
+const VERDICT_OPTIONS = [
+  ["", "— Mọi verdict QC —"], ["pass", "Đạt"], ["warn", "Đạt (cảnh báo)"], ["fail", "Không đạt"],
+];
 
+// Luôn hiện giờ Việt Nam (UTC+7) — trước đây dùng giờ LOCAL của trình duyệt/
+// máy chủ, sai lệch khi 2 bên khác múi giờ hệ thống (vd server set UTC).
 function fmtDate(d) {
   if (!d) return "—";
-  try { return new Date(d).toLocaleString("vi-VN"); } catch { return String(d); }
+  try { return new Date(d).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }); }
+  catch { return String(d); }
 }
 
 // Menu "⋯" gọn cho các thao tác PHỤ của 1 dòng — cùng pattern popover với
@@ -408,6 +414,7 @@ function QcSyncDetail({ configId, configName, onClose }) {
   const [stats, setStats] = useState(null);
   const [items, setItems] = useState([]);
   const [statusFilter, setStatusFilter] = useState("");
+  const [verdictFilter, setVerdictFilter] = useState("");
   const [page, setPage] = useState(1);
   const pageSize = 20;
 
@@ -415,13 +422,17 @@ function QcSyncDetail({ configId, configName, onClose }) {
     getQcSyncStats({ configId, range }).then((d) => setStats(d.counts || {})).catch(() => setStats({}));
   }, [configId, range]);
 
-  useEffect(() => { setPage(1); }, [statusFilter]);
+  useEffect(() => { setPage(1); }, [statusFilter, verdictFilter]);
 
   async function loadItems() {
-    try { const d = await getQcSyncItems({ configId, status: statusFilter || undefined, page, pageSize }); setItems(d.items || []); }
-    catch { setItems([]); }
+    try {
+      const d = await getQcSyncItems({
+        configId, status: statusFilter || undefined, verdict: verdictFilter || undefined, page, pageSize,
+      });
+      setItems(d.items || []);
+    } catch { setItems([]); }
   }
-  useEffect(() => { loadItems(); }, [configId, statusFilter, page]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadItems(); }, [configId, statusFilter, verdictFilter, page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function retryItem(it) {
     if (!window.confirm(
@@ -461,11 +472,15 @@ function QcSyncDetail({ configId, configName, onClose }) {
         ))}
       </div>
 
-      <div className="row" style={{ alignItems: "center", gap: 8, marginTop: 16 }}>
-        <h4 style={{ margin: 0 }}>File gần đây {statusFilter && "— lọc theo trạng thái"}</h4>
+      <div className="row" style={{ alignItems: "center", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
+        <h4 style={{ margin: 0 }}>File gần đây</h4>
         <select className="text-input" style={{ width: "auto" }} value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}>
+          onChange={(e) => setStatusFilter(e.target.value)} title="Lọc theo trạng thái xử lý (OCR/hàng chờ)">
           {ITEM_STATUS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+        </select>
+        <select className="text-input" style={{ width: "auto" }} value={verdictFilter}
+          onChange={(e) => setVerdictFilter(e.target.value)} title="Lọc theo verdict QC">
+          {VERDICT_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
         </select>
       </div>
       <div className="tbl-dense qc-items-tbl">

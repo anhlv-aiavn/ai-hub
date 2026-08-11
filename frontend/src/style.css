@@ -1225,7 +1225,7 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .qc-chart-tooltip i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
 .qc-chart-tooltip b { font-variant-numeric: tabular-nums; }
 .qc-chart-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 8px; font-size: 11.5px; color: var(--text-2); }
-.qc-chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.qc-chart-legend span { display: inline-flex; align-items: center; gap: 5px; cursor: default; }
 .qc-chart-legend i { width: 9px; height: 9px; border-radius: 3px; flex: none; }
 
 /* Khối "Tổng chất lượng QC" — hero heuristic: 1 chỉ số quan trọng (% đạt)
@@ -1557,29 +1557,50 @@ a.fr-name:hover { color: var(--brand); text-decoration: underline; }
    qua title (hover). */
 .qc-reason-cell { overflow: hidden; text-overflow: ellipsis; cursor: help; }
 .qc-cuts-cell { display: flex; flex-direction: column; gap: 2px; }
-.qc-cuts-cell a { color: var(--brand); text-decoration: none; font-size: 11.5px;
+/* "File đã cắt" giờ là <button> mở modal so sánh (CutCompareModal, xem
+   qcSyncShared.jsx) thay vì <a target="_blank"> — reset chrome mặc định của
+   button, giữ nguyên hình thức trông như link cũ. */
+.qc-cuts-cell .qc-cut-link { background: none; border: none; padding: 0; margin: 0; font: inherit;
+  text-align: left; cursor: pointer; color: var(--brand); text-decoration: none; font-size: 11.5px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.qc-cuts-cell a:hover { text-decoration: underline; }
+.qc-cuts-cell .qc-cut-link:hover { text-decoration: underline; }
 /* File cắt được nhưng KHÔNG đọc được Số phát hành — đánh dấu màu cảnh báo để
    admin bấm xem trực tiếp thay vì phải dò cả danh sách (khác no_gcn: đây vẫn
    tìm thấy + cắt được trang GCN, chỉ là không đọc ra được số trên đó). */
-.qc-cuts-cell a.qc-cut-nosph { color: #92400e; }
+.qc-cuts-cell .qc-cut-link.qc-cut-nosph { color: #92400e; }
+/* Modal "So sánh" (CutCompareModal) — 2 khung PDF cạnh nhau, gốc bên trái, đã
+   cắt bên phải (cùng tinh thần QcCompareDialog của dự án tham chiếu vpdd-don-ai). */
+.qc-compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; height: 76vh; }
+.qc-compare-pane { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.qc-compare-pane-head { font-size: 12px; font-weight: 600; color: var(--text-2); }
+.qc-compare-pane iframe { flex: 1; min-height: 0; width: 100%; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--surface-2); }
+@media (max-width: 900px) { .qc-compare-grid { grid-template-columns: 1fr; height: auto; }
+  .qc-compare-pane iframe { height: 60vh; } }
 
-/* Bảng "Phân loại" (QcClassification.jsx) — 8 cột: Số phát hành, Loại giấy,
-   Nhãn cấu trúc, Số chủ, Số thửa, Đa mục đích, Chung/riêng, Thao tác. Cột
-   Thao tác dùng PX CỐ ĐỊNH (không phải `auto`) — mỗi `.qc-cls-row` là 1 grid
-   container RIÊNG (không chia sẻ track với các hàng khác), nên cột `auto` sẽ
-   co giãn theo NỘI DUNG của TỪNG hàng: hàng tiêu đề (chỉ có chữ "Thao tác")
-   sẽ hẹp hơn hẳn hàng dữ liệu (2 nút) → các cột fr phía trước bị tính lại
-   khác nhau giữa 2 loại hàng → tiêu đề và dữ liệu lệch cột. Cột cuối cùng
-   dùng px cố định thì mọi hàng chia đúng cùng 1 tỉ lệ cho các cột còn lại. */
+/* Bảng "Phân loại" (QcClassification.jsx) — 9 cột: STT, Số phát hành, Loại
+   giấy, Nhãn cấu trúc, Số chủ, Số thửa, Đa mục đích, Chung/riêng, Thao tác.
+   Cột Thao tác dùng PX CỐ ĐỊNH (không phải `auto`) — mỗi `.qc-cls-row` là 1
+   grid container RIÊNG (không chia sẻ track với các hàng khác), nên cột
+   `auto` sẽ co giãn theo NỘI DUNG của TỪNG hàng: hàng tiêu đề (chỉ có chữ
+   "Thao tác") sẽ hẹp hơn hẳn hàng dữ liệu (2 nút) → các cột fr phía trước bị
+   tính lại khác nhau giữa 2 loại hàng → tiêu đề và dữ liệu lệch cột. Cột
+   cuối cùng dùng px cố định thì mọi hàng chia đúng cùng 1 tỉ lệ cho các cột
+   còn lại. Cột STT cũng px cố định (luôn ngắn, không cần co giãn). */
 .qc-cls-tbl .qc-cls-row {
-  display: grid; grid-template-columns: 1.1fr 1fr 1.3fr .5fr .5fr .7fr .7fr 220px;
+  display: grid; grid-template-columns: 40px 1.1fr 1fr 1.3fr .5fr .5fr .7fr .7fr 220px;
   align-items: center; height: auto; min-height: 34px; padding: 6px 10px; gap: 8px;
 }
 .qc-cls-tbl .qc-cls-row > * { min-width: 0; }
 .qc-cls-tbl .qc-cls-head { background: var(--surface-3); color: var(--text-3); font-size: 11px;
   text-transform: uppercase; letter-spacing: .04em; font-weight: 600; height: auto; padding: 7px 10px; }
+/* Cột "Loại giấy" — tên loại GCN khá dài (vd "Giấy chứng nhận QSHNƠ & QSDĐƠ
+   theo Nghị định 90/NĐ-CP"), cho phép xuống DÒNG THỨ 2 trước khi cắt "...",
+   thay vì cắt ngay ở dòng 1 như `.qc-reason-cell` (line-clamp 1 dòng). */
+.qc-cls-loai-cell {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; white-space: normal; cursor: help; line-height: 1.35;
+}
 /* JSON payload đã "làm mịn" trong modal (Xem JSON) — cuộn riêng, giữ định
    dạng thụt lề của JSON.stringify(..., 2). */
 .qc-json-view { max-height: 65vh; overflow: auto; background: var(--surface-3);

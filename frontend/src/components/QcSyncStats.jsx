@@ -50,9 +50,12 @@ function fmtCompact(n) {
   const rounded = Math.round((v / unit[0]) * 10) / 10;
   return `${rounded.toLocaleString("vi-VN")}${unit[1]}`;
 }
+// Luôn hiện giờ Việt Nam (UTC+7) — trước đây dùng giờ LOCAL của trình duyệt/
+// máy chủ, sai lệch khi 2 bên khác múi giờ hệ thống (vd server set UTC).
 function fmtDate(d) {
   if (!d) return "—";
-  try { return new Date(d).toLocaleString("vi-VN"); } catch { return String(d); }
+  try { return new Date(d).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }); }
+  catch { return String(d); }
 }
 
 // ── Gom ngày → tuần/tháng ────────────────────────────────────────────────
@@ -196,18 +199,29 @@ function BarChart({ title, periods, seriesSpec }) {
               </React.Fragment>
             ))}
           </div>
-          {hover && (
-            <div className="qc-chart-tooltip" style={{ left: hover.cx, top: hover.cy }}>
-              <i style={{ background: hover.color }} />{hover.label}: <b>{fmt(hover.value)}</b>
-            </div>
-          )}
         </div>
       )}
       {showLegend && (
         <div className="qc-chart-legend">
-          {seriesSpec.map((s) => (
-            <span key={s.key}><i style={{ background: s.color }} /> {s.label}</span>
-          ))}
+          {seriesSpec.map((s) => {
+            const seriesTotal = periods.reduce((sum, p) => sum + (p.counts[s.key] || 0), 0);
+            return (
+              <span key={s.key}
+                onMouseEnter={(e) => {
+                  const box = e.currentTarget.getBoundingClientRect();
+                  setHover({ label: s.label, value: seriesTotal, color: s.color,
+                            cx: box.left + box.width / 2, cy: box.top });
+                }}
+                onMouseLeave={() => setHover(null)}>
+                <i style={{ background: s.color }} /> {s.label}
+              </span>
+            );
+          })}
+        </div>
+      )}
+      {hover && (
+        <div className="qc-chart-tooltip" style={{ left: hover.cx, top: hover.cy }}>
+          <i style={{ background: hover.color }} />{hover.label}: <b>{fmt(hover.value)}</b>
         </div>
       )}
     </div>
@@ -407,11 +421,18 @@ export default function QcSyncStats() {
   const [series, setSeries] = useState([]);
   const [totalCounts, setTotalCounts] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [refreshTick, setRefreshTick] = useState(0); // bump nút "Làm mới" → gọi lại API ngay
+  const [refreshTick, setRefreshTick] = useState(0); // bump (nút "Làm mới" HOẶC polling) → gọi lại API ngay
 
   useEffect(() => {
     getQcSyncConfigs().then((d) => setConfigs(d.configs || [])).catch(() => {});
   }, [refreshTick]);
+
+  // Tự động làm mới mỗi 30s — trang "Tổng quan" thường mở lâu (theo dõi vận
+  // hành), số liệu cũ dần nếu không có cơ chế polling, phải tự bấm "Làm mới".
+  useEffect(() => {
+    const id = setInterval(() => setRefreshTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   const rangeDef = RANGES.find(([k]) => k === range);
 
