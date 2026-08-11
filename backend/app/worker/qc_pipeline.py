@@ -165,6 +165,16 @@ async def maybe_schedule_qc_sync_jobs(mongo: AsyncMongo) -> None:
     async for cfg in mongo.db[config.COLL_QC_SYNC_CONFIG].find({"enabled": True}):
         interval = cfg.get("interval_seconds") or config.QC_SYNC_DEFAULT_INTERVAL_SECONDS
         last_run = cfg.get("last_run_at")
+        # pymongo trả datetime NAIVE khi đọc lại từ Mongo (BSON không giữ tzinfo)
+        # dù lúc ghi là datetime.now(timezone.utc) (xem process_qc_sync_job) —
+        # gắn lại UTC trước khi trừ, không thì `now - last_run` ném
+        # "can't subtract offset-naive and offset-aware datetimes" NGAY VÒNG
+        # LẶP ĐẦU TIÊN có config đã chạy 1 lần → worker CRASH-LOOP, kéo sập
+        # LUÔN pipeline GCN chính (cùng 1 vòng lặp run(), không try/except
+        # riêng từng claim — xem worker/main.py). Cùng pattern đã có ở
+        # routes/audit.py._utc / routes/gcn.py.
+        if last_run is not None and last_run.tzinfo is None:
+            last_run = last_run.replace(tzinfo=timezone.utc)
         due = not last_run or (now - last_run).total_seconds() >= interval
         if not due:
             continue
