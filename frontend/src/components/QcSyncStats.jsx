@@ -263,7 +263,7 @@ function OcrKpiStrip({ counts }) {
 
 // ── Bảng "Theo Phường/Xã" — liệt kê MỌI kênh (kể cả kênh chưa có hoạt động
 // nào) + xem nhanh danh sách file/OCR/file cắt của từng kênh ngay tại chỗ. ──
-function WardTable({ range }) {
+function WardTable({ range, refreshTick }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState("");
@@ -273,7 +273,7 @@ function WardTable({ range }) {
     setLoading(true);
     getQcSyncStatsByConfig(range).then((d) => setRows(d.rows || []))
       .catch((e) => toastErr(e.message || e)).finally(() => setLoading(false));
-  }, [range]);
+  }, [range, refreshTick]);
 
   const sorted = useMemo(() => {
     const arr = [...rows];
@@ -416,10 +416,11 @@ export default function QcSyncStats() {
   const [series, setSeries] = useState([]);
   const [totalCounts, setTotalCounts] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0); // bump nút "Làm mới" → gọi lại API ngay
 
   useEffect(() => {
     getQcSyncConfigs().then((d) => setConfigs(d.configs || [])).catch(() => {});
-  }, []);
+  }, [refreshTick]);
 
   const rangeDef = RANGES.find(([k]) => k === range);
 
@@ -434,7 +435,7 @@ export default function QcSyncStats() {
       .catch((e) => toastErr(e.message || e))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [configId, range]);
+  }, [configId, range, refreshTick]);
 
   const periods = useMemo(() => {
     if (range === "all") return [];
@@ -459,6 +460,10 @@ export default function QcSyncStats() {
                 onClick={() => setRange(k)}>{label}</button>
             ))}
           </div>
+          <button type="button" className="icon-btn" title="Làm mới thống kê QC" aria-label="Làm mới thống kê QC"
+            disabled={loading} onClick={() => setRefreshTick((t) => t + 1)}>
+            <Icon name="refresh" size={14} className={loading ? "icon-spin" : ""} />
+          </button>
         </div>
       </div>
 
@@ -474,7 +479,7 @@ export default function QcSyncStats() {
       )}
       {loading && <div className="muted small" style={{ padding: "6px 2px" }}>Đang tải…</div>}
 
-      {!configId && <WardTable range={range} />}
+      {!configId && <WardTable range={range} refreshTick={refreshTick} />}
     </div>
   );
 }
