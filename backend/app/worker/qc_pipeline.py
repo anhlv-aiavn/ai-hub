@@ -31,6 +31,7 @@ from app.s3_util import build_client
 from app.storage import DestinationNotConfigured, SourceObjectMissing, SourceObjectUnavailable
 from app.worker import run_job
 from src.extentions.mongo_helper import AsyncMongo
+from src.extentions.multimodal.normalize_dang_ky import normalize_extractions
 
 log = logging.getLogger(__name__)
 
@@ -194,17 +195,43 @@ async def maybe_schedule_qc_sync_jobs(mongo: AsyncMongo) -> None:
 
 # ── qc_item: QC + OCR + crop 1 file ─────────────────────────────────────────
 
+# Cache config_id đang "tạm dừng xử lý" (items_paused=true) — refresh có
+# throttle, KHÔNG query qc_sync_configs mỗi lần claim (claim_qc_item gọi
+# nhiều lần/giây khi có backlog). Cùng idiom cache-throttle với
+# worker/main.py._next_batch_id (RR_REFRESH_INTERVAL).
+PAUSED_REFRESH_INTERVAL = float(os.getenv("WORKER_QC_PAUSED_REFRESH_SECONDS", "5"))
+_paused_config_ids: set = set()
+_paused_refreshed_at = 0.0
+
+
+async def _get_paused_config_ids(mongo: AsyncMongo) -> set:
+    global _paused_config_ids, _paused_refreshed_at
+    now_m = time.monotonic()
+    if now_m - _paused_refreshed_at >= PAUSED_REFRESH_INTERVAL:
+        ids = await mongo.db[config.COLL_QC_SYNC_CONFIG].distinct("_id", {"items_paused": True})
+        _paused_config_ids = set(ids)
+        _paused_refreshed_at = now_m
+    return _paused_config_ids
+
+
 async def claim_qc_item(mongo: AsyncMongo, proc_ttl: int) -> dict | None:
     """Atomic claim (mirror `_claim` gcn ở worker/main.py, không cần fairness
     round-robin — quy mô nhỏ hơn nhiều, 1 config = 1 hàng đợi riêng đã tách
-    theo `qc_sync_job`)."""
+    theo `qc_sync_job`). Loại trừ item thuộc kênh đang "tạm dừng xử lý"
+    (`items_paused=true`, xem routes/qc_sync.py PATCH .../configs/{id}) — file
+    VẪN nằm nguyên `queued`, chỉ là chưa ai claim; tắt tạm dừng thì worker tự
+    nhặt lại ở lượt claim kế tiếp (độ trễ tối đa `PAUSED_REFRESH_INTERVAL`).
+    Item ĐÃ claim trước khi tạm dừng chạy nốt, không bị ngắt giữa chừng."""
     now = datetime.now(timezone.utc)
     stale = now - timedelta(seconds=proc_ttl)
+    base = {"$or": [
+        {"status": "queued"},
+        {"status": "processing", "started_at": {"$lt": stale}},
+    ]}
+    paused = await _get_paused_config_ids(mongo)
+    query = {"$and": [base, {"config_id": {"$nin": list(paused)}}]} if paused else base
     return await mongo.db[config.COLL_QC_ITEM].find_one_and_update(
-        {"$or": [
-            {"status": "queued"},
-            {"status": "processing", "started_at": {"$lt": stale}},
-        ]},
+        query,
         {"$set": {"status": "processing", "started_at": now}, "$inc": {"attempts": 1}},
         return_document=ReturnDocument.AFTER,
     )
@@ -237,16 +264,23 @@ def _safe_key_part(s: str) -> str:
 def _qc_cut_naming(item: dict):
     """Quy ước đặt tên RIÊNG cho QC Sync (khác pipeline GCN chính, xem
     `_build_cuts.naming_fn`): KHÔNG tạo thư mục con — ghi PHẲNG ngay tại bucket
-    đích; tên file = "<tên GCN>_<tên file gốc>_cropped.pdf". "tên GCN" = Số
-    phát hành (nếu đọc được) — thiếu thì dùng `stem` (`_build_cuts` đã tự
-    fallback về `{item_id}-{ri+1}`)."""
-    src_name = item["s3_key"].rsplit("/", 1)[-1]
+    đích; tên file = "<Số GCN đã OCR>_<tên thư mục gốc>_<tên file gốc>.pdf".
+    "Số GCN" = Số phát hành (nếu đọc được) — thiếu thì dùng `stem` (`_build_cuts`
+    đã tự fallback về `{item_id}-{ri+1}`). "tên thư mục gốc" = thư mục CHA
+    trực tiếp của file trên kho nguồn — giữ lại làm 1 phần tên (dù ghi phẳng,
+    không tạo thư mục con ở đích) để còn phân biệt được nguồn gốc + giảm khả
+    năng đè khi 2 thư mục khác nhau tình cờ có file trùng tên (xem
+    features_issues.md#qc-flat-naming-collision)."""
+    parts = item["s3_key"].split("/")
+    src_name = parts[-1]
     src_stem = src_name[:-4] if src_name.lower().endswith(".pdf") else src_name
     src_stem = _safe_key_part(src_stem)
+    folder_name = _safe_key_part(parts[-2]) if len(parts) >= 2 else ""
 
     def _fn(ri: int, sph: str | None, stem: str) -> tuple[str, str]:
         gcn_name = _safe_key_part(sph or stem)
-        base = f"{gcn_name}_{src_stem}_cropped"
+        base_parts = [gcn_name] + ([folder_name] if folder_name else []) + [src_stem]
+        base = "_".join(base_parts)
         if ri:  # >=2 GCN trong cùng 1 file gốc — hậu tố index để khỏi đè nhau
             base = f"{base}_{ri + 1}"
         fname = f"{base}.pdf"
@@ -272,7 +306,16 @@ async def process_qc_item(mongo: AsyncMongo, item: dict) -> str:
     DÙNG NGUYÊN `run_job._pipeline`/`_build_cuts` (hàm thuần, không phụ thuộc
     doc `gcn`) — đích cắt là `dest_purpose="qc"` (S3 đích RIÊNG của kênh này).
     QC "fail" KHÔNG phải lỗi hệ thống — item vẫn `status="done"`, chỉ là
-    không đạt (dữ liệu QC đã lưu đủ để thống kê)."""
+    không đạt (dữ liệu QC đã lưu đủ để thống kê).
+
+    RESUMABLE theo yêu cầu thực tế (lỗi mạng/QC không nên bắt quét QC lại từ
+    đầu cho file ĐÃ CÓ verdict): nếu `item["qc"]` đã có sẵn (do 1 lần chạy
+    trước đã gọi QC thành công nhưng hỏng ở bước SAU đó — OCR/build_cuts —
+    hoặc do `/items/{id}/retry` giữ nguyên field này), BỎ QUA gọi lại
+    `qc_client.check_pdf` và KHÔNG bump lại `qc_stats_daily` (đã cộng ở lần
+    chạy QC thành công trước đó, cộng lại sẽ đếm trùng) — chỉ chạy tiếp từ
+    OCR. Chỉ gọi lại QC khi thật sự CHƯA có verdict (lần đầu, hoặc lần trước
+    lỗi ngay ở bước gọi QC — network/query lỗi)."""
     item_id = item["_id"]
     config_id = item.get("config_id")
 
@@ -287,22 +330,26 @@ async def process_qc_item(mongo: AsyncMongo, item: dict) -> str:
         await _bump_daily(mongo, config_id, error=1)
         return "error"
 
-    try:
-        qc_res = await qc_client.check_pdf(pdf_buf.getvalue(), filename=item["s3_key"].rsplit("/", 1)[-1])
-    except qc_client.QCError as e:
-        log.warning("qc_item %s gọi QC scanner lỗi: %s", item_id, e)
-        error_kind = "permanent" if isinstance(e, (qc_client.QCAuthError, qc_client.QCInputError)) else "transient"
-        await _finish_item(mongo, item_id, "error", error=str(e), error_kind=error_kind)
-        await _bump_daily(mongo, config_id, error=1)
-        return "error"
+    qc_doc = item.get("qc")
+    if qc_doc and qc_doc.get("verdict"):
+        log.info("qc_item %s: tái dùng verdict QC đã có (%s), không gọi lại QC scanner",
+                 item_id, qc_doc["verdict"])
+    else:
+        try:
+            qc_res = await qc_client.check_pdf(pdf_buf.getvalue(), filename=item["s3_key"].rsplit("/", 1)[-1])
+        except qc_client.QCError as e:
+            log.warning("qc_item %s gọi QC scanner lỗi: %s", item_id, e)
+            error_kind = "permanent" if isinstance(e, (qc_client.QCAuthError, qc_client.QCInputError)) else "transient"
+            await _finish_item(mongo, item_id, "error", error=str(e), error_kind=error_kind)
+            await _bump_daily(mongo, config_id, error=1)
+            return "error"
+        qc_doc = {
+            "verdict": qc_res.verdict, "reasons": qc_res.reasons, "metrics": qc_res.metrics,
+            "page_count": qc_res.page_count, "checked_at": datetime.now(timezone.utc),
+        }
+        await _bump_daily(mongo, config_id, scanned=1, **{qc_res.verdict: 1})
 
-    qc_doc = {
-        "verdict": qc_res.verdict, "reasons": qc_res.reasons, "metrics": qc_res.metrics,
-        "page_count": qc_res.page_count, "checked_at": datetime.now(timezone.utc),
-    }
-    await _bump_daily(mongo, config_id, scanned=1, **{qc_res.verdict: 1})
-
-    if qc_res.verdict == "fail":
+    if qc_doc["verdict"] == "fail":
         await _finish_item(mongo, item_id, "done", qc=qc_doc)
         return "done"
 
@@ -323,7 +370,15 @@ async def process_qc_item(mongo: AsyncMongo, item: dict) -> str:
         await _bump_daily(mongo, config_id, no_gcn=1)
         return "no_gcn"
 
-    ocr_doc = {"records_count": len(records), "cuts": []}
+    # Chuẩn hoá NGAY (định dạng ngày tháng...) — cùng bước đầu tiên pipeline
+    # GCN chính áp dụng trước khi lưu (`run_job.process_doc`), để dữ liệu OCR
+    # lưu ở đây nhất quán với `gcn.extractions`.
+    normalize_extractions(records)
+
+    # Lưu NGUYÊN VẸN kết quả OCR (không chỉ đếm số lượng) — người dùng cần
+    # tra cứu lại toàn bộ thông tin đã trích xuất (chủ sử dụng, thửa đất...),
+    # không riêng Số phát hành đã tách ra field `cuts[].so_phat_hanh`.
+    ocr_doc = {"records_count": len(records), "records": records, "cuts": []}
     try:
         cuts = await run_job._build_cuts(
             gcn_id=item_id, batch_id=config_id, images=images, records=records,

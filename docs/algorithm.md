@@ -230,7 +230,7 @@ MinIO nguồn ──────────────────────
                                     run_job._build_cuts(..., dest_purpose="qc")
                                                  │
                                           MinIO đích RIÊNG (purpose="qc") — PHẲNG,
-                                          không thư mục con: {tên GCN}_{tên file gốc}_cropped.pdf
+                                          không thư mục con: {Số GCN}_{tên thư mục gốc}_{tên file gốc}.pdf
 ```
 
 ### 9a. Cấu hình (UI → `qc_sync_configs`)
@@ -257,25 +257,36 @@ Claim atomic (queued hoặc processing-treo quá `PROC_TTL`, giống nhánh `gcn
 
 1. `storage.get_pdf(s3_key, source_connection_id)` — lỗi phân loại giống pipeline GCN
    (`SourceObjectMissing`→`no_file`, khác→`error` transient).
-2. `qc_client.check_pdf(pdf_bytes)` — `POST /?format=json` tới `qc-scanner-server`
-   (`QC_SCANNER_BASE_URL`). `503` là mã DUY NHẤT retry (bounded, theo `Retry-After`); `401`/`400`
-   raise lỗi permanent, không retry (đúng hợp đồng API của service). Kết quả ghi vào
-   `qc_items.qc` (verdict/reasons/metrics) VÀ bump `qc_stats_daily` (atomic `$inc`, upsert theo
-   ngày UTC — không `count_documents` trên `qc_items` khi đọc thống kê).
+2. **RESUMABLE**: nếu `item["qc"]` đã có verdict (từ 1 lần chạy trước — do lỗi ở bước SAU QC, hoặc
+   do `/items/{id}/retry` giữ nguyên field này), BỎ QUA bước này — không gọi lại QC scanner, không
+   bump lại `qc_stats_daily` (đã cộng ở lần thành công trước, cộng lại sẽ đếm trùng). Chỉ khi CHƯA
+   có verdict mới gọi `qc_client.check_pdf(pdf_bytes)` — `POST /?format=json` tới
+   `qc-scanner-server` (`QC_SCANNER_BASE_URL`). `503` là mã DUY NHẤT retry (bounded, theo
+   `Retry-After`); `401`/`400` raise lỗi permanent, không retry (đúng hợp đồng API của service).
+   Kết quả ghi vào `qc_items.qc` (verdict/reasons/metrics) VÀ bump `qc_stats_daily`.
+   → Đúng yêu cầu thực tế: lỗi mạng/QC thì chạy lại được, nhưng KHÔNG bắt quét QC lại với file đã
+   có verdict rồi (tránh tốn thêm 1 lượt gọi qc-scanner-server vô ích).
 3. `verdict == "fail"` → `status=done` (KHÔNG phải lỗi hệ thống — đã xử lý xong, chỉ là không đạt).
 4. `verdict` pass/warn → OCR: `run_job._pipeline(pdf_buf)` (hàm thuần, TÁI DÙNG, không sửa —
-   xem quyết định [QC-1](features_issues.md#qc-decide-raw-ocr)). `records` rỗng → `no_gcn`.
-5. `records` có dữ liệu → `run_job._build_cuts(gcn_id=item_id, batch_id=config_id, ...,
-   dest_purpose="qc", naming_fn=_qc_cut_naming(item))` — TÁI DÙNG nguyên hàm cắt/gộp trang GCN của
-   pipeline chính, chỉ đổi `dest_purpose` để ghi vào MinIO đích RIÊNG
-   (`storage._get_dest_client(purpose="qc")`), và đổi `naming_fn` để KHÔNG tạo thư mục con — ghi
-   PHẲNG ngay tại bucket đích với tên `{tên GCN}_{tên file gốc}_cropped.pdf` ("tên GCN" = Số phát
-   hành nếu đọc được, thiếu thì dùng id tạm). Đổi tên/vị trí lưu là QUYẾT ĐỊNH RIÊNG của QC Sync —
+   xem quyết định [QC-1](features_issues.md#qc-decide-raw-ocr)) rồi `normalize_extractions(records)`
+   (cùng bước chuẩn hoá đầu tiên pipeline GCN chính áp dụng, để dữ liệu nhất quán với
+   `gcn.extractions`). `records` rỗng → `no_gcn`.
+5. `records` có dữ liệu → lưu NGUYÊN VẸN vào `qc_items.ocr.records` (không chỉ đếm số lượng — cần
+   tra cứu lại toàn bộ thông tin đã trích xuất: chủ sử dụng, thửa đất...), rồi
+   `run_job._build_cuts(gcn_id=item_id, batch_id=config_id, ..., dest_purpose="qc",
+   naming_fn=_qc_cut_naming(item))` — TÁI DÙNG nguyên hàm cắt/gộp trang GCN của pipeline chính, chỉ
+   đổi `dest_purpose` để ghi vào MinIO đích RIÊNG (`storage._get_dest_client(purpose="qc")`), và đổi
+   `naming_fn` để KHÔNG tạo thư mục con — ghi PHẲNG ngay tại bucket đích với tên
+   `{Số GCN}_{tên thư mục gốc}_{tên file gốc}.pdf` ("Số GCN" = Số phát hành nếu đọc được (thiếu thì
+   dùng id tạm), "tên thư mục gốc" = thư mục CHA trực tiếp của file trên kho nguồn — giữ lại làm 1
+   phần tên dù ghi phẳng, để phân biệt nguồn gốc + giảm khả năng đè khi 2 thư mục khác nhau tình cờ
+   trùng tên file). Đổi tên/vị trí lưu là QUYẾT ĐỊNH RIÊNG của QC Sync —
    `_build_cuts` mặc định (`naming_fn=None`, pipeline GCN chính) giữ nguyên khoá cũ
    `{batch_id}/{gcn_id}/cut-{ri}.pdf`, không đổi hành vi.
    **Rủi ro đã biết**: đặt phẳng + tên suy từ nội dung (không theo batch/id) → 2 kênh đồng bộ khác
-   nhau ghi CÙNG 1 đích và tình cờ ra cùng tên (trùng Số phát hành + trùng tên file gốc) sẽ ĐÈ lên
-   nhau. Chấp nhận cho v1 theo đúng yêu cầu; nếu cần an toàn hơn, cân nhắc thêm hậu tố phân biệt.
+   nhau ghi CÙNG 1 đích và tình cờ ra cùng Số GCN + thư mục gốc + tên file sẽ ĐÈ lên nhau (đã giảm
+   nhiều so với v1 đầu tiên nhờ thêm tên thư mục gốc, nhưng chưa loại bỏ hoàn toàn). Chấp nhận cho
+   v1 theo đúng yêu cầu; nếu cần an toàn tuyệt đối, cân nhắc thêm hậu tố phân biệt theo kênh.
 
 ### 9d. Vận hành
 
@@ -302,8 +313,10 @@ file, phục vụ debug "chạy đến đâu, lỗi ở đâu"). Chạy quét ng
 [QC-1](features_issues.md#qc-shared-vlm).
 
 **Quản lý lịch sử quét (debug/reset)**:
-- `POST /v1/qc-sync/items/{id}/retry` — đưa 1 item về `queued`, xóa `qc`/`ocr`/`error` cũ, worker xử
-  lý lại từ đầu (chặn nếu đang `processing`, tránh đụng độ với lượt đang chạy dở).
+- `POST /v1/qc-sync/items/{id}/retry` — đưa 1 item về `queued`. GIỮ NGUYÊN field `qc` nếu đã có
+  verdict (chỉ xóa `ocr`/`error`/timestamps) — `process_qc_item` (worker) tự nhận ra và bỏ qua gọi
+  lại QC scanner (xem §9c bước 2, RESUMABLE). Chặn nếu đang `processing`, tránh đụng độ với lượt
+  đang chạy dở.
 - `DELETE /v1/qc-sync/items/{id}` — xóa 1 item khỏi lịch sử (gỡ chặn unique index → file được coi
   là "mới", quét lại ở lượt sau).
 - `DELETE /v1/qc-sync/configs/{id}/items` — xóa TOÀN BỘ lịch sử quét (mọi file) của 1 kênh, để quét
@@ -314,6 +327,14 @@ file, phục vụ debug "chạy đến đâu, lỗi ở đâu"). Chạy quét ng
 - `GET /v1/qc-sync/items/{id}/source-pdf` — xem trực tiếp PDF NGUỒN (khác file đã cắt) qua tab mới,
   bấm vào cột "S3 key" trên bảng theo dõi; stream thẳng từ kho nguồn (`storage.get_pdf`), không lưu
   tạm ở server.
+
+**Tạm dừng/tiếp tục xử lý file đang chờ** (khác `enabled`/"Chạy ngay" — những cái đó điều khiển
+việc QUÉT THÊM file mới, không phải xử lý backlog đã có): `PATCH /v1/qc-sync/configs/{id}` với
+`{"items_paused": true|false}`. `worker.claim_qc_item` loại trừ item thuộc kênh có `items_paused`
+qua 1 cache có throttle (`WORKER_QC_PAUSED_REFRESH_SECONDS`, mặc định 5s — không query
+`qc_sync_configs` mỗi lần claim). File ĐANG xử lý dở khi bật tạm dừng vẫn chạy nốt (không bị ngắt
+giữa chừng), chỉ file CHƯA claim mới bị chặn nhận. Tắt tạm dừng → worker tự nhặt lại backlog ở lượt
+claim kế tiếp.
 
 ### 9e. Chưa làm (phase 2 — theo đúng yêu cầu)
 

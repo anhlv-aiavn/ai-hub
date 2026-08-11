@@ -92,6 +92,14 @@ export default function QcSync() {
     finally { setRefreshTick((t) => t + 1); } // dù thành công hay "đã có lượt đang chạy" — hiện badge tiến độ ngay
   }
 
+  async function togglePause(c) {
+    try {
+      await updateQcSyncConfig(c.id, { items_paused: !c.items_paused });
+      toastOk(c.items_paused ? "Đã tiếp tục xử lý — worker nhặt lại file đang chờ" : "Đã tạm dừng xử lý file đang chờ");
+      refreshConfigs();
+    } catch (e) { toastErr(e.message || e); }
+  }
+
   async function clearItems(c) {
     if (!window.confirm(
       `XÓA TOÀN BỘ lịch sử quét của kênh "${c.name}" (cả thư mục)?\n\n` +
@@ -141,6 +149,7 @@ export default function QcSync() {
               <div className="file-row qc-cfg-row">
                 <span className="fr-name">
                   {c.name} {!c.enabled && <span className="muted small">(tắt)</span>}
+                  {c.items_paused && <span className="muted small"> · đang tạm dừng xử lý</span>}
                 </span>
                 <span className="fr-meta">{src?.name || c.source_connection_id} · /{c.prefix || ""}</span>
                 <span className="fr-meta">{dest?.name || c.dest_connection_id}</span>
@@ -151,6 +160,8 @@ export default function QcSync() {
                 </span>
                 <span className="s3-actions">
                   <button className="ghost xs" onClick={() => runNow(c)}>Chạy ngay</button>
+                  <button className="ghost xs" title="File đã claim vẫn chạy nốt, chỉ chặn nhận file MỚI từ hàng chờ"
+                    onClick={() => togglePause(c)}>{c.items_paused ? "Tiếp tục xử lý" : "Tạm dừng xử lý"}</button>
                   <button className="ghost xs" onClick={() => setSelectedConfigId(c.id)}>Thống kê</button>
                   <button className="ghost xs" onClick={() => openEdit(c)}>Sửa</button>
                   <button className="ghost xs danger" title="Xóa lịch sử quét — quét lại từ đầu cả thư mục"

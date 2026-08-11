@@ -36,6 +36,11 @@ class ConfigPatch(BaseModel):
     dest_connection_id: str | None = None
     interval_seconds: int | None = None
     enabled: bool | None = None
+    # Tạm dừng/tiếp tục XỬ LÝ file đang `queued` (khác `enabled` — cái đó điều
+    # khiển có tự quét THÊM file mới hay không). Đọc bởi worker.claim_qc_item
+    # (cache có throttle, xem qc_pipeline.py) — file đã claim trước khi bật
+    # tạm dừng vẫn chạy nốt, không bị ngắt giữa chừng.
+    items_paused: bool | None = None
 
 
 def _public_config(c: dict) -> dict:
@@ -45,6 +50,7 @@ def _public_config(c: dict) -> dict:
         "dest_connection_id": c.get("dest_connection_id"),
         "interval_seconds": c.get("interval_seconds") or config.QC_SYNC_DEFAULT_INTERVAL_SECONDS,
         "enabled": bool(c.get("enabled")),
+        "items_paused": bool(c.get("items_paused")),
         "last_run_at": c.get("last_run_at"), "last_run_status": c.get("last_run_status"),
         "created_at": c.get("created_at"), "updated_at": c.get("updated_at"),
         "created_by": c.get("created_by"),
@@ -77,7 +83,7 @@ async def create_config(body: ConfigIn, admin: dict = Depends(require_admin)):
         "source_connection_id": body.source_connection_id, "prefix": body.prefix or "",
         "dest_connection_id": body.dest_connection_id,
         "interval_seconds": body.interval_seconds or config.QC_SYNC_DEFAULT_INTERVAL_SECONDS,
-        "enabled": body.enabled,
+        "enabled": body.enabled, "items_paused": False,
         "last_run_at": None, "last_run_status": None,
         "created_at": now, "updated_at": now, "created_by": admin["username"],
     }
@@ -95,7 +101,7 @@ async def update_config(config_id: str, body: ConfigPatch, admin: dict = Depends
     await _validate_refs(body.source_connection_id, body.dest_connection_id)
     upd: dict = {}
     for field in ("name", "source_connection_id", "prefix", "dest_connection_id",
-                  "interval_seconds", "enabled"):
+                  "interval_seconds", "enabled", "items_paused"):
         v = getattr(body, field)
         if v is not None:
             upd[field] = v
@@ -253,9 +259,11 @@ async def list_items(config_id: str | None = Query(default=None),
 
 @router.post("/items/{item_id}/retry")
 async def retry_item(item_id: str, admin: dict = Depends(require_admin)):
-    """Đưa 1 item về `queued` để worker xử lý lại từ đầu (QC + OCR + crop lại
-    toàn bộ — không phải chỉ thử lại bước lỗi). Xóa kết quả QC/OCR cũ để tránh
-    hiện dữ liệu cũ lẫn dữ liệu mới nếu lần chạy lại không ghi đè hết field."""
+    """Đưa 1 item về `queued` để worker xử lý lại. GIỮ NGUYÊN field `qc` nếu
+    đã có verdict — `process_qc_item` (worker) tự nhận ra và BỎ QUA gọi lại
+    QC scanner, chỉ chạy lại từ bước sau (OCR/crop). Đúng ý: lỗi mạng/QC thì
+    chạy lại được, nhưng KHÔNG bắt quét QC lại với file đã có verdict rồi.
+    Chỉ xóa `ocr` (sắp chạy lại) + error/timestamps."""
     item = await qc_items().find_one({"_id": item_id})
     if not item:
         raise HTTPException(status_code=404, detail="Không tìm thấy item")
@@ -264,10 +272,11 @@ async def retry_item(item_id: str, admin: dict = Depends(require_admin)):
     await qc_items().update_one(
         {"_id": item_id},
         {"$set": {"status": "queued", "error": None, "error_kind": None,
-                  "qc": None, "ocr": None, "started_at": None, "finished_at": None}},
+                  "ocr": None, "started_at": None, "finished_at": None}},
     )
     await log_action(admin["username"], AuditAction.QC_SYNC_ITEM_RETRY, item_id,
-                     {"config_id": item.get("config_id"), "s3_key": item.get("s3_key")})
+                     {"config_id": item.get("config_id"), "s3_key": item.get("s3_key"),
+                      "kept_qc": bool(item.get("qc"))})
     return {"ok": True}
 
 
