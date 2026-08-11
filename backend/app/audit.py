@@ -29,6 +29,10 @@ class AuditAction(str, Enum):
     QC_SYNC_CONFIG_DELETE = "qc_sync_config.delete"
     QC_SYNC_RUN = "qc_sync_config.run"
     QC_SYNC_JOB_CANCEL = "qc_sync_job.cancel"
+    QC_SYNC_ITEM_RETRY = "qc_sync_item.retry"
+    QC_SYNC_ITEM_DELETE = "qc_sync_item.delete"
+    QC_SYNC_ITEMS_CLEAR = "qc_sync_item.clear_all"
+    QC_SYNC_ITEM_VIEW_SOURCE = "qc_sync_item.view_source"
 
 
 def _redact(detail: dict | None) -> dict:

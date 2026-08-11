@@ -4,6 +4,7 @@ import {
   getS3Connections,
   getQcSyncConfigs, createQcSyncConfig, updateQcSyncConfig, deleteQcSyncConfig,
   runQcSyncNow, getQcSyncActiveJob, cancelQcSyncJob, getQcSyncStats, getQcSyncItems,
+  retryQcSyncItem, deleteQcSyncItem, clearQcSyncConfigItems, qcSyncSourcePdfUrl,
 } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 
@@ -72,15 +73,37 @@ export default function QcSync() {
   }
 
   async function remove(c) {
-    if (!window.confirm(`Xóa kênh đồng bộ "${c.name}"?`)) return;
-    try { await deleteQcSyncConfig(c.id); toastOk("Đã xóa"); refreshConfigs(); }
-    catch (e) { toastErr(e.message || e); }
+    if (!window.confirm(
+      `XÓA HẲN kênh đồng bộ "${c.name}"?\n\n` +
+      `Xóa cả lịch sử quét, lịch sử job và số liệu thống kê của kênh này (không khôi phục được).\n` +
+      `KHÔNG xóa file đã cắt đã lưu ở MinIO đích. Muốn quét lại sau này phải tạo kênh mới.\n\n` +
+      `Tiếp tục?`
+    )) return;
+    try {
+      const res = await deleteQcSyncConfig(c.id);
+      toastOk(`Đã xóa kênh (${res.deleted_items ?? 0} file, ${res.deleted_jobs ?? 0} job trong lịch sử)`);
+      refreshConfigs();
+    } catch (e) { toastErr(e.message || e); }
   }
 
   async function runNow(c) {
     try { await runQcSyncNow(c.id); toastOk("Đã đưa vào hàng chờ — worker sẽ quét ở lượt kế tiếp"); refreshConfigs(); }
     catch (e) { toastErr(e.message || e); }
     finally { setRefreshTick((t) => t + 1); } // dù thành công hay "đã có lượt đang chạy" — hiện badge tiến độ ngay
+  }
+
+  async function clearItems(c) {
+    if (!window.confirm(
+      `XÓA TOÀN BỘ lịch sử quét của kênh "${c.name}" (cả thư mục)?\n\n` +
+      `Mọi file sẽ được coi là "mới" và quét + QC + OCR lại từ đầu ở lượt kế tiếp.\n` +
+      `KHÔNG xóa file đã cắt đã lưu ở MinIO đích, KHÔNG xóa lịch sử các lượt quét.\n\n` +
+      `Không thể hoàn tác. Tiếp tục?`
+    )) return;
+    try {
+      const res = await clearQcSyncConfigItems(c.id);
+      toastOk(`Đã xóa ${res.deleted_items} file khỏi lịch sử quét`);
+      refreshConfigs();
+    } catch (e) { toastErr(e.message || e); }
   }
 
   return (
@@ -130,7 +153,9 @@ export default function QcSync() {
                   <button className="ghost xs" onClick={() => runNow(c)}>Chạy ngay</button>
                   <button className="ghost xs" onClick={() => setSelectedConfigId(c.id)}>Thống kê</button>
                   <button className="ghost xs" onClick={() => openEdit(c)}>Sửa</button>
-                  <button className="ghost xs danger" onClick={() => remove(c)}>Xóa</button>
+                  <button className="ghost xs danger" title="Xóa lịch sử quét — quét lại từ đầu cả thư mục"
+                    onClick={() => clearItems(c)}>Xóa dữ liệu</button>
+                  <button className="ghost xs danger" onClick={() => remove(c)}>Xóa kênh</button>
                 </span>
               </div>
               <ActiveJobRun configId={c.id} refreshTick={refreshTick} onDone={refreshConfigs} />
@@ -257,11 +282,29 @@ function QcSyncDetail({ configId, configName, onClose }) {
 
   useEffect(() => { setPage(1); }, [statusFilter]);
 
-  useEffect(() => {
-    getQcSyncItems({ configId, status: statusFilter || undefined, page, pageSize })
-      .then((d) => setItems(d.items || []))
-      .catch(() => setItems([]));
-  }, [configId, statusFilter, page]);
+  async function loadItems() {
+    try { const d = await getQcSyncItems({ configId, status: statusFilter || undefined, page, pageSize }); setItems(d.items || []); }
+    catch { setItems([]); }
+  }
+  useEffect(() => { loadItems(); }, [configId, statusFilter, page]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function retryItem(it) {
+    if (!window.confirm(
+      `Chạy lại QC + OCR cho file này?\n${it.s3_key}\n\n` +
+      `Kết quả QC/OCR cũ sẽ bị xóa, worker xử lý lại từ đầu.`
+    )) return;
+    try { await retryQcSyncItem(it.id); toastOk("Đã đưa lại vào hàng chờ"); loadItems(); }
+    catch (e) { toastErr(e.message || e); }
+  }
+
+  async function removeItem(it) {
+    if (!window.confirm(
+      `Xóa lịch sử quét của file này?\n${it.s3_key}\n\n` +
+      `File sẽ được coi là "mới" và quét lại ở lượt sau. KHÔNG xóa file đã cắt (nếu có) đã lưu ở MinIO đích.`
+    )) return;
+    try { await deleteQcSyncItem(it.id); toastOk("Đã xóa"); loadItems(); }
+    catch (e) { toastErr(e.message || e); }
+  }
 
   return (
     <div className="s3-form" style={{ margin: "0 16px 16px" }}>
@@ -290,15 +333,18 @@ function QcSyncDetail({ configId, configName, onClose }) {
           {ITEM_STATUS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
         </select>
       </div>
-      <div className="tbl-dense s3-tbl">
-        <div className="file-row s3-head">
-          <span>S3 key</span><span>Trạng thái</span><span>Verdict QC</span><span>Lý do / lỗi</span><span>Lúc</span>
+      <div className="tbl-dense qc-items-tbl">
+        <div className="file-row qc-item-row qc-item-head">
+          <span>S3 key (bấm để xem PDF nguồn)</span><span>Trạng thái</span><span>Verdict QC</span>
+          <span>Lý do / lỗi</span><span>Lúc</span><span />
         </div>
         {items.map((it) => {
           const isError = it.status === "error" || it.status === "no_file";
+          const canRetry = it.status !== "processing" && it.status !== "queued";
           return (
-            <div className="file-row s3-row" key={it.id}>
-              <span className="fr-name" title={it.s3_key}>{it.s3_key}</span>
+            <div className="file-row qc-item-row" key={it.id}>
+              <a className="fr-name" href={qcSyncSourcePdfUrl(it.id)} target="_blank" rel="noopener noreferrer"
+                title={`Xem PDF nguồn: ${it.s3_key}`}>{it.s3_key}</a>
               <span className="fr-meta">
                 {isError && <span className="dot dot-err" />}{" "}{it.status}
                 {it.attempts > 1 && ` (${it.attempts} lần)`}
@@ -316,6 +362,11 @@ function QcSyncDetail({ configId, configName, onClose }) {
                   : (it.qc?.reasons || []).map((r) => r.code).join(", ")}
               </span>
               <span className="fr-meta">{fmtDate(it.finished_at || it.created_at)}</span>
+              <span className="s3-actions">
+                <button className="ghost xs" disabled={!canRetry} title={!canRetry ? "Đang chờ/đang xử lý" : undefined}
+                  onClick={() => retryItem(it)}>Chạy lại</button>
+                <button className="ghost xs danger" onClick={() => removeItem(it)}>Xóa</button>
+              </span>
             </div>
           );
         })}

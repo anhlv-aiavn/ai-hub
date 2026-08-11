@@ -498,6 +498,28 @@ export async function getQcSyncItems({ configId, status, verdict, page = 1, page
   if (verdict) p.set("verdict", verdict);
   return handle(await fetch(`/v1/qc-sync/items?${p.toString()}`, { headers: headers() }));
 }
+export async function retryQcSyncItem(itemId) {
+  return handle(await fetch(`/v1/qc-sync/items/${encodeURIComponent(itemId)}/retry`, {
+    method: "POST", headers: headers(),
+  }));
+}
+export async function deleteQcSyncItem(itemId) {
+  return handle(await fetch(`/v1/qc-sync/items/${encodeURIComponent(itemId)}`, {
+    method: "DELETE", headers: headers(),
+  }));
+}
+// Xóa TOÀN BỘ lịch sử quét (mọi file) của 1 kênh — quét lại từ đầu cả thư mục.
+export async function clearQcSyncConfigItems(configId) {
+  return handle(await fetch(`/v1/qc-sync/configs/${encodeURIComponent(configId)}/items`, {
+    method: "DELETE", headers: headers(),
+  }));
+}
+// Mở trực tiếp PDF nguồn (tab mới) — token qua query vì đây là link, không phải fetch().
+export function qcSyncSourcePdfUrl(itemId) {
+  const p = new URLSearchParams();
+  if (auth.token) p.set("token", auth.token);
+  return `/v1/qc-sync/items/${encodeURIComponent(itemId)}/source-pdf?${p.toString()}`;
+}
 
 export async function downloadExportJob(id) {
   const p = new URLSearchParams();

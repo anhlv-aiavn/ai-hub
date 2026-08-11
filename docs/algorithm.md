@@ -301,6 +301,20 @@ file, phục vụ debug "chạy đến đâu, lỗi ở đâu"). Chạy quét ng
 **Lưu ý vận hành**: bước OCR dùng CHUNG pool vLLM với pipeline GCN sản xuất — xem
 [QC-1](features_issues.md#qc-shared-vlm).
 
+**Quản lý lịch sử quét (debug/reset)**:
+- `POST /v1/qc-sync/items/{id}/retry` — đưa 1 item về `queued`, xóa `qc`/`ocr`/`error` cũ, worker xử
+  lý lại từ đầu (chặn nếu đang `processing`, tránh đụng độ với lượt đang chạy dở).
+- `DELETE /v1/qc-sync/items/{id}` — xóa 1 item khỏi lịch sử (gỡ chặn unique index → file được coi
+  là "mới", quét lại ở lượt sau).
+- `DELETE /v1/qc-sync/configs/{id}/items` — xóa TOÀN BỘ lịch sử quét (mọi file) của 1 kênh, để quét
+  lại từ đầu cả thư mục. Cả 3 endpoint đều KHÔNG đụng file đã cắt đã ghi ở MinIO đích (chỉ xóa bản
+  ghi theo dõi) và KHÔNG lùi `qc_stats_daily` đã cộng dồn khi xóa từng item lẻ (thống kê vận hành
+  gần đúng, chấp nhận lệch nhỏ — xóa cả kênh thì xóa luôn `qc_stats_daily` của kênh đó, nhất quán).
+  FE (`QcSync.jsx`) bắt buộc `window.confirm()` cảnh báo rõ hậu quả trước khi gọi.
+- `GET /v1/qc-sync/items/{id}/source-pdf` — xem trực tiếp PDF NGUỒN (khác file đã cắt) qua tab mới,
+  bấm vào cột "S3 key" trên bảng theo dõi; stream thẳng từ kho nguồn (`storage.get_pdf`), không lưu
+  tạm ở server.
+
 ### 9e. Chưa làm (phase 2 — theo đúng yêu cầu)
 
 "Phân loại" và "Làm mịn json đầu vào" — `qc_items.classification`/`refined` để sẵn field rỗng

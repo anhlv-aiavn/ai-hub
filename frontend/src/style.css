@@ -1373,6 +1373,19 @@ label.file-row { width: 100%; }
 .qc-active-job b { color: var(--text); font-variant-numeric: tabular-nums; }
 .qc-active-job button { margin-left: auto; }
 
+/* Bảng "File gần đây" (QcSyncDetail) — 6 cột (khác .s3-tbl 5 cột): thêm cột
+   thao tác Chạy lại/Xóa từng item. */
+.qc-items-tbl .qc-item-row {
+  display: grid; grid-template-columns: 1.6fr .9fr 1.1fr 1.4fr 1.1fr auto;
+  align-items: center;
+}
+.qc-items-tbl .qc-item-head { background: var(--surface-3); color: var(--text-3); font-size: 11px;
+  text-transform: uppercase; letter-spacing: .04em; font-weight: 600; height: auto; padding: 7px 10px; }
+/* S3 key giờ là link (mở PDF nguồn tab mới) — bỏ màu/gạch chân mặc định của
+   trình duyệt, giữ đúng kiểu chữ dense-table như trước, chỉ đổi màu khi hover. */
+a.fr-name { color: var(--text); text-decoration: none; cursor: pointer; }
+a.fr-name:hover { color: var(--brand); text-decoration: underline; }
+
 .audit-pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding-top: 4px; }
 .audit-pager .pager-btn { width: auto; height: 32px; padding: 0 12px; display: inline-flex;
   align-items: center; gap: 5px; }

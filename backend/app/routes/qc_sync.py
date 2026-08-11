@@ -3,16 +3,19 @@ ngay, thống kê + theo dõi item. admin-only, cùng khuôn `s3_connections.py`
 Xử lý thật (liệt kê, QC, OCR, crop) chạy trong worker — xem
 `app/worker/qc_pipeline.py`. Chi tiết luồng: `docs/algorithm.md §9`."""
 
+import io
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app import config
+from app import config, storage
 from app.audit import AuditAction, log_action
 from app.db import qc_items, qc_stats_daily, qc_sync_configs, qc_sync_jobs, s3_connections
 from app.deps import require_admin
+from app.storage import SourceObjectMissing, SourceObjectUnavailable
 
 router = APIRouter(prefix="/v1/qc-sync", tags=["qc-sync"], dependencies=[Depends(require_admin)])
 
@@ -107,12 +110,29 @@ async def update_config(config_id: str, body: ConfigPatch, admin: dict = Depends
 
 @router.delete("/configs/{config_id}")
 async def delete_config(config_id: str, admin: dict = Depends(require_admin)):
+    """Xóa kênh = xóa TOÀN BỘ dữ liệu liên quan (job/item/thống kê) — sau khi
+    xóa config, không còn cách nào xem/dọn các bản ghi "mồ côi" này qua UI nữa
+    (không có tên kênh để tra). KHÔNG đụng file đã cắt đã ghi ở MinIO đích
+    (chỉ dữ liệu Mongo)."""
     doc = await qc_sync_configs().find_one({"_id": config_id})
     if not doc:
         raise HTTPException(status_code=404, detail="Không tìm thấy kênh đồng bộ")
+    # Hủy MỌI job queued/processing TRƯỚC — worker sớm dừng, giảm khả năng ghi
+    # thêm dữ liệu SAU khi đã xóa bên dưới (không loại bỏ hoàn toàn race: worker
+    # chỉ nhận cờ cancel ở checkpoint giữa các trang liệt kê — chấp nhận cho
+    # thao tác dọn dẹp admin, không phải đường xử lý chính).
+    await qc_sync_jobs().update_many(
+        {"config_id": config_id, "status": "queued"}, {"$set": {"status": "cancelled"}})
+    await qc_sync_jobs().update_many(
+        {"config_id": config_id, "status": "processing"}, {"$set": {"cancel_requested": True}})
+    n_jobs = (await qc_sync_jobs().delete_many({"config_id": config_id})).deleted_count
+    n_items = (await qc_items().delete_many({"config_id": config_id})).deleted_count
+    n_stats = (await qc_stats_daily().delete_many({"config_id": config_id})).deleted_count
     await qc_sync_configs().delete_one({"_id": config_id})
-    await log_action(admin["username"], AuditAction.QC_SYNC_CONFIG_DELETE, config_id, {"deleted": doc})
-    return {"ok": True}
+    await log_action(admin["username"], AuditAction.QC_SYNC_CONFIG_DELETE, config_id,
+                     {"deleted": doc, "deleted_jobs": n_jobs, "deleted_items": n_items,
+                      "deleted_stats_days": n_stats})
+    return {"ok": True, "deleted_jobs": n_jobs, "deleted_items": n_items, "deleted_stats_days": n_stats}
 
 
 def _public_job(j: dict) -> dict:
@@ -229,3 +249,78 @@ async def list_items(config_id: str | None = Query(default=None),
     for r in rows:
         r["id"] = r.pop("_id")
     return {"items": rows, "page": page, "page_size": page_size}
+
+
+@router.post("/items/{item_id}/retry")
+async def retry_item(item_id: str, admin: dict = Depends(require_admin)):
+    """Đưa 1 item về `queued` để worker xử lý lại từ đầu (QC + OCR + crop lại
+    toàn bộ — không phải chỉ thử lại bước lỗi). Xóa kết quả QC/OCR cũ để tránh
+    hiện dữ liệu cũ lẫn dữ liệu mới nếu lần chạy lại không ghi đè hết field."""
+    item = await qc_items().find_one({"_id": item_id})
+    if not item:
+        raise HTTPException(status_code=404, detail="Không tìm thấy item")
+    if item.get("status") == "processing":
+        raise HTTPException(status_code=409, detail="Item đang được xử lý, thử lại sau")
+    await qc_items().update_one(
+        {"_id": item_id},
+        {"$set": {"status": "queued", "error": None, "error_kind": None,
+                  "qc": None, "ocr": None, "started_at": None, "finished_at": None}},
+    )
+    await log_action(admin["username"], AuditAction.QC_SYNC_ITEM_RETRY, item_id,
+                     {"config_id": item.get("config_id"), "s3_key": item.get("s3_key")})
+    return {"ok": True}
+
+
+@router.delete("/items/{item_id}")
+async def delete_item(item_id: str, admin: dict = Depends(require_admin)):
+    """Xóa 1 item khỏi lịch sử quét — file sẽ được coi là "mới" và quét lại ở
+    lượt kế tiếp (unique index chỉ chặn theo `(source_connection_id, s3_key)`
+    hiện có, xóa doc là gỡ chặn). KHÔNG xóa file đã cắt đã ghi ở MinIO đích,
+    KHÔNG lùi số liệu `qc_stats_daily` đã cộng dồn trước đó (thống kê vận
+    hành gần đúng, không phải sổ sách tài chính — chấp nhận lệch nhỏ)."""
+    item = await qc_items().find_one({"_id": item_id})
+    if not item:
+        raise HTTPException(status_code=404, detail="Không tìm thấy item")
+    await qc_items().delete_one({"_id": item_id})
+    await log_action(admin["username"], AuditAction.QC_SYNC_ITEM_DELETE, item_id,
+                     {"config_id": item.get("config_id"), "s3_key": item.get("s3_key"),
+                      "status": item.get("status")})
+    return {"ok": True}
+
+
+@router.delete("/configs/{config_id}/items")
+async def clear_config_items(config_id: str, admin: dict = Depends(require_admin)):
+    """Xóa TOÀN BỘ lịch sử quét (mọi file, mọi trạng thái) của 1 kênh — để quét
+    lại từ đầu cả thư mục. KHÔNG xóa file đã cắt đã ghi ở MinIO đích, KHÔNG
+    xóa lịch sử job (`qc_sync_jobs` — giữ làm audit trail)."""
+    cfg = await qc_sync_configs().find_one({"_id": config_id})
+    if not cfg:
+        raise HTTPException(status_code=404, detail="Không tìm thấy kênh đồng bộ")
+    n_items = (await qc_items().delete_many({"config_id": config_id})).deleted_count
+    n_stats = (await qc_stats_daily().delete_many({"config_id": config_id})).deleted_count
+    await log_action(admin["username"], AuditAction.QC_SYNC_ITEMS_CLEAR, config_id,
+                     {"deleted_items": n_items, "deleted_stats_days": n_stats})
+    return {"ok": True, "deleted_items": n_items, "deleted_stats_days": n_stats}
+
+
+@router.get("/items/{item_id}/source-pdf")
+async def get_source_pdf(item_id: str, admin: dict = Depends(require_admin)):
+    """Xem trực tiếp PDF nguồn (kho MinIO nguồn, KHÔNG phải file đã cắt) — mở
+    tab mới từ cột "S3 key" trên bảng theo dõi, phục vụ đối chiếu khi debug.
+    `inline` (không `attachment`) để trình duyệt hiển thị PDF thay vì tải về."""
+    item = await qc_items().find_one({"_id": item_id})
+    if not item:
+        raise HTTPException(status_code=404, detail="Không tìm thấy item")
+    try:
+        buf = await storage.get_pdf(item["s3_key"], item.get("source_connection_id"))
+    except SourceObjectMissing as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except SourceObjectUnavailable as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    await log_action(admin["username"], AuditAction.QC_SYNC_ITEM_VIEW_SOURCE, item_id,
+                     {"s3_key": item["s3_key"]})
+    filename = item["s3_key"].rsplit("/", 1)[-1] or "file.pdf"
+    return StreamingResponse(
+        io.BytesIO(buf.getvalue()), media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
