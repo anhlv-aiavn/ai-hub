@@ -555,6 +555,25 @@ export async function syncQcWards(url, extraHeaders) {
   }));
 }
 
+// ── Phân loại hồ sơ + "làm mịn dữ liệu" (phase 2 QC Sync, tab "Phân loại") ──
+export async function getQcClassifications({ configId, q, structuralLabel, page = 1, pageSize = 50 } = {}) {
+  const p = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  if (configId) p.set("config_id", configId);
+  if (q) p.set("q", q);
+  if (structuralLabel) p.set("structural_label", structuralLabel);
+  return handle(await fetch(`/v1/qc-sync/classifications?${p.toString()}`, { headers: headers() }));
+}
+export async function reclassifyQcCut(itemId, cutIndex) {
+  return handle(await fetch(`/v1/qc-sync/items/${encodeURIComponent(itemId)}/cuts/${cutIndex}/reclassify`, {
+    method: "POST", headers: headers(),
+  }));
+}
+export async function getQcRefinedPayload(itemId, cutIndex) {
+  return handle(await fetch(`/v1/qc-sync/items/${encodeURIComponent(itemId)}/cuts/${cutIndex}/refined-payload`, {
+    headers: headers(),
+  }));
+}
+
 export async function downloadExportJob(id) {
   const p = new URLSearchParams();
   if (auth.token) p.set("token", auth.token);

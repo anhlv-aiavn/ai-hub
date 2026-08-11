@@ -34,6 +34,8 @@ class AuditAction(str, Enum):
     QC_SYNC_ITEMS_CLEAR = "qc_sync_item.clear_all"
     QC_SYNC_ITEM_VIEW_SOURCE = "qc_sync_item.view_source"
     QC_SYNC_ITEM_VIEW_CUT = "qc_sync_item.view_cut"
+    QC_SYNC_ITEM_RECLASSIFY = "qc_sync_item.reclassify"
+    QC_SYNC_ITEM_VIEW_REFINED = "qc_sync_item.view_refined"
     QC_SYNC_WARDS_SYNC = "qc_sync_wards.sync"
 
 

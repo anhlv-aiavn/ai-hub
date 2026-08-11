@@ -27,11 +27,20 @@ from pymongo import ReturnDocument
 from pymongo.errors import BulkWriteError
 
 from app import config, qc_client, storage
+from app.land_normalizer.classification.structural import classify_structural
+from app.land_normalizer.pipeline import build_payload
+from app.land_normalizer.registry import build_default_registry
+from app.land_normalizer_adapter import first_entry, raw_record_from_cut
 from app.s3_util import build_client
 from app.storage import DestinationNotConfigured, SourceObjectMissing, SourceObjectUnavailable
 from app.worker import run_job
 from src.extentions.mongo_helper import AsyncMongo
 from src.extentions.multimodal.normalize_dang_ky import normalize_extractions
+
+# Đăng ký resolver 1 lần ở module scope (thuần, không state) — dùng lại cho mọi
+# lần "làm mịn dữ liệu" (build Payload) + phân loại cấu trúc, xem
+# _classify_cuts() và docs/algorithm.md §10.
+_REGISTRY = build_default_registry()
 
 log = logging.getLogger(__name__)
 
@@ -293,6 +302,37 @@ def _qc_cut_naming(item: dict):
     return _fn
 
 
+async def _ward_code_of(mongo: AsyncMongo, config_id: str | None) -> str:
+    """`qc_sync_configs.name` — kênh QC Sync đặt tên trùng mã Phường/Xã (quy ước
+    đã có, xem WardSyncPanel/`_ward_map` trong routes/qc_sync.py) — dùng làm
+    `DonDangKy.XaId` khi "làm mịn dữ liệu" (không có nguồn thu thập thực địa
+    riêng như dự án gốc `vpdd-don-ai`, xem docs/algorithm.md §10)."""
+    if not config_id:
+        return ""
+    doc = await mongo.db[config.COLL_QC_SYNC_CONFIG].find_one({"_id": config_id}, {"name": 1})
+    return (doc or {}).get("name") or ""
+
+
+def _classify_cuts(records: list, cuts: list[dict], ward_code: str, item_id: str) -> None:
+    """"Làm mịn dữ liệu" (build Payload) + phân loại cấu trúc cho MỖI cut, port
+    từ `vpdd-don-ai` (docs/algorithm.md §10) — MUTATE `cuts` tại chỗ, ghi
+    `cut["refined"]`/`cut["classification"]`. 1 cut lỗi KHÔNG chặn cut khác
+    (try/except riêng từng cut, giữ tinh thần "1 GCN lỗi không chặn cả batch")."""
+    for cut in cuts:
+        try:
+            ri = cut.get("index")
+            record = records[ri] if isinstance(ri, int) and 0 <= ri < len(records) else {}
+            entry = first_entry(record)
+            raw = raw_record_from_cut(entry, cut, ward_code=ward_code, item_id=item_id)
+            build = build_payload([raw], _REGISTRY)
+            cut["refined"] = build.payload.model_dump(mode="json")
+            cut["classification"] = classify_structural(build.payload).model_dump(mode="json")
+        except Exception as e:  # noqa: BLE001
+            log.warning("qc_item %s cut %s: lỗi làm mịn/phân loại: %s", item_id, cut.get("index"), e)
+            cut["refined"] = None
+            cut["classification"] = None
+
+
 async def _finish_item(mongo: AsyncMongo, item_id: str, status: str, *, qc: dict | None = None,
                        ocr: dict | None = None, error: str | None = None,
                        error_kind: str | None = None) -> None:
@@ -389,6 +429,12 @@ async def process_qc_item(mongo: AsyncMongo, item: dict) -> str:
             gcn_id=item_id, batch_id=config_id, images=images, records=records,
             dest_purpose="qc", naming_fn=_qc_cut_naming(item),
         )
+        # "Làm mịn dữ liệu" (build Payload) + phân loại cấu trúc — TỰ ĐỘNG, miễn
+        # phí (thuần Python, không gọi API nào) — port từ vpdd-don-ai, xem
+        # docs/algorithm.md §10. Người dùng có thể chạy lại thủ công sau qua
+        # POST /items/{id}/cuts/{i}/reclassify (routes/qc_sync.py).
+        ward_code = await _ward_code_of(mongo, config_id)
+        _classify_cuts(records, cuts, ward_code=ward_code, item_id=item_id)
         ocr_doc["cuts"] = cuts
     except DestinationNotConfigured as e:
         # Thiếu S3 đích QC là lỗi HỆ THỐNG (ảnh hưởng mọi cut của item này) —

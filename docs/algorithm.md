@@ -388,7 +388,73 @@ mọi nơi trả `ward_name` (`/configs`, `/stats/by-config`).
   `config_id` (biểu đồ/bảng "tất cả kênh") cần index riêng trên `date`, unique index
   `(config_id,date)` có sẵn không phục vụ được kiểu truy vấn này.
 
-### 9e. Chưa làm (phase 2 — theo đúng yêu cầu)
+### 9e. Phase 2 — xem §10
 
-"Phân loại" và "Làm mịn json đầu vào" — `qc_items.classification`/`refined` để sẵn field rỗng
-trong schema, chưa code logic.
+"Phân loại" và "Làm mịn json đầu vào" (`qc_items.ocr.cuts[].classification`/`refined`) — đã code,
+xem §10.
+
+## 10. Phân loại hồ sơ + "làm mịn dữ liệu" (build đơn) — phase 2 QC Sync
+
+> Mã: F-17 (`features_issues.md`). Code: `app/land_normalizer/` (thư viện port), `app/land_normalizer_adapter.py`
+> (adapter), `app/worker/qc_pipeline.py::_classify_cuts`, `app/routes/qc_sync.py` (mục "Phân loại hồ
+> sơ"), FE `QcClassification.jsx`. Port thuật toán chuẩn hoá + phân loại cấu trúc từ dự án nội bộ
+> `vpdd-don-ai` (`/Users/minhdra/workspace/aia/vpdk/vpdd-don-ai`) — **CHỈ port phần cấu trúc**,
+> KHÔNG port "phân loại nội dung biến động" bằng Claude API (yêu cầu bỏ hoàn toàn, không có
+> dependency/API key nào cho bước này trong ai-hub).
+
+```
+qc_items.ocr.records[ri]["result"]["Đăng ký"][0]     (entry OCR — 1 record = 1 cut, xem cuts[ri])
+        │
+        ▼  raw_record_from_cut(entry, cut, ward_code, item_id)   (app/land_normalizer_adapter.py)
+RawRecord (ai_gcn_*/ai_chu_su_dung/ai_thua_dat/ai_tai_san/ai_bien_dong ← gán thẳng từ entry;
+           ai_chu_cuoi ← chu_cuoi_for_entry(entry) đã có sẵn; parcels_json ← [{"ma_xa": ward_code}])
+        │
+        ▼  build_payload([raw], registry)          (app/land_normalizer/pipeline.py — PORT nguyên)
+Payload (PascalCase, khớp payload.json của HSQ)  ──────────────► cuts[i].refined
+        │
+        ▼  classify_structural(payload)     (app/land_normalizer/classification/structural.py)
+PhanLoaiCauTruc (SoChuSoHuu/SoThua/CoDaMucDich/CoSuDungChungVaRieng/NhanCauTruc) ─► cuts[i].classification
+```
+
+**Vì sao port được gần nguyên vẹn**: schema JSON OCR của ai-hub (`Đăng ký` →
+`Giấy chứng nhận`/`Chủ sử dụng`/`Thửa đất`/`Thông tin nhà ở`/`Biến động`, xem
+`src/extentions/multimodal/prompt.py`) khớp gần 1:1 với các field alias Vietnamese-key mà
+`RawRecord` (input contract của `vpdd-don-ai`) đã định nghĩa sẵn — dự án gốc thiết kế `RawRecord`
+tách biệt khỏi nguồn dữ liệu (Excel/API HSQ) chính vì lý do này (ADR-001 của họ). ai-hub cũng đã có
+sẵn `chu_cuoi_for_entry()` (`src/extentions/multimodal/chu_cuoi.py`, dùng chung với backfill
+`chu_cuoi` của pipeline GCN chính) — hàm PURE suy "chủ cuối" từ lịch sử biến động, khớp đúng field
+`ai_chu_cuoi` cần cho resolver "Xác định chủ sử dụng" (Vợ chồng/Cá nhân/Hộ gia đình).
+
+**`ward_code`** = `qc_sync_configs.name` (kênh QC Sync đặt tên trùng mã Phường/Xã theo quy ước đã
+có ở §9) — dùng thay cho `parcels_json[0].ma_xa` (dữ liệu "thu thập thực địa" mà dự án gốc có
+nhưng ai-hub không có) để resolver `DonDangKy.XaId` vẫn hoạt động: adapter tự tạo
+`parcels_json=[{"ma_xa": ward_code}]` giả lập.
+
+**Tính TỰ ĐỘNG, MIỄN PHÍ** (không gọi API ngoài nào — thuần Python): `_classify_cuts()` chạy ngay
+trong `process_qc_item` sau `_build_cuts()` thành công, với MỖI cut — bọc `try/except` riêng từng
+cut (1 cut lỗi không chặn cut khác, cùng tinh thần "1 GCN lỗi không chặn cả batch" của dự án gốc).
+Ghi trực tiếp vào `cuts[i].refined`/`cuts[i].classification` (KHÔNG phải field top-level
+`qc_items.classification`/`refined` như ghi chú "để chỗ sẵn" ban đầu ở §9e cũ — vì 1 file nguồn có
+thể chứa NHIỀU GCN/cut, mỗi cut cần kết quả riêng).
+
+**Không merge "attempts" nhiều lần OCR trùng GCN** (khác ADR-002 của dự án gốc) — mỗi cut tự đứng
+thành 1 `RawRecord` độc lập (`build_payload([raw], registry)` chỉ 1 attempt). Nếu cùng 1 GCN được
+quét lại ở 1 `qc_item` khác (2 lần sync khác nhau), sẽ ra 2 kết quả `refined` độc lập thay vì gộp
+lại lấy giá trị tốt nhất — giới hạn v1, xem Issue mở trong `features_issues.md`.
+
+**Endpoint**:
+- `POST /v1/qc-sync/items/{item_id}/cuts/{cut_index}/reclassify` — chạy lại build_payload +
+  classify_structural cho 1 cut (KHÔNG chạy lại QC/OCR, chỉ đọc lại `item.ocr.records` đã có sẵn).
+  Dùng khi thuật toán đổi, hoặc lần tính tự động ban đầu lỗi.
+- `GET /v1/qc-sync/classifications?config_id=&q=&structural_label=&page=` — bảng "Phân loại"
+  (1 dòng/1 cut), aggregation `$unwind` trên `qc_items` (collection nhỏ, không cần tránh aggregate
+  như `gcns()` 600k dòng).
+- `GET /v1/qc-sync/items/{item_id}/cuts/{cut_index}/refined-payload?download=` — trả JSON
+  `cuts[i].refined` — đây là dữ liệu SẼ LÀ input cho API "kiểm tra đơn" (`create-registration`) của
+  HSQ nếu người dùng tự đem đi dùng; **ai-hub KHÔNG gọi API đó** (không có `item_id`/token của hệ
+  thống HSQ) — chỉ hiển thị để copy/tải JSON thủ công.
+
+FE (`QcClassification.jsx`, tab "Phân loại" ngay sau "QC Sync"): bảng lọc theo kênh/Số phát
+hành/nhãn cấu trúc, mỗi dòng có nút "Xem JSON" (modal, nút Copy + Tải file) và "Phân loại lại".
+KHÔNG có ô nhập Bearer token, KHÔNG có "Kiểm tra đơn"/"So sánh với HSQ" — các phần này gắn với API
+HSQ thật, ngoài phạm vi ai-hub.

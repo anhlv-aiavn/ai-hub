@@ -1565,6 +1565,21 @@ a.fr-name:hover { color: var(--brand); text-decoration: underline; }
    tìm thấy + cắt được trang GCN, chỉ là không đọc ra được số trên đó). */
 .qc-cuts-cell a.qc-cut-nosph { color: #92400e; }
 
+/* Bảng "Phân loại" (QcClassification.jsx) — 7 cột: Số phát hành, Nhãn cấu
+   trúc, Số chủ, Số thửa, Đa mục đích, Chung/riêng, Thao tác. */
+.qc-cls-tbl .qc-cls-row {
+  display: grid; grid-template-columns: 1.3fr 1.6fr .6fr .6fr .8fr .8fr auto;
+  align-items: center; height: auto; min-height: 34px; padding: 6px 10px; gap: 8px;
+}
+.qc-cls-tbl .qc-cls-row > * { min-width: 0; }
+.qc-cls-tbl .qc-cls-head { background: var(--surface-3); color: var(--text-3); font-size: 11px;
+  text-transform: uppercase; letter-spacing: .04em; font-weight: 600; height: auto; padding: 7px 10px; }
+/* JSON payload đã "làm mịn" trong modal (Xem JSON) — cuộn riêng, giữ định
+   dạng thụt lề của JSON.stringify(..., 2). */
+.qc-json-view { max-height: 65vh; overflow: auto; background: var(--surface-3);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; white-space: pre; }
+
 .audit-pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding-top: 4px; }
 .audit-pager .pager-btn { width: auto; height: 32px; padding: 0 12px; display: inline-flex;
   align-items: center; gap: 5px; }

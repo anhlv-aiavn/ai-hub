@@ -4,19 +4,26 @@ Xử lý thật (liệt kê, QC, OCR, crop) chạy trong worker — xem
 `app/worker/qc_pipeline.py`. Chi tiết luồng: `docs/algorithm.md §9`."""
 
 import io
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app import config, storage
 from app.audit import AuditAction, log_action
 from app.db import qc_items, qc_stats_daily, qc_sync_configs, qc_sync_jobs, qc_wards, s3_connections
 from app.deps import require_admin
+from app.land_normalizer.classification.structural import classify_structural
+from app.land_normalizer.pipeline import build_payload
+from app.land_normalizer.registry import build_default_registry
+from app.land_normalizer_adapter import first_entry, raw_record_from_cut
 from app.storage import SourceObjectMissing, SourceObjectUnavailable
+
+_REGISTRY = build_default_registry()
 
 router = APIRouter(prefix="/v1/qc-sync", tags=["qc-sync"], dependencies=[Depends(require_admin)])
 
@@ -440,6 +447,109 @@ async def get_cut_pdf(item_id: str, cut_index: int, admin: dict = Depends(requir
         io.BytesIO(buf.getvalue()), media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
+
+
+# ── Phân loại hồ sơ + "làm mịn dữ liệu" (phase 2, port từ vpdd-don-ai) ──────
+# Xem docs/algorithm.md §10 — build_payload/classify_structural tính TỰ ĐỘNG
+# trong worker ngay sau OCR (app/worker/qc_pipeline.py::_classify_cuts); các
+# endpoint dưới đây chỉ phục vụ xem lại (bảng "Phân loại") + chạy lại thủ công.
+
+@router.post("/items/{item_id}/cuts/{cut_index}/reclassify")
+async def reclassify_cut(item_id: str, cut_index: int, admin: dict = Depends(require_admin)):
+    """Chạy lại "làm mịn dữ liệu" (build Payload) + phân loại cấu trúc cho 1
+    cut — KHÔNG chạy lại QC/OCR (đã có sẵn `item.ocr.records`), chỉ tính lại
+    bước thuần Python phía sau. Dùng khi thuật toán chuẩn hoá đổi, hoặc lần
+    tính tự động trước đó lỗi (`refined`/`classification` = None)."""
+    item = await qc_items().find_one({"_id": item_id})
+    if not item:
+        raise HTTPException(status_code=404, detail="Không tìm thấy item")
+    cuts = ((item.get("ocr") or {}).get("cuts")) or []
+    cut = next((c for c in cuts if c.get("index") == cut_index), None)
+    if not cut:
+        raise HTTPException(status_code=404, detail="Không tìm thấy file đã cắt")
+    records = ((item.get("ocr") or {}).get("records")) or []
+    record = records[cut_index] if 0 <= cut_index < len(records) else {}
+    entry = first_entry(record)
+    cfg = await qc_sync_configs().find_one({"_id": item.get("config_id")}, {"name": 1})
+    ward_code = (cfg or {}).get("name") or ""
+    try:
+        raw = raw_record_from_cut(entry, cut, ward_code=ward_code, item_id=item_id)
+        build = build_payload([raw], _REGISTRY)
+        refined = build.payload.model_dump(mode="json")
+        classification = classify_structural(build.payload).model_dump(mode="json")
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail=f"Lỗi làm mịn/phân loại: {e}") from e
+    await qc_items().update_one(
+        {"_id": item_id, "ocr.cuts.index": cut_index},
+        {"$set": {"ocr.cuts.$.refined": refined, "ocr.cuts.$.classification": classification}},
+    )
+    await log_action(admin["username"], AuditAction.QC_SYNC_ITEM_RECLASSIFY, item_id,
+                     {"cut_index": cut_index})
+    return {"ok": True, "refined": refined, "classification": classification}
+
+
+@router.get("/classifications")
+async def list_classifications(config_id: str | None = Query(default=None),
+                                q: str | None = Query(default=None),
+                                structural_label: str | None = Query(default=None),
+                                page: int = Query(default=1, ge=1),
+                                page_size: int = Query(default=50, ge=1, le=200)):
+    """Bảng "Phân loại" (1 dòng/1 cut đã làm mịn) — aggregation nhỏ trên
+    `qc_items` (`$unwind` cuts), collection không lớn tới mức phải tránh
+    aggregate (khác `gcns()` 600k dòng, xem nguyên tắc bất biến #3)."""
+    pipeline: list[dict] = [
+        {"$match": {"config_id": config_id} if config_id else {}},
+        {"$unwind": "$ocr.cuts"},
+        {"$match": {"ocr.cuts.classification": {"$ne": None}}},
+    ]
+    if structural_label:
+        pipeline.append({"$match": {"ocr.cuts.classification.NhanCauTruc": structural_label}})
+    if q:
+        pipeline.append({"$match": {"ocr.cuts.so_phat_hanh": {"$regex": re.escape(q.strip()), "$options": "i"}}})
+    skip = (page - 1) * page_size
+    pipeline += [
+        {"$sort": {"finished_at": -1}},
+        {"$skip": skip}, {"$limit": page_size},
+        {"$project": {
+            "_id": 0, "item_id": "$_id", "config_id": "$config_id",
+            "cut_index": "$ocr.cuts.index", "so_phat_hanh": "$ocr.cuts.so_phat_hanh",
+            "name": "$ocr.cuts.name", "classification": "$ocr.cuts.classification",
+        }},
+    ]
+    rows = await qc_items().aggregate(pipeline).to_list(length=page_size)
+
+    configs = await qc_sync_configs().find().to_list(length=500)
+    ward_map = await _ward_map()
+    ward_names = {c["_id"]: (c.get("ward_name") or ward_map.get(c.get("name"), "")) for c in configs}
+    for r in rows:
+        r["ward_name"] = ward_names.get(r["config_id"], "")
+    return {"rows": rows, "page": page, "page_size": page_size}
+
+
+@router.get("/items/{item_id}/cuts/{cut_index}/refined-payload")
+async def get_refined_payload(item_id: str, cut_index: int, download: bool = Query(default=False),
+                              admin: dict = Depends(require_admin)):
+    """Trả JSON `Payload` đã "làm mịn" (chuẩn hoá) cho 1 cut — đây là dữ liệu
+    SẼ LÀ input cho API "kiểm tra đơn" của HSQ nếu người dùng tự đem đi dùng;
+    ai-hub KHÔNG gọi API đó (không có item_id/token HSQ) — chỉ hiển thị JSON
+    để copy/tải về thủ công (`download=true` → tải file thay vì xem inline)."""
+    item = await qc_items().find_one({"_id": item_id})
+    if not item:
+        raise HTTPException(status_code=404, detail="Không tìm thấy item")
+    cuts = ((item.get("ocr") or {}).get("cuts")) or []
+    cut = next((c for c in cuts if c.get("index") == cut_index), None)
+    if not cut:
+        raise HTTPException(status_code=404, detail="Không tìm thấy file đã cắt")
+    refined = cut.get("refined")
+    if refined is None:
+        raise HTTPException(status_code=404, detail="Chưa có dữ liệu đã làm mịn cho file này")
+    await log_action(admin["username"], AuditAction.QC_SYNC_ITEM_VIEW_REFINED, item_id,
+                     {"cut_index": cut_index, "download": download})
+    headers = {}
+    if download:
+        so_gcn = (cut.get("so_phat_hanh") or f"cut{cut_index}").replace("/", "-")
+        headers["Content-Disposition"] = f'attachment; filename="{so_gcn}-payload.json"'
+    return JSONResponse(content=refined, headers=headers)
 
 
 # ── Danh sách Phường/Xã (để hiện tên thay mã kênh) ──────────────────────────

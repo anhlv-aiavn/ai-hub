@@ -231,6 +231,17 @@ kênh đồng bộ khác nhau dùng CHUNG 1 đích và tình cờ ra cùng Số 
 file → file sau ĐÈ file trước, không cảnh báo. Chấp nhận cho v1 theo đúng yêu cầu (mỗi kênh nên dùng
 1 đích riêng để né rủi ro này); chưa có cơ chế phát hiện/ngăn trùng.
 
+### ⚠️ QC-3 · P2 · 🟡 · Phân loại (F-17) không gộp "attempts" khi 1 GCN được quét lại nhiều lần {#qc-classify-no-attempts}
+
+Dự án gốc `vpdd-don-ai` (ADR-002) cố tình KHÔNG gộp sớm nhiều lần OCR/nộp đơn trùng `so_gcn` —
+mỗi resolver tự chọn/gộp dữ liệu từ toàn bộ `attempts` để không mất thông tin đúng từ lần bị
+"loại". F-17 ở ai-hub build `Payload` cho MỖI cut ĐỘC LẬP (`build_payload([raw_record], registry)`
+— luôn đúng 1 attempt), KHÔNG gộp qua các `qc_item` khác nhau dù cùng Số phát hành. Nếu 1 GCN được
+đồng bộ/quét lại 2 lần (2 `qc_item` khác nhau) và lần 2 đọc được trường mà lần 1 thiếu (hoặc ngược
+lại), 2 kết quả `refined` sẽ ĐỘC LẬP thay vì gộp lấy giá trị tốt nhất — người dùng phải tự so sánh
+qua bảng "Phân loại" (lọc theo Số phát hành). Chấp nhận cho v1; nâng cấp sau nếu cần (query mọi cut
+cùng `so_phat_hanh` trong 1 kênh làm `attempts` trước khi `build_payload`).
+
 ### 🔒 Quyết định: OCR của QC Sync dùng PDF GỐC, không dùng ảnh đã nắn QC trả về {#qc-decide-raw-ocr}
 
 **Đã chốt cho v1.** `qc-scanner-server` trả về ảnh đã nắn thẳng/cắt biên (`?format=json` có field
@@ -294,6 +305,7 @@ chưa có. **Hướng**: định nghĩa chính sách cùng khách hàng (xem `ne
 | F-14 | Quản lý S3 nguồn/đích, phân quyền lô, audit log, JWT/1-phiên | `routes/{s3_connections,users,audit,auth}.py` |
 | F-15 | Dry-run trích xuất (bucket/collection riêng, TTL tự dọn) | `routes/dryrun.py` |
 | F-16 | **QC Sync**: đồng bộ MinIO nguồn → chấm chất lượng qua qc-scanner-server ngoài → OCR (tái dùng VLM) → cắt GCN → MinIO đích riêng; có dashboard (QC/OCR/số file cắt theo ngày/tuần/tháng/tổng, lọc theo Phường/Xã) ở trang Tổng quan; đồng bộ danh sách Phường/Xã từ API ngoài (URL tự nhập) để tự hiện tên P/X | `worker/qc_pipeline.py`, `qc_client.py`, `routes/qc_sync.py`, FE `QcSync.jsx`/`QcSyncStats.jsx` |
+| F-17 | **Phân loại hồ sơ + "làm mịn dữ liệu"** (phase 2 QC Sync, port thuật toán chuẩn hoá + phân loại cấu trúc từ dự án nội bộ `vpdd-don-ai`, BỎ phần "phân loại biến động" bằng Claude API): tự động build `Payload` chuẩn (khớp `payload.json` của HSQ) + phân loại cấu trúc (số chủ/số thửa/đa mục đích/chung-riêng) cho MỖI cut ngay sau OCR — miễn phí, không gọi API ngoài; xem/tải JSON đã làm mịn để copy thủ công (không tự gọi API "kiểm tra đơn" của HSQ) | `land_normalizer/*` (port), `land_normalizer_adapter.py`, `worker/qc_pipeline.py::_classify_cuts`, `routes/qc_sync.py`, FE `QcClassification.jsx` |
 
 ## D. FEATURES — Đề xuất (backlog)
 
