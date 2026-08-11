@@ -1179,6 +1179,11 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 /* ============ QC Sync — thống kê ở Tổng quan (QcSyncStats.jsx) ============
    Không có chart library trong repo — SVG tự vẽ, màu theo status-palette đã
    dùng ở SegBar/STATUS_SEGS phía trên (đồng bộ ngữ nghĩa màu toàn trang). */
+/* Toolbar QC Sync có nhiều nút hơn toolbar xuất CSV gốc (select kênh + 4 nút
+   khung thời gian) — override "flex-wrap: nowrap" ép 1 dòng của
+   .export-head .et-filters (media ≥640px, bên trên) vốn chỉ hợp với toolbar
+   ít control hơn, không thì tràn/cắt chữ ở màn hình vừa (ảnh lỗi thực tế). */
+.qc-stats-sec .export-head .et-filters { flex-wrap: wrap; }
 .qc-stats-sec { margin-bottom: 20px; }
 .qc-chart-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 @media (max-width: 1100px) { .qc-chart-grid { grid-template-columns: 1fr; } }

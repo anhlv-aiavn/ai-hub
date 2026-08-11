@@ -54,7 +54,7 @@ function resample(series, granularity, maxBars) {
   if (granularity === "day") {
     return series.slice(-maxBars).map((s) => ({ key: s.date, label: periodLabel(s.date, "day"), counts: s.counts }));
   }
-  const keyFn = granularity === "week" ? isoWeekKey : (s) => s.date.slice(0, 7);
+  const keyFn = granularity === "week" ? (s) => isoWeekKey(s.date) : (s) => s.date.slice(0, 7);
   const byKey = new Map();
   for (const s of series) {
     const k = keyFn(s);
