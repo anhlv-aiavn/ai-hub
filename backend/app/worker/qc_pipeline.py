@@ -118,11 +118,23 @@ async def process_qc_sync_job(mongo: AsyncMongo, job: dict) -> None:
                 enqueued += n_ins
                 skipped += len(docs) - n_ins
             token = next_token
-            await mongo.db[config.COLL_QC_SYNC_JOB].update_one(
+            # Đọc lại `cancel_requested` NGAY TRONG heartbeat (1 round-trip, không
+            # thêm query riêng) — cho phép "Dừng" từ UI (routes/qc_sync.py) ngắt
+            # vòng liệt kê ở checkpoint kế tiếp, không cần chờ quét hết prefix.
+            updated = await mongo.db[config.COLL_QC_SYNC_JOB].find_one_and_update(
                 {"_id": job_id},
                 {"$set": {"started_at": datetime.now(timezone.utc), "list_token": token,
                           "scanned": scanned, "enqueued": enqueued, "skipped": skipped}},
+                return_document=ReturnDocument.AFTER,
             )
+            if updated and updated.get("cancel_requested"):
+                await mongo.db[config.COLL_QC_SYNC_JOB].update_one(
+                    {"_id": job_id}, {"$set": {"status": "cancelled"}})
+                await mongo.db[config.COLL_QC_SYNC_CONFIG].update_one(
+                    {"_id": config_id},
+                    {"$set": {"last_run_at": datetime.now(timezone.utc), "last_run_status": "cancelled"}},
+                )
+                return
             if not token:
                 break
     except Exception as e:  # noqa: BLE001
@@ -166,7 +178,7 @@ async def maybe_schedule_qc_sync_jobs(mongo: AsyncMongo) -> None:
             "dest_connection_id": cfg.get("dest_connection_id"),
             "status": "queued", "started_at": None, "list_token": None,
             "scanned": 0, "enqueued": 0, "skipped": 0, "error": None,
-            "created_at": now,
+            "cancel_requested": False, "created_at": now,
         })
 
 
@@ -204,6 +216,33 @@ async def _bump_daily(mongo: AsyncMongo, config_id: str | None, **deltas: int) -
         {"$inc": inc, "$setOnInsert": {"config_id": config_id, "date": date}},
         upsert=True,
     )
+
+
+def _safe_key_part(s: str) -> str:
+    """Tên/khoá S3 phẳng (KHÔNG thư mục con) — "/" trong Số phát hành hay tên
+    file gốc phải bị loại, không thì vô tình tạo "thư mục" ngoài ý muốn."""
+    return "".join(c if c not in "/\\" else "-" for c in s).strip() or "gcn"
+
+
+def _qc_cut_naming(item: dict):
+    """Quy ước đặt tên RIÊNG cho QC Sync (khác pipeline GCN chính, xem
+    `_build_cuts.naming_fn`): KHÔNG tạo thư mục con — ghi PHẲNG ngay tại bucket
+    đích; tên file = "<tên GCN>_<tên file gốc>_cropped.pdf". "tên GCN" = Số
+    phát hành (nếu đọc được) — thiếu thì dùng `stem` (`_build_cuts` đã tự
+    fallback về `{item_id}-{ri+1}`)."""
+    src_name = item["s3_key"].rsplit("/", 1)[-1]
+    src_stem = src_name[:-4] if src_name.lower().endswith(".pdf") else src_name
+    src_stem = _safe_key_part(src_stem)
+
+    def _fn(ri: int, sph: str | None, stem: str) -> tuple[str, str]:
+        gcn_name = _safe_key_part(sph or stem)
+        base = f"{gcn_name}_{src_stem}_cropped"
+        if ri:  # >=2 GCN trong cùng 1 file gốc — hậu tố index để khỏi đè nhau
+            base = f"{base}_{ri + 1}"
+        fname = f"{base}.pdf"
+        return fname, fname
+
+    return _fn
 
 
 async def _finish_item(mongo: AsyncMongo, item_id: str, status: str, *, qc: dict | None = None,
@@ -278,7 +317,7 @@ async def process_qc_item(mongo: AsyncMongo, item: dict) -> str:
     try:
         cuts = await run_job._build_cuts(
             gcn_id=item_id, batch_id=config_id, images=images, records=records,
-            dest_purpose="qc",
+            dest_purpose="qc", naming_fn=_qc_cut_naming(item),
         )
         ocr_doc["cuts"] = cuts
     except DestinationNotConfigured as e:

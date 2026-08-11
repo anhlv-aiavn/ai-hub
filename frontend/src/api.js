@@ -476,6 +476,16 @@ export async function runQcSyncNow(id) {
     method: "POST", headers: headers(),
   }));
 }
+// Lượt quét (qc_sync_job) đang queued/processing của 1 kênh, nếu có — poll để
+// hiện tiến độ (scanned/enqueued/skipped) thay vì chỉ thấy lỗi 409.
+export async function getQcSyncActiveJob(configId) {
+  return handle(await fetch(`/v1/qc-sync/configs/${encodeURIComponent(configId)}/active-job`, { headers: headers() }));
+}
+export async function cancelQcSyncJob(jobId) {
+  return handle(await fetch(`/v1/qc-sync/jobs/${encodeURIComponent(jobId)}/cancel`, {
+    method: "POST", headers: headers(),
+  }));
+}
 export async function getQcSyncStats({ configId, range = "all" } = {}) {
   const p = new URLSearchParams({ range });
   if (configId) p.set("config_id", configId);

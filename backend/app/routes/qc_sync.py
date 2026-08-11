@@ -115,6 +115,12 @@ async def delete_config(config_id: str, admin: dict = Depends(require_admin)):
     return {"ok": True}
 
 
+def _public_job(j: dict) -> dict:
+    j = dict(j)
+    j["id"] = j.pop("_id")
+    return j
+
+
 @router.post("/configs/{config_id}/run")
 async def run_now(config_id: str, admin: dict = Depends(require_admin)):
     """Tạo `qc_sync_jobs` ngay, bỏ qua chờ `interval_seconds` — worker nhặt ở
@@ -123,20 +129,64 @@ async def run_now(config_id: str, admin: dict = Depends(require_admin)):
     if not cfg:
         raise HTTPException(status_code=404, detail="Không tìm thấy kênh đồng bộ")
     active = await qc_sync_jobs().find_one(
-        {"config_id": config_id, "status": {"$in": ["queued", "processing"]}}, {"_id": 1})
+        {"config_id": config_id, "status": {"$in": ["queued", "processing"]}})
     if active:
-        raise HTTPException(status_code=409, detail="Đã có lượt quét đang chạy cho kênh này")
+        # Kèm job đang chạy trong detail — FE hiện tiến độ thay vì chỉ báo lỗi
+        # suông (xem GET .../active-job để poll tiếp + POST .../cancel để dừng).
+        raise HTTPException(status_code=409, detail={
+            "message": "Đã có lượt quét đang chạy cho kênh này", "job": _public_job(active),
+        })
     now = datetime.now(timezone.utc)
     job = {
         "_id": str(uuid.uuid4()), "config_id": config_id,
         "source_connection_id": cfg["source_connection_id"], "prefix": cfg.get("prefix") or "",
         "dest_connection_id": cfg.get("dest_connection_id"),
         "status": "queued", "started_at": None, "list_token": None,
-        "scanned": 0, "enqueued": 0, "skipped": 0, "error": None, "created_at": now,
+        "scanned": 0, "enqueued": 0, "skipped": 0, "error": None,
+        "cancel_requested": False, "created_at": now,
     }
     await qc_sync_jobs().insert_one(job)
     await log_action(admin["username"], AuditAction.QC_SYNC_RUN, config_id, {"job_id": job["_id"]})
     return {"ok": True, "job_id": job["_id"]}
+
+
+@router.get("/configs/{config_id}/active-job")
+async def get_active_job(config_id: str):
+    """Lượt quét (`qc_sync_job`) đang `queued`/`processing` của 1 kênh, nếu có
+    — FE poll endpoint này để hiện tiến độ (scanned/enqueued/skipped) khi đang
+    chạy, thay vì chỉ thấy lỗi 409 lúc bấm "Chạy ngay" lần nữa."""
+    job = await qc_sync_jobs().find_one(
+        {"config_id": config_id, "status": {"$in": ["queued", "processing"]}},
+        sort=[("created_at", -1)],
+    )
+    return {"job": _public_job(job) if job else None}
+
+
+@router.post("/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str, admin: dict = Depends(require_admin)):
+    """Dừng 1 lượt quét đang chạy. `queued` (chưa worker nào claim) → hủy NGAY
+    tại chỗ. `processing` → cắm cờ `cancel_requested`, worker tự dừng ở
+    checkpoint kế tiếp giữa các trang liệt kê (xem `process_qc_sync_job` —
+    không thể ngắt ngang 1 call S3 đang chạy dở, chỉ dừng được giữa 2 trang)."""
+    job = await qc_sync_jobs().find_one({"_id": job_id})
+    if not job:
+        raise HTTPException(status_code=404, detail="Không tìm thấy lượt quét")
+    if job["status"] not in ("queued", "processing"):
+        raise HTTPException(status_code=409, detail="Lượt quét này không còn chạy")
+    res = await qc_sync_jobs().update_one(
+        {"_id": job_id, "status": "queued"}, {"$set": {"status": "cancelled"}})
+    if res.modified_count:
+        await qc_sync_configs().update_one(
+            {"_id": job["config_id"]},
+            {"$set": {"last_run_at": datetime.now(timezone.utc), "last_run_status": "cancelled"}},
+        )
+    else:
+        # Đã/đang bị claim (processing) — không tự tay đổi status ở đây (worker
+        # đang ghi heartbeat song song, dễ đụng độ), chỉ cắm cờ để NÓ tự dừng.
+        await qc_sync_jobs().update_one({"_id": job_id}, {"$set": {"cancel_requested": True}})
+    await log_action(admin["username"], AuditAction.QC_SYNC_JOB_CANCEL, job_id,
+                     {"config_id": job["config_id"]})
+    return {"ok": True}
 
 
 @router.get("/stats")

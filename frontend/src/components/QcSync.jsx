@@ -3,7 +3,7 @@ import Icon from "./Icon.jsx";
 import {
   getS3Connections,
   getQcSyncConfigs, createQcSyncConfig, updateQcSyncConfig, deleteQcSyncConfig,
-  runQcSyncNow, getQcSyncStats, getQcSyncItems,
+  runQcSyncNow, getQcSyncActiveJob, cancelQcSyncJob, getQcSyncStats, getQcSyncItems,
 } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 
@@ -19,6 +19,10 @@ const EMPTY_FORM = {
 
 const VERDICT_LABEL = { pass: "Đạt", warn: "Đạt (cảnh báo)", fail: "Không đạt" };
 const VERDICT_CLASS = { pass: "dot-ok", warn: "dot-unknown", fail: "dot-err" };
+const ITEM_STATUS_OPTIONS = [
+  ["", "— Mọi trạng thái —"], ["error", "Lỗi"], ["no_file", "Không thấy file"],
+  ["queued", "Đang chờ"], ["processing", "Đang xử lý"], ["done", "Xong"], ["no_gcn", "Không thấy GCN"],
+];
 
 function fmtDate(d) {
   if (!d) return "—";
@@ -33,6 +37,7 @@ export default function QcSync() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   const [selectedConfigId, setSelectedConfigId] = useState("");
+  const [refreshTick, setRefreshTick] = useState(0); // bump để ActiveJobRun poll lại ngay (không chờ chu kỳ 3s)
 
   async function refreshConfigs() {
     try { const d = await getQcSyncConfigs(); setConfigs(d.configs || []); }
@@ -75,6 +80,7 @@ export default function QcSync() {
   async function runNow(c) {
     try { await runQcSyncNow(c.id); toastOk("Đã đưa vào hàng chờ — worker sẽ quét ở lượt kế tiếp"); refreshConfigs(); }
     catch (e) { toastErr(e.message || e); }
+    finally { setRefreshTick((t) => t + 1); } // dù thành công hay "đã có lượt đang chạy" — hiện badge tiến độ ngay
   }
 
   return (
@@ -108,24 +114,27 @@ export default function QcSync() {
           const src = sources.find((s) => s.id === c.source_connection_id);
           const dest = dests.find((d) => d.id === c.dest_connection_id);
           return (
-            <div className="file-row qc-cfg-row" key={c.id}>
-              <span className="fr-name">
-                {c.name} {!c.enabled && <span className="muted small">(tắt)</span>}
-              </span>
-              <span className="fr-meta">{src?.name || c.source_connection_id} · /{c.prefix || ""}</span>
-              <span className="fr-meta">{dest?.name || c.dest_connection_id}</span>
-              <span className="fr-meta">{c.interval_seconds}s</span>
-              <span className="fr-meta">
-                {fmtDate(c.last_run_at)}
-                {c.last_run_status && ` · ${c.last_run_status === "done" ? "OK" : c.last_run_status}`}
-              </span>
-              <span className="s3-actions">
-                <button className="ghost xs" onClick={() => runNow(c)}>Chạy ngay</button>
-                <button className="ghost xs" onClick={() => setSelectedConfigId(c.id)}>Thống kê</button>
-                <button className="ghost xs" onClick={() => openEdit(c)}>Sửa</button>
-                <button className="ghost xs danger" onClick={() => remove(c)}>Xóa</button>
-              </span>
-            </div>
+            <React.Fragment key={c.id}>
+              <div className="file-row qc-cfg-row">
+                <span className="fr-name">
+                  {c.name} {!c.enabled && <span className="muted small">(tắt)</span>}
+                </span>
+                <span className="fr-meta">{src?.name || c.source_connection_id} · /{c.prefix || ""}</span>
+                <span className="fr-meta">{dest?.name || c.dest_connection_id}</span>
+                <span className="fr-meta">{c.interval_seconds}s</span>
+                <span className="fr-meta">
+                  {fmtDate(c.last_run_at)}
+                  {c.last_run_status && ` · ${c.last_run_status === "done" ? "OK" : c.last_run_status}`}
+                </span>
+                <span className="s3-actions">
+                  <button className="ghost xs" onClick={() => runNow(c)}>Chạy ngay</button>
+                  <button className="ghost xs" onClick={() => setSelectedConfigId(c.id)}>Thống kê</button>
+                  <button className="ghost xs" onClick={() => openEdit(c)}>Sửa</button>
+                  <button className="ghost xs danger" onClick={() => remove(c)}>Xóa</button>
+                </span>
+              </div>
+              <ActiveJobRun configId={c.id} refreshTick={refreshTick} onDone={refreshConfigs} />
+            </React.Fragment>
           );
         })}
         {!configs.length && <div className="muted center" style={{ padding: 16 }}>Chưa có kênh đồng bộ nào.</div>}
@@ -181,6 +190,52 @@ export default function QcSync() {
   );
 }
 
+// ── Băng tiến độ lượt quét đang chạy (nếu có) + nút Dừng ────────────────────
+// Poll độc lập theo TỪNG kênh (không đợi refreshConfigs của cha) — kênh không
+// có lượt nào đang chạy thì render null, không tốn ô trống trên bảng.
+function ActiveJobRun({ configId, refreshTick, onDone }) {
+  const [job, setJob] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  async function poll() {
+    try {
+      const d = await getQcSyncActiveJob(configId);
+      setJob(d.job);
+      if (!d.job) onDone?.();
+    } catch { /* lỗi poll thoáng qua — bỏ qua, thử lại chu kỳ sau */ }
+  }
+  useEffect(() => { poll(); }, [configId, refreshTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!job) return;
+    const id = setInterval(poll, 3000);
+    return () => clearInterval(id);
+  }, [job?.id, job?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function stop() {
+    if (!job) return;
+    setBusy(true);
+    try { await cancelQcSyncJob(job.id); toastOk("Đã gửi yêu cầu dừng"); await poll(); }
+    catch (e) { toastErr(e.message || e); } finally { setBusy(false); }
+  }
+
+  if (!job) return null;
+  return (
+    <div className="qc-active-job">
+      <span className="dot dot-unknown" />
+      <span>
+        {job.status === "queued" ? "Đang chờ worker nhặt…" : "Đang quét…"}{" "}
+        <b>{(job.scanned || 0).toLocaleString("vi-VN")}</b> đã liệt kê ·{" "}
+        <b>{(job.enqueued || 0).toLocaleString("vi-VN")}</b> file mới
+        {!!job.skipped && ` · ${job.skipped.toLocaleString("vi-VN")} đã quét trước đó`}
+        {job.cancel_requested && " · đang dừng theo yêu cầu…"}
+      </span>
+      <button className="ghost xs danger" disabled={busy || job.cancel_requested} onClick={stop}>
+        {job.cancel_requested ? "Đang dừng…" : "Dừng"}
+      </button>
+    </div>
+  );
+}
+
 // ── Thống kê + bảng item gần nhất của 1 kênh ────────────────────────────────
 const RANGES = [["day", "Hôm nay"], ["week", "7 ngày"], ["month", "30 ngày"], ["all", "Tổng"]];
 const COUNT_LABELS = [
@@ -192,6 +247,7 @@ function QcSyncDetail({ configId, configName, onClose }) {
   const [range, setRange] = useState("week");
   const [stats, setStats] = useState(null);
   const [items, setItems] = useState([]);
+  const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(1);
   const pageSize = 20;
 
@@ -199,11 +255,13 @@ function QcSyncDetail({ configId, configName, onClose }) {
     getQcSyncStats({ configId, range }).then((d) => setStats(d.counts || {})).catch(() => setStats({}));
   }, [configId, range]);
 
+  useEffect(() => { setPage(1); }, [statusFilter]);
+
   useEffect(() => {
-    getQcSyncItems({ configId, page, pageSize })
+    getQcSyncItems({ configId, status: statusFilter || undefined, page, pageSize })
       .then((d) => setItems(d.items || []))
       .catch(() => setItems([]));
-  }, [configId, page]);
+  }, [configId, statusFilter, page]);
 
   return (
     <div className="s3-form" style={{ margin: "0 16px 16px" }}>
@@ -225,25 +283,42 @@ function QcSyncDetail({ configId, configName, onClose }) {
         ))}
       </div>
 
-      <h4 style={{ marginTop: 16 }}>File gần đây</h4>
+      <div className="row" style={{ alignItems: "center", gap: 8, marginTop: 16 }}>
+        <h4 style={{ margin: 0 }}>File gần đây {statusFilter && "— lọc theo trạng thái"}</h4>
+        <select className="text-input" style={{ width: "auto" }} value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}>
+          {ITEM_STATUS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+        </select>
+      </div>
       <div className="tbl-dense s3-tbl">
         <div className="file-row s3-head">
-          <span>S3 key</span><span>Trạng thái</span><span>Verdict QC</span><span>Lý do</span><span>Lúc</span>
+          <span>S3 key</span><span>Trạng thái</span><span>Verdict QC</span><span>Lý do / lỗi</span><span>Lúc</span>
         </div>
-        {items.map((it) => (
-          <div className="file-row s3-row" key={it.id}>
-            <span className="fr-name" title={it.s3_key}>{it.s3_key}</span>
-            <span className="fr-meta">{it.status}</span>
-            <span className="fr-meta">
-              {it.qc?.verdict && (
-                <><span className={`dot ${VERDICT_CLASS[it.qc.verdict] || "dot-unknown"}`} />{" "}
-                {VERDICT_LABEL[it.qc.verdict] || it.qc.verdict}</>
-              )}
-            </span>
-            <span className="fr-meta">{(it.qc?.reasons || []).map((r) => r.code).join(", ")}</span>
-            <span className="fr-meta">{fmtDate(it.finished_at || it.created_at)}</span>
-          </div>
-        ))}
+        {items.map((it) => {
+          const isError = it.status === "error" || it.status === "no_file";
+          return (
+            <div className="file-row s3-row" key={it.id}>
+              <span className="fr-name" title={it.s3_key}>{it.s3_key}</span>
+              <span className="fr-meta">
+                {isError && <span className="dot dot-err" />}{" "}{it.status}
+                {it.attempts > 1 && ` (${it.attempts} lần)`}
+              </span>
+              <span className="fr-meta">
+                {it.qc?.verdict && (
+                  <><span className={`dot ${VERDICT_CLASS[it.qc.verdict] || "dot-unknown"}`} />{" "}
+                  {VERDICT_LABEL[it.qc.verdict] || it.qc.verdict}</>
+                )}
+              </span>
+              <span className="fr-meta" title={isError ? it.error : undefined}
+                style={isError ? { color: "var(--err)", whiteSpace: "normal" } : undefined}>
+                {isError
+                  ? `${it.error || "Lỗi không rõ"}${it.error_kind ? ` (${it.error_kind})` : ""}`
+                  : (it.qc?.reasons || []).map((r) => r.code).join(", ")}
+              </span>
+              <span className="fr-meta">{fmtDate(it.finished_at || it.created_at)}</span>
+            </div>
+          );
+        })}
         {!items.length && <div className="muted center" style={{ padding: 16 }}>Chưa có file nào.</div>}
       </div>
       <div className="row" style={{ gap: 8, marginTop: 8 }}>

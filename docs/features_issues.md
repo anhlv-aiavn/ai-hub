@@ -221,6 +221,15 @@ nhận đủ dư GPU cho cả 2 pipeline (đo bằng `bench_pipeline`/`watch --t
 Chưa có ưu tiên/isolation giữa 2 pipeline ở tầng vLLM — nếu cần, cân nhắc endpoint vLLM riêng cho
 QC Sync hoặc hàng đợi có ưu tiên (P2, chưa làm).
 
+### ⚠️ QC-2 · P2 · 🟡 · File cắt QC Sync ghi PHẲNG, tên suy từ nội dung → có thể đè nhau {#qc-flat-naming-collision}
+
+Theo yêu cầu: file cắt của QC Sync ghi thẳng vào bucket đích (KHÔNG thư mục con
+`{config_id}/{item_id}/...` như trước), tên = `{Số phát hành hoặc id tạm}_{tên file gốc}_cropped.pdf`
+(`app/worker/qc_pipeline.py#_qc_cut_naming`, `run_job._build_cuts(naming_fn=...)`). Nếu 2 kênh đồng
+bộ khác nhau dùng CHUNG 1 đích và tình cờ ra cùng tên (trùng Số phát hành + trùng tên file gốc) →
+file sau ĐÈ file trước, không cảnh báo. Chấp nhận cho v1 theo đúng yêu cầu (mỗi kênh nên dùng 1 đích
+riêng để né rủi ro này); chưa có cơ chế phát hiện/ngăn trùng.
+
 ### 🔒 Quyết định: OCR của QC Sync dùng PDF GỐC, không dùng ảnh đã nắn QC trả về {#qc-decide-raw-ocr}
 
 **Đã chốt cho v1.** `qc-scanner-server` trả về ảnh đã nắn thẳng/cắt biên (`?format=json` có field

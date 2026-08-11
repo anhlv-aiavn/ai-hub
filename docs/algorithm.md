@@ -229,8 +229,8 @@ MinIO nguồn ──────────────────────
                                                  │ records
                                     run_job._build_cuts(..., dest_purpose="qc")
                                                  │
-                                          MinIO đích RIÊNG (purpose="qc")
-                                          {config_id}/{item_id}/cut-N.pdf
+                                          MinIO đích RIÊNG (purpose="qc") — PHẲNG,
+                                          không thư mục con: {tên GCN}_{tên file gốc}_cropped.pdf
 ```
 
 ### 9a. Cấu hình (UI → `qc_sync_configs`)
@@ -266,16 +266,37 @@ Claim atomic (queued hoặc processing-treo quá `PROC_TTL`, giống nhánh `gcn
 4. `verdict` pass/warn → OCR: `run_job._pipeline(pdf_buf)` (hàm thuần, TÁI DÙNG, không sửa —
    xem quyết định [QC-1](features_issues.md#qc-decide-raw-ocr)). `records` rỗng → `no_gcn`.
 5. `records` có dữ liệu → `run_job._build_cuts(gcn_id=item_id, batch_id=config_id, ...,
-   dest_purpose="qc")` — TÁI DÙNG nguyên hàm cắt/gộp trang GCN của pipeline chính, chỉ đổi
-   `dest_purpose` để ghi vào MinIO đích RIÊNG (`storage._get_dest_client(purpose="qc")`) thay vì
-   đích của pipeline GCN. Key: `{config_id}/{item_id}/cut-{ri}.pdf`.
+   dest_purpose="qc", naming_fn=_qc_cut_naming(item))` — TÁI DÙNG nguyên hàm cắt/gộp trang GCN của
+   pipeline chính, chỉ đổi `dest_purpose` để ghi vào MinIO đích RIÊNG
+   (`storage._get_dest_client(purpose="qc")`), và đổi `naming_fn` để KHÔNG tạo thư mục con — ghi
+   PHẲNG ngay tại bucket đích với tên `{tên GCN}_{tên file gốc}_cropped.pdf` ("tên GCN" = Số phát
+   hành nếu đọc được, thiếu thì dùng id tạm). Đổi tên/vị trí lưu là QUYẾT ĐỊNH RIÊNG của QC Sync —
+   `_build_cuts` mặc định (`naming_fn=None`, pipeline GCN chính) giữ nguyên khoá cũ
+   `{batch_id}/{gcn_id}/cut-{ri}.pdf`, không đổi hành vi.
+   **Rủi ro đã biết**: đặt phẳng + tên suy từ nội dung (không theo batch/id) → 2 kênh đồng bộ khác
+   nhau ghi CÙNG 1 đích và tình cờ ra cùng tên (trùng Số phát hành + trùng tên file gốc) sẽ ĐÈ lên
+   nhau. Chấp nhận cho v1 theo đúng yêu cầu; nếu cần an toàn hơn, cân nhắc thêm hậu tố phân biệt.
 
 ### 9d. Vận hành
 
 Đọc thống kê: `GET /v1/qc-sync/stats?range=day|week|month|all` (aggregate `qc_stats_daily`, tập
 bounded theo số ngày). Theo dõi item: `GET /v1/qc-sync/items` (phân trang, lọc theo `status`/
-`qc.verdict`). Chạy quét ngay (bỏ qua chờ `interval_seconds`): `POST
-/v1/qc-sync/configs/{id}/run`.
+`qc.verdict` — FE có dropdown lọc + hiện `error`/`error_kind` chi tiết cho item lỗi/không thấy
+file, phục vụ debug "chạy đến đâu, lỗi ở đâu"). Chạy quét ngay (bỏ qua chờ `interval_seconds`):
+`POST /v1/qc-sync/configs/{id}/run` — nếu đã có lượt `queued`/`processing`, trả 409 kèm
+`detail.job` (thông tin lượt đang chạy) thay vì chỉ báo lỗi suông.
+
+**Theo dõi lượt đang chạy + dừng giữa chừng**:
+- `GET /v1/qc-sync/configs/{id}/active-job` — lượt `qc_sync_job` đang chạy của 1 kênh (hoặc
+  `null`), gồm `scanned`/`enqueued`/`skipped` để FE hiện tiến độ trực tiếp trên bảng cấu hình
+  (`QcSync.jsx` component `ActiveJobRun`, poll mỗi 3s trong lúc có lượt đang chạy).
+- `POST /v1/qc-sync/jobs/{id}/cancel` — hủy 1 lượt. `queued` (chưa worker nào claim) → hủy NGAY
+  tại chỗ, không cần cờ. `processing` → cắm `cancel_requested=true` trên job doc; worker
+  (`process_qc_sync_job`) đọc lại cờ này NGAY TRONG heartbeat mỗi trang liệt kê (1 round-trip,
+  dùng `find_one_and_update` trả về doc sau update) — dừng ở checkpoint kế tiếp, không thể ngắt
+  ngang 1 call S3 đang chạy dở. Job dừng theo cách này có `status="cancelled"` (khác `"done"`/
+  `"error"`), KHÔNG bị coi là lượt đang chạy nên `run_now`/`maybe_schedule_qc_sync_jobs` cho phép
+  tạo lượt mới ngay.
 
 **Lưu ý vận hành**: bước OCR dùng CHUNG pool vLLM với pipeline GCN sản xuất — xem
 [QC-1](features_issues.md#qc-shared-vlm).

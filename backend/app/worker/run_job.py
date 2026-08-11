@@ -208,12 +208,16 @@ def _entry_sph(rec: dict) -> str | None:
 
 
 async def _build_cuts(gcn_id: str, batch_id, images: list[str], records: list,
-                      dest_purpose: str = "gcn") -> list[dict]:
+                      dest_purpose: str = "gcn", naming_fn=None) -> list[dict]:
     """`dest_purpose` chọn ĐÍCH nào nhận file cắt (mặc định "gcn" — pipeline
     chính, không đổi hành vi cũ). Pipeline QC Sync (app/worker/qc_pipeline.py)
     gọi hàm này với `dest_purpose="qc"` để ghi vào S3 đích RIÊNG của nó, dùng
-    `gcn_id`/`batch_id` chỉ như thành phần đặt tên key (không phải doc `gcn`
-    thật) — xem storage._get_dest_client."""
+    `gcn_id`/`batch_id` chỉ như thành phần đặt tên key mặc định (không phải
+    doc `gcn` thật) — xem storage._get_dest_client.
+
+    `naming_fn(ri, sph, stem) -> (s3_key, display_name)` — nếu truyền, GHI ĐÈ
+    quy ước đặt khoá S3/tên hiển thị mặc định bên dưới (dùng cho QC Sync: KHÔNG
+    tạo thư mục con, tên file = tên GCN + tên file gốc + "_cropped")."""
     cuts: list[dict] = []
     for ri, rec in enumerate(records):
         pages = rec.get("page_indices") if isinstance(rec, dict) else None
@@ -223,16 +227,18 @@ async def _build_cuts(gcn_id: str, batch_id, images: list[str], records: list,
         pdf_bytes = _images_to_pdf(group)
         if not pdf_bytes:
             continue
-        ckey = f"{batch_id}/{gcn_id}/cut-{ri}.pdf"
-        await storage.put_pdf(ckey, pdf_bytes, purpose=dest_purpose)
         sph = _entry_sph(rec)
         # Tên tệp cắt chuẩn: "<Số phát hành>-GCN.pdf". Thiếu Số phát hành → kèm
         # index để khỏi trùng giữa các bản cắt cùng file.
         stem = sph if sph else f"{gcn_id}-{ri + 1}"
+        if naming_fn:
+            ckey, name = naming_fn(ri, sph, stem)
+        else:
+            ckey, name = f"{batch_id}/{gcn_id}/cut-{ri}.pdf", f"{stem}-GCN.pdf"
+        await storage.put_pdf(ckey, pdf_bytes, purpose=dest_purpose)
         cuts.append({
             "index": ri, "s3_key": ckey, "page_indices": pages,
-            "page_count": len(group), "so_phat_hanh": sph,
-            "name": f"{stem}-GCN.pdf",
+            "page_count": len(group), "so_phat_hanh": sph, "name": name,
         })
     return cuts
 

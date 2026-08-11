@@ -1364,6 +1364,14 @@ label.file-row { width: 100%; }
 .qc-cfg-tbl .qc-cfg-row > * { min-width: 0; }
 .qc-cfg-tbl .qc-cfg-head { background: var(--surface-3); color: var(--text-3); font-size: 11px;
   text-transform: uppercase; letter-spacing: .04em; font-weight: 600; cursor: default; }
+/* Băng tiến độ lượt quét đang chạy (ActiveJobRun) — nằm dưới dòng cấu hình,
+   không phải 1 hàng grid nên không cần khớp cột. */
+.qc-active-job {
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 12px;
+  color: var(--text-2); background: var(--accent-50); border-bottom: 1px solid var(--border);
+}
+.qc-active-job b { color: var(--text); font-variant-numeric: tabular-nums; }
+.qc-active-job button { margin-left: auto; }
 
 .audit-pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding-top: 4px; }
 .audit-pager .pager-btn { width: auto; height: 32px; padding: 0 12px; display: inline-flex;
