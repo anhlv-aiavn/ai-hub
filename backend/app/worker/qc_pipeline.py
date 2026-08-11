@@ -257,8 +257,12 @@ async def _bump_daily(mongo: AsyncMongo, config_id: str | None, **deltas: int) -
 
 def _safe_key_part(s: str) -> str:
     """Tên/khoá S3 phẳng (KHÔNG thư mục con) — "/" trong Số phát hành hay tên
-    file gốc phải bị loại, không thì vô tình tạo "thư mục" ngoài ý muốn."""
-    return "".join(c if c not in "/\\" else "-" for c in s).strip() or "gcn"
+    file gốc phải bị loại, không thì vô tình tạo "thư mục" ngoài ý muốn.
+    Khoảng trắng (dấu cách) đổi thành "-" cho tên file gọn, dễ copy/paste,
+    tránh lỗi ở tool/URL không quote khoảng trắng."""
+    out = "".join(c if c not in "/\\" else "-" for c in s).strip()
+    out = "-".join(out.split())  # gộp mọi chuỗi khoảng trắng (space/tab...) liên tiếp thành 1 "-"
+    return out or "gcn"
 
 
 def _qc_cut_naming(item: dict):
