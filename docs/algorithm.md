@@ -327,6 +327,10 @@ file, phục vụ debug "chạy đến đâu, lỗi ở đâu"). Chạy quét ng
 - `GET /v1/qc-sync/items/{id}/source-pdf` — xem trực tiếp PDF NGUỒN (khác file đã cắt) qua tab mới,
   bấm vào cột "S3 key" trên bảng theo dõi; stream thẳng từ kho nguồn (`storage.get_pdf`), không lưu
   tạm ở server.
+- `GET /v1/qc-sync/items/{id}/cuts/{cut_index}/pdf` — xem trực tiếp 1 file ĐÃ CẮT (khác PDF nguồn ở
+  trên) qua tab mới, cột "File đã cắt" trên bảng theo dõi; đọc từ MinIO đích RIÊNG của QC Sync
+  (`storage.get_pdf(key, dest_purpose="qc")` — `storage.get_pdf` mới thêm tham số `dest_purpose`,
+  mặc định `"gcn"` nên không đổi hành vi các nơi gọi cũ).
 
 **Tạm dừng/tiếp tục xử lý file đang chờ** (khác `enabled`/"Chạy ngay" — những cái đó điều khiển
 việc QUÉT THÊM file mới, không phải xử lý backlog đã có): `PATCH /v1/qc-sync/configs/{id}` với
@@ -335,6 +339,25 @@ qua 1 cache có throttle (`WORKER_QC_PAUSED_REFRESH_SECONDS`, mặc định 5s �
 `qc_sync_configs` mỗi lần claim). File ĐANG xử lý dở khi bật tạm dừng vẫn chạy nốt (không bị ngắt
 giữa chừng), chỉ file CHƯA claim mới bị chặn nhận. Tắt tạm dừng → worker tự nhặt lại backlog ở lượt
 claim kế tiếp.
+
+**Thống kê ở trang "Tổng quan"** (`ExportView.jsx` + component mới `QcSyncStats.jsx`, viewer trở
+lên xem được — khác trang quản trị "QC Sync" admin-only): 3 biểu đồ SVG tự vẽ (không dùng chart
+library, repo chỉ có react/vite) — QC (pass/warn/fail), OCR (ocr_done/no_gcn/no_file/error), số
+file đã cắt (`cuts_created` — KHÁC `ocr_done` là số item, 1 item có thể ra >1 file cắt) — theo
+ngày/tuần/tháng, cộng "Tổng" hiện dạng KPI tile (không vẽ chart cho 1 giá trị). Nguồn dữ liệu:
+- `GET /v1/qc-sync/stats/series?config_id=&days=` — chuỗi theo NGÀY từ `qc_stats_daily` (rollup có
+  sẵn, gộp theo ngày bằng vòng lặp Python giống `get_stats`, KHÔNG aggregation pipeline riêng).
+  Tuần/tháng = FE tự resample từ chuỗi ngày (cộng theo ISO week / tháng dương lịch, JS thuần).
+- Bộ lọc kênh trên biểu đồ dùng `qc_sync_configs.ward_name` (tên Phường/Xã, field mới — người dùng
+  tự nhập vì đã có sẵn bảng mã→tên, hệ thống không tự ánh xạ) làm nhãn thay cho `name` nội bộ nếu
+  có set; mỗi kênh QC Sync vốn đã ứng với đúng 1 prefix/thư mục nguồn (thường đặt `name` trùng mã
+  P/X, vd "00004") nên lọc theo kênh ≈ lọc theo P/X, không cần gộp nhiều kênh.
+- 2 bump còn thiếu đã vá để biểu đồ đủ số liệu: `no_file` (trước đây nhánh `SourceObjectMissing`
+  trong `process_qc_item` không bump gì cả) và `cuts_created` (số FILE cắt thật, cộng cùng lúc với
+  `ocr_done` khi `_build_cuts` thành công).
+- Index mới `qc_stats_daily().create_index("date")` — truy vấn theo khoảng ngày KHÔNG lọc
+  `config_id` (biểu đồ "tất cả kênh") cần index riêng trên `date`, unique index `(config_id,date)`
+  có sẵn không phục vụ được kiểu truy vấn này.
 
 ### 9e. Chưa làm (phase 2 — theo đúng yêu cầu)
 

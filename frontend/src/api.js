@@ -520,6 +520,19 @@ export function qcSyncSourcePdfUrl(itemId) {
   if (auth.token) p.set("token", auth.token);
   return `/v1/qc-sync/items/${encodeURIComponent(itemId)}/source-pdf?${p.toString()}`;
 }
+// Mở trực tiếp 1 file ĐÃ CẮT (khác PDF nguồn — nằm ở MinIO đích riêng của QC Sync).
+export function qcSyncCutPdfUrl(itemId, cutIndex) {
+  const p = new URLSearchParams();
+  if (auth.token) p.set("token", auth.token);
+  return `/v1/qc-sync/items/${encodeURIComponent(itemId)}/cuts/${cutIndex}/pdf?${p.toString()}`;
+}
+// Chuỗi thời gian theo ngày (qc_stats_daily) cho 3 biểu đồ ở trang Tổng quan
+// (QcSyncStats.jsx) — khác getQcSyncStats (chỉ trả 1 tổng gộp cho 1 khoảng).
+export async function getQcSyncStatsSeries({ configId, days = 90 } = {}) {
+  const p = new URLSearchParams({ days: String(days) });
+  if (configId) p.set("config_id", configId);
+  return handle(await fetch(`/v1/qc-sync/stats/series?${p.toString()}`, { headers: headers() }));
+}
 
 export async function downloadExportJob(id) {
   const p = new URLSearchParams();

@@ -160,15 +160,18 @@ async def put_pdf(key: str, data: bytes, purpose: str = "gcn") -> None:
     await put_object(key, data, purpose)
 
 
-async def get_pdf(key: str, source_connection_id: str | None = None) -> io.BytesIO:
+async def get_pdf(key: str, source_connection_id: str | None = None,
+                  dest_purpose: str = "gcn") -> io.BytesIO:
     """`source_connection_id=None` → đọc kho ĐÍCH (file nội bộ/cuts — cùng nơi
     `put_pdf` ghi; trước đây đọc thẳng `minio_client`/`AIHUB_BUCKET` bất kể đích
     đã cấu hình gì, lệch với đường ghi — đã hợp nhất qua `_get_dest_client`).
-    Có id → đọc kho nguồn (read-only), lỗi phân loại rõ.
-    `DestinationNotConfigured` truyền nguyên xuống (không bắt thành
-    `SourceObjectUnavailable` — người gọi cần phân biệt 2 tình huống)."""
+    `dest_purpose` chọn ĐÍCH nào khi đọc đích (mặc định "gcn" — không đổi hành
+    vi cũ; QC Sync truyền "qc" để đọc file đã cắt ở đích RIÊNG của nó, xem
+    `routes/qc_sync.py get_cut_pdf`). Có id → đọc kho nguồn (read-only), lỗi
+    phân loại rõ. `DestinationNotConfigured` truyền nguyên xuống (không bắt
+    thành `SourceObjectUnavailable` — người gọi cần phân biệt 2 tình huống)."""
     if source_connection_id is None:
-        client, bucket = await _get_dest_client()
+        client, bucket = await _get_dest_client(dest_purpose)
     else:
         client, bucket = await _get_source_client(source_connection_id)
     try:

@@ -4,7 +4,7 @@ import {
   getS3Connections,
   getQcSyncConfigs, createQcSyncConfig, updateQcSyncConfig, deleteQcSyncConfig,
   runQcSyncNow, getQcSyncActiveJob, cancelQcSyncJob, getQcSyncStats, getQcSyncItems,
-  retryQcSyncItem, deleteQcSyncItem, clearQcSyncConfigItems, qcSyncSourcePdfUrl,
+  retryQcSyncItem, deleteQcSyncItem, clearQcSyncConfigItems, qcSyncSourcePdfUrl, qcSyncCutPdfUrl,
 } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 
@@ -14,7 +14,7 @@ import { toastOk, toastErr } from "../toast.js";
 // "S3 đích (QC Sync)" trong Cấu hình hệ thống). Xử lý thật chạy trong worker
 // (app/worker/qc_pipeline.py) — trang này chỉ cấu hình + theo dõi.
 const EMPTY_FORM = {
-  name: "", source_connection_id: "", prefix: "", dest_connection_id: "",
+  name: "", ward_name: "", source_connection_id: "", prefix: "", dest_connection_id: "",
   interval_seconds: 300, enabled: true,
 };
 
@@ -53,8 +53,9 @@ export default function QcSync() {
   function openNew() { setForm(EMPTY_FORM); setEditing({}); }
   function openEdit(c) {
     setForm({
-      name: c.name, source_connection_id: c.source_connection_id, prefix: c.prefix || "",
-      dest_connection_id: c.dest_connection_id, interval_seconds: c.interval_seconds, enabled: c.enabled,
+      name: c.name, ward_name: c.ward_name || "", source_connection_id: c.source_connection_id,
+      prefix: c.prefix || "", dest_connection_id: c.dest_connection_id,
+      interval_seconds: c.interval_seconds, enabled: c.enabled,
     });
     setEditing(c);
   }
@@ -148,7 +149,9 @@ export default function QcSync() {
             <React.Fragment key={c.id}>
               <div className="file-row qc-cfg-row">
                 <span className="fr-name">
-                  {c.name} {!c.enabled && <span className="muted small">(tắt)</span>}
+                  {c.ward_name || c.name}
+                  {c.ward_name && c.ward_name !== c.name && <span className="muted small"> ({c.name})</span>}
+                  {!c.enabled && <span className="muted small"> (tắt)</span>}
                   {c.items_paused && <span className="muted small"> · đang tạm dừng xử lý</span>}
                 </span>
                 <span className="fr-meta">{src?.name || c.source_connection_id} · /{c.prefix || ""}</span>
@@ -182,6 +185,10 @@ export default function QcSync() {
           <div className="row">
             <input className="text-input" placeholder="Tên kênh" value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <input className="text-input" placeholder="Tên Phường/Xã (hiện thay tên kênh ở Tổng quan)"
+              value={form.ward_name} onChange={(e) => setForm({ ...form, ward_name: e.target.value })} />
+          </div>
+          <div className="row">
             <select className="text-input" value={form.source_connection_id}
               onChange={(e) => setForm({ ...form, source_connection_id: e.target.value })}>
               <option value="">— Chọn S3 nguồn —</option>
@@ -347,7 +354,7 @@ function QcSyncDetail({ configId, configName, onClose }) {
       <div className="tbl-dense qc-items-tbl">
         <div className="file-row qc-item-row qc-item-head">
           <span>S3 key (bấm để xem PDF nguồn)</span><span>Trạng thái</span><span>Verdict QC</span>
-          <span>Lý do / lỗi</span><span>Lúc</span><span />
+          <span>Lý do / lỗi</span><span>File đã cắt</span><span>Lúc</span><span />
         </div>
         {items.map((it) => {
           const isError = it.status === "error" || it.status === "no_file";
@@ -371,6 +378,14 @@ function QcSyncDetail({ configId, configName, onClose }) {
                 {isError
                   ? `${it.error || "Lỗi không rõ"}${it.error_kind ? ` (${it.error_kind})` : ""}`
                   : (it.qc?.reasons || []).map((r) => r.code).join(", ")}
+              </span>
+              <span className="fr-meta qc-cuts-cell">
+                {(it.ocr?.cuts || []).length
+                  ? it.ocr.cuts.map((cut) => (
+                      <a key={cut.index} href={qcSyncCutPdfUrl(it.id, cut.index)} target="_blank"
+                        rel="noopener noreferrer" title={`Xem file đã cắt: ${cut.name}`}>{cut.name}</a>
+                    ))
+                  : "—"}
               </span>
               <span className="fr-meta">{fmtDate(it.finished_at || it.created_at)}</span>
               <span className="s3-actions">

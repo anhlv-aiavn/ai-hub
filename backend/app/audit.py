@@ -33,6 +33,7 @@ class AuditAction(str, Enum):
     QC_SYNC_ITEM_DELETE = "qc_sync_item.delete"
     QC_SYNC_ITEMS_CLEAR = "qc_sync_item.clear_all"
     QC_SYNC_ITEM_VIEW_SOURCE = "qc_sync_item.view_source"
+    QC_SYNC_ITEM_VIEW_CUT = "qc_sync_item.view_cut"
 
 
 def _redact(detail: dict | None) -> dict:

@@ -9,6 +9,7 @@ import {
 import { subscribeEvents } from "../events.js";
 import { toastOk, toastErr } from "../toast.js";
 import { STATUS_LABEL, REVIEW_LABEL } from "./ExtractTable.jsx";
+import QcSyncStats from "./QcSyncStats.jsx";
 
 const ROWS_PAGE_SIZE = 50;
 const REVIEW = { "": "Mọi hậu kiểm", reviewed: "Đã duyệt", needs_review: "Không duyệt", unreviewed: "Chưa kiểm" };
@@ -305,6 +306,8 @@ export default function ExportView({ user }) {
         <ReviewerTable rows={s.by_reviewer || []} days={reviewerDays} onDaysChange={setReviewerDays}
           rangeFrom={reviewerFrom} rangeTo={reviewerTo} onRangeChange={onReviewerRangeChange} />
       )}
+
+      <QcSyncStats />
 
       <div className="export-sec">
         <div className="export-head">

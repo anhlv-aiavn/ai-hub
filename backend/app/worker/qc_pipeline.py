@@ -327,6 +327,7 @@ async def process_qc_item(mongo: AsyncMongo, item: dict) -> str:
         pdf_buf = await storage.get_pdf(item["s3_key"], item.get("source_connection_id"))
     except SourceObjectMissing as e:
         await _finish_item(mongo, item_id, "no_file", error=str(e), error_kind="missing_source")
+        await _bump_daily(mongo, config_id, no_file=1)
         return "no_file"
     except Exception as e:  # noqa: BLE001 — SourceObjectUnavailable (tạm) + lỗi khác
         log.warning("qc_item %s tải file lỗi: %s", item_id, e)
@@ -400,5 +401,8 @@ async def process_qc_item(mongo: AsyncMongo, item: dict) -> str:
         log.warning("qc_item %s build_cuts lỗi: %s", item_id, e)
 
     await _finish_item(mongo, item_id, "done", qc=qc_doc, ocr=ocr_doc)
-    await _bump_daily(mongo, config_id, ocr_done=1)
+    # ocr_done = số ITEM cắt được; cuts_created = số FILE cắt thật (1 item có
+    # thể ra >1 file nếu nhiều GCN trong cùng 1 file gốc) — 2 số liệu khác
+    # nhau, biểu đồ "số file đã cắt" ở Tổng quan cần số THỨ HAI.
+    await _bump_daily(mongo, config_id, ocr_done=1, cuts_created=len(ocr_doc["cuts"]))
     return "done"

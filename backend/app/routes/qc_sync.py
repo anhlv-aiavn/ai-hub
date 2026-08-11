@@ -27,6 +27,10 @@ class ConfigIn(BaseModel):
     dest_connection_id: str
     interval_seconds: int | None = None
     enabled: bool = True
+    # Tên Phường/Xã hiển thị thay cho `name` (thường đặt trùng mã P/X, vd
+    # "00004") trên biểu đồ/bộ lọc ở trang Tổng quan — người dùng tự nhập
+    # (đã có sẵn bảng mã→tên), KHÔNG có ánh xạ tự động trong hệ thống.
+    ward_name: str | None = None
 
 
 class ConfigPatch(BaseModel):
@@ -41,11 +45,12 @@ class ConfigPatch(BaseModel):
     # (cache có throttle, xem qc_pipeline.py) — file đã claim trước khi bật
     # tạm dừng vẫn chạy nốt, không bị ngắt giữa chừng.
     items_paused: bool | None = None
+    ward_name: str | None = None
 
 
 def _public_config(c: dict) -> dict:
     return {
-        "id": c["_id"], "name": c.get("name"),
+        "id": c["_id"], "name": c.get("name"), "ward_name": c.get("ward_name") or "",
         "source_connection_id": c.get("source_connection_id"), "prefix": c.get("prefix") or "",
         "dest_connection_id": c.get("dest_connection_id"),
         "interval_seconds": c.get("interval_seconds") or config.QC_SYNC_DEFAULT_INTERVAL_SECONDS,
@@ -83,7 +88,7 @@ async def create_config(body: ConfigIn, admin: dict = Depends(require_admin)):
         "source_connection_id": body.source_connection_id, "prefix": body.prefix or "",
         "dest_connection_id": body.dest_connection_id,
         "interval_seconds": body.interval_seconds or config.QC_SYNC_DEFAULT_INTERVAL_SECONDS,
-        "enabled": body.enabled, "items_paused": False,
+        "enabled": body.enabled, "items_paused": False, "ward_name": body.ward_name or "",
         "last_run_at": None, "last_run_status": None,
         "created_at": now, "updated_at": now, "created_by": admin["username"],
     }
@@ -101,7 +106,7 @@ async def update_config(config_id: str, body: ConfigPatch, admin: dict = Depends
     await _validate_refs(body.source_connection_id, body.dest_connection_id)
     upd: dict = {}
     for field in ("name", "source_connection_id", "prefix", "dest_connection_id",
-                  "interval_seconds", "enabled", "items_paused"):
+                  "interval_seconds", "enabled", "items_paused", "ward_name"):
         v = getattr(body, field)
         if v is not None:
             upd[field] = v
@@ -237,6 +242,29 @@ async def get_stats(config_id: str | None = Query(default=None),
     return {"range": range, "config_id": config_id, "counts": totals}
 
 
+@router.get("/stats/series")
+async def get_stats_series(config_id: str | None = Query(default=None),
+                           days: int = Query(default=90, ge=1, le=730)):
+    """Chuỗi thời gian theo NGÀY từ `qc_stats_daily` (rollup có sẵn, không tính
+    lại) — phục vụ 3 biểu đồ (QC/OCR/số file cắt) ở trang Tổng quan
+    (`QcSyncStats.jsx`), khác `GET /stats` (chỉ trả 1 tổng gộp cho 1 khoảng).
+    Gộp theo ngày bằng vòng lặp Python (không lọc `config_id` → nhiều kênh
+    CÙNG 1 ngày phải cộng dồn) — collection nhỏ (bounded theo số ngày × số
+    kênh), không cần aggregation pipeline. Resample ngày→tuần/tháng do FE lo."""
+    since = (datetime.now(timezone.utc).date() - timedelta(days=days - 1)).isoformat()
+    match: dict = {"date": {"$gte": since}}
+    if config_id:
+        match["config_id"] = config_id
+    by_date: dict[str, dict] = {}
+    async for d in qc_stats_daily().find(match):
+        date = d["date"]
+        bucket = by_date.setdefault(date, {})
+        for k, v in (d.get("counts") or {}).items():
+            bucket[k] = bucket.get(k, 0) + v
+    series = [{"date": d, "counts": by_date[d]} for d in sorted(by_date)]
+    return {"config_id": config_id, "days": days, "series": series}
+
+
 @router.get("/items")
 async def list_items(config_id: str | None = Query(default=None),
                      status: str | None = Query(default=None),
@@ -329,6 +357,33 @@ async def get_source_pdf(item_id: str, admin: dict = Depends(require_admin)):
     await log_action(admin["username"], AuditAction.QC_SYNC_ITEM_VIEW_SOURCE, item_id,
                      {"s3_key": item["s3_key"]})
     filename = item["s3_key"].rsplit("/", 1)[-1] or "file.pdf"
+    return StreamingResponse(
+        io.BytesIO(buf.getvalue()), media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.get("/items/{item_id}/cuts/{cut_index}/pdf")
+async def get_cut_pdf(item_id: str, cut_index: int, admin: dict = Depends(require_admin)):
+    """Xem trực tiếp 1 file ĐÃ CẮT (khác PDF nguồn) — nằm ở MinIO đích RIÊNG
+    của QC Sync (`purpose="qc"`), khác đích của pipeline GCN chính. Mở tab mới
+    từ cột "File đã cắt" trên bảng theo dõi."""
+    item = await qc_items().find_one({"_id": item_id})
+    if not item:
+        raise HTTPException(status_code=404, detail="Không tìm thấy item")
+    cuts = ((item.get("ocr") or {}).get("cuts")) or []
+    cut = next((c for c in cuts if c.get("index") == cut_index), None)
+    if not cut:
+        raise HTTPException(status_code=404, detail="Không tìm thấy file đã cắt")
+    try:
+        buf = await storage.get_pdf(cut["s3_key"], dest_purpose="qc")
+    except SourceObjectMissing as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except SourceObjectUnavailable as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    await log_action(admin["username"], AuditAction.QC_SYNC_ITEM_VIEW_CUT, item_id,
+                     {"s3_key": cut["s3_key"], "cut_index": cut_index})
+    filename = cut.get("name") or cut["s3_key"].rsplit("/", 1)[-1] or "cut.pdf"
     return StreamingResponse(
         io.BytesIO(buf.getvalue()), media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{filename}"'},

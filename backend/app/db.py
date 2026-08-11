@@ -121,3 +121,7 @@ async def ensure_indexes() -> None:
     # Rollup ngày để trả "mỗi ngày/tuần/tổng" mà KHÔNG count_documents trên
     # qc_items ở quy mô lớn — xem app/qc_client.py + worker/qc_pipeline.py.
     await qc_stats_daily().create_index([("config_id", 1), ("date", 1)], unique=True)
+    # Query theo khoảng ngày KHÔNG lọc config_id (biểu đồ "tất cả kênh" ở
+    # Tổng quan, GET /v1/qc-sync/stats/series) — cần index riêng trên `date`,
+    # unique index trên (config_id,date) không phục vụ được truy vấn này.
+    await qc_stats_daily().create_index("date")
