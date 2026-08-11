@@ -556,11 +556,12 @@ export async function syncQcWards(url, extraHeaders) {
 }
 
 // ── Phân loại hồ sơ + "làm mịn dữ liệu" (phase 2 QC Sync, tab "Phân loại") ──
-export async function getQcClassifications({ configId, q, structuralLabel, page = 1, pageSize = 50 } = {}) {
+export async function getQcClassifications({ configId, q, structuralLabel, loaiGiay, page = 1, pageSize = 50 } = {}) {
   const p = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
   if (configId) p.set("config_id", configId);
   if (q) p.set("q", q);
   if (structuralLabel) p.set("structural_label", structuralLabel);
+  if (loaiGiay) p.set("loai_giay", loaiGiay);
   return handle(await fetch(`/v1/qc-sync/classifications?${p.toString()}`, { headers: headers() }));
 }
 export async function reclassifyQcCut(itemId, cutIndex) {

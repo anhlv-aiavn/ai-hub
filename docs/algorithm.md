@@ -430,6 +430,18 @@ có ở §9) — dùng thay cho `parcels_json[0].ma_xa` (dữ liệu "thu thập
 nhưng ai-hub không có) để resolver `DonDangKy.XaId` vẫn hoạt động: adapter tự tạo
 `parcels_json=[{"ma_xa": ward_code}]` giả lập.
 
+**`dest_bucket`** = `s3_connections.bucket` của `qc_sync_configs.dest_connection_id` (tra thêm 1
+lần/item) — điền `HoSoQuet.BucketName` (bucket MinIO ĐÍCH thật chứa file đã cắt). Sửa 2026-08-11:
+resolver gốc `ho_so_quet.py` fallback về 1 tên bucket CỐ ĐỊNH (`"hni-kh515-new"`, bucket HSQ của
+khách hàng khác trong dự án gốc) khi thiếu `pdf_path_bucket_name` — SAI hoàn toàn với ai-hub nếu
+không truyền `dest_bucket`. Đã bỏ hằng số này, để trống khi thiếu thay vì hiện 1 bucket sai.
+
+**"Loại giấy"** (`GiayChungNhans[0].GiayChungNhan.TenLoaiGiayChungNhan`, suy từ định dạng
+`SoHieuGiayChungNhan` + ngày cấp — 6 quy tắc NĐ60/NĐ90/NĐ88/NĐ43/Luật 1993/2003, xem
+`resolvers/giay_chung_nhan.py`, KHÔNG sửa gì khi port) đã chạy tự động cùng lúc với phần cấu
+trúc — chỉ chưa hiện ở bảng "Phân loại" ban đầu, đã bổ sung cột riêng (`GET /classifications`
+project thêm `loai_giay` qua `$arrayElemAt`, tránh kéo cả `refined` về FE).
+
 **Tính TỰ ĐỘNG, MIỄN PHÍ** (không gọi API ngoài nào — thuần Python): `_classify_cuts()` chạy ngay
 trong `process_qc_item` sau `_build_cuts()` thành công, với MỖI cut — bọc `try/except` riêng từng
 cut (1 cut lỗi không chặn cut khác, cùng tinh thần "1 GCN lỗi không chặn cả batch" của dự án gốc).

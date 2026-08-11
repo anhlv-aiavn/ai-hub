@@ -470,10 +470,17 @@ async def reclassify_cut(item_id: str, cut_index: int, admin: dict = Depends(req
     records = ((item.get("ocr") or {}).get("records")) or []
     record = records[cut_index] if 0 <= cut_index < len(records) else {}
     entry = first_entry(record)
-    cfg = await qc_sync_configs().find_one({"_id": item.get("config_id")}, {"name": 1})
+    cfg = await qc_sync_configs().find_one(
+        {"_id": item.get("config_id")}, {"name": 1, "dest_connection_id": 1})
     ward_code = (cfg or {}).get("name") or ""
+    dest_bucket = ""
+    dest_id = (cfg or {}).get("dest_connection_id")
+    if dest_id:
+        conn = await s3_connections().find_one({"_id": dest_id}, {"bucket": 1})
+        dest_bucket = (conn or {}).get("bucket") or ""
     try:
-        raw = raw_record_from_cut(entry, cut, ward_code=ward_code, item_id=item_id)
+        raw = raw_record_from_cut(entry, cut, ward_code=ward_code, item_id=item_id,
+                                  dest_bucket=dest_bucket)
         build = build_payload([raw], _REGISTRY)
         refined = build.payload.model_dump(mode="json")
         classification = classify_structural(build.payload).model_dump(mode="json")
@@ -492,6 +499,7 @@ async def reclassify_cut(item_id: str, cut_index: int, admin: dict = Depends(req
 async def list_classifications(config_id: str | None = Query(default=None),
                                 q: str | None = Query(default=None),
                                 structural_label: str | None = Query(default=None),
+                                loai_giay: str | None = Query(default=None),
                                 page: int = Query(default=1, ge=1),
                                 page_size: int = Query(default=50, ge=1, le=200)):
     """Bảng "Phân loại" (1 dòng/1 cut đã làm mịn) — aggregation nhỏ trên
@@ -504,6 +512,11 @@ async def list_classifications(config_id: str | None = Query(default=None),
     ]
     if structural_label:
         pipeline.append({"$match": {"ocr.cuts.classification.NhanCauTruc": structural_label}})
+    if loai_giay:
+        # Dot-path qua mảng GiayChungNhans khớp nếu BẤT KỲ phần tử nào có đúng
+        # tên loại này (thực tế luôn 1 phần tử/cut) — xem resolvers/giay_chung_nhan.py.
+        pipeline.append({"$match": {
+            "ocr.cuts.refined.GiayChungNhans.GiayChungNhan.TenLoaiGiayChungNhan": loai_giay}})
     if q:
         pipeline.append({"$match": {"ocr.cuts.so_phat_hanh": {"$regex": re.escape(q.strip()), "$options": "i"}}})
     skip = (page - 1) * page_size
@@ -514,6 +527,11 @@ async def list_classifications(config_id: str | None = Query(default=None),
             "_id": 0, "item_id": "$_id", "config_id": "$config_id",
             "cut_index": "$ocr.cuts.index", "so_phat_hanh": "$ocr.cuts.so_phat_hanh",
             "name": "$ocr.cuts.name", "classification": "$ocr.cuts.classification",
+            # "Loại giấy" (Loại GCN, suy từ SoHieuGiayChungNhan + ngày cấp —
+            # xem resolvers/giay_chung_nhan.py) đã có sẵn trong `refined`, chỉ
+            # lấy đúng field cần hiện ở bảng, tránh kéo cả payload lớn về FE.
+            "loai_giay": {"$arrayElemAt": [
+                "$ocr.cuts.refined.GiayChungNhans.GiayChungNhan.TenLoaiGiayChungNhan", 0]},
         }},
     ]
     rows = await qc_items().aggregate(pipeline).to_list(length=page_size)

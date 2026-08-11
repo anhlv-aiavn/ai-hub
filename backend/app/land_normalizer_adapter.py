@@ -40,9 +40,14 @@ def first_entry(record: dict) -> dict:
     return {}
 
 
-def raw_record_from_cut(entry: dict, cut: dict, ward_code: str, item_id: str) -> RawRecord:
+def raw_record_from_cut(entry: dict, cut: dict, ward_code: str, item_id: str,
+                        dest_bucket: str = "") -> RawRecord:
     """`entry` = `first_entry(records[cut["index"]])`. `ward_code` = tên kênh QC
-    Sync (`qc_sync_configs.name`, đặt trùng mã Phường/Xã theo quy ước đã có)."""
+    Sync (`qc_sync_configs.name`, đặt trùng mã Phường/Xã theo quy ước đã có).
+    `dest_bucket` = bucket MinIO ĐÍCH của QC Sync (`s3_connections.bucket` của
+    `qc_sync_configs.dest_connection_id`) — điền `HoSoQuet.BucketName` đúng nơi
+    file cắt thật sự nằm, thay vì để trống (resolver `ho_so_quet.py` mới sẽ
+    fallback rỗng nếu thiếu, KHÔNG còn hardcode tên bucket của HSQ)."""
     gcn: dict[str, Any] = entry.get("Giấy chứng nhận") or {}
     so_gcn = (
         cut.get("so_phat_hanh")
@@ -62,5 +67,6 @@ def raw_record_from_cut(entry: dict, cut: dict, ward_code: str, item_id: str) ->
         ai_bien_dong=entry.get("Biến động") or [],
         parcels_json=[{"ma_xa": ward_code}] if ward_code else [],
         pdf_path=cut.get("s3_key"),
+        pdf_path_bucket_name=dest_bucket or None,
         source_row_ref=f"qc_items/{item_id}/cuts/{cut.get('index')}",
     )

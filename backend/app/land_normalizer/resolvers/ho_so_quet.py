@@ -17,15 +17,14 @@ voi ground-truth `tests/fixtures/00004/expected_payload.json`):
   `gcn_paths`.
 - `HoSoQuet.SoGcn` lay tu `so_gcn` (giong `ctx.so_gcn`, nguon uu tien nhat cho ma
   GCN trong toan bo pipeline - xem giay_chung_nhan.py).
-- `HoSoQuet.BucketName`: uu tien `pdf_path_bucket_name` (chi API moi co). Excel
-  (`ExcelSourceAdapter`) KHONG parse cot `pdf_path` thanh object (xem
-  ingestion/excel_source.py, `pdf_path` khong nam trong `_JSON_OBJECT_FIELDS`) nen
-  luon thieu bucket_name rieng - fallback ve hang so `_DEFAULT_BUCKET_NAME`
-  ("hni-kh515-new"): quan sat NHAT QUAN 100% (8/8 mau) tren ca ground-truth Excel
-  (`tests/fixtures/00004/expected_payload.json`) LAN 6 ban ghi that goi truc tiep
-  tu API (package_id=1467) - chua gap bucket nao khac, nhung day van la GIA DINH
-  (khong phai field co nguon truc tiep cho Excel) can xem lai neu xuat hien bucket
-  khac trong du lieu tuong lai.
+- `HoSoQuet.BucketName`: `pdf_path_bucket_name` — ở ai-hub, adapter
+  (`land_normalizer_adapter.py::raw_record_from_cut`) LUÔN điền giá trị này từ
+  bucket MinIO ĐÍCH thật của kênh QC Sync (`s3_connections.bucket` của
+  `qc_sync_configs.dest_connection_id`), nên nhánh "thiếu bucket_name riêng" chỉ
+  xảy ra khi tra cứu đó lỗi. KHÔNG fallback về 1 tên bucket cố định (bản gốc
+  `vpdd-don-ai` dùng `_DEFAULT_BUCKET_NAME = "hni-kh515-new"` — tên bucket HSQ
+  của KHÁCH HÀNG KHÁC, hoàn toàn sai với ai-hub) — để trống thay vì hiện 1 tên
+  bucket sai nhưng có vẻ hợp lệ.
 """
 
 from __future__ import annotations
@@ -35,8 +34,6 @@ from dataclasses import dataclass
 from app.land_normalizer.models.payload import HoSoQuet
 from app.land_normalizer.resolvers.base import FieldResult, ResolverContext
 from app.land_normalizer.resolvers.support import first_non_empty
-
-_DEFAULT_BUCKET_NAME = "hni-kh515-new"
 
 
 @dataclass
@@ -55,9 +52,9 @@ class HoSoQuetsResolver:
             source = f"attempts[{p_idx}].pdf_path + attempts[{b_idx}].pdf_path_bucket_name"
             confidence = 0.9
         else:
-            bucket_name = _DEFAULT_BUCKET_NAME
-            source = f"attempts[{p_idx}].pdf_path + BucketName mac dinh '{_DEFAULT_BUCKET_NAME}' (nguon khong co bucket_name rieng, vd Excel)"
-            confidence = 0.6
+            bucket_name = None
+            source = f"attempts[{p_idx}].pdf_path (thieu bucket_name)"
+            confidence = 0.4
 
         entry = HoSoQuet(BucketName=bucket_name, FilePath=pdf_path, SoGcn=ctx.so_gcn)
         return FieldResult(value=[entry], confidence=confidence, source=source)

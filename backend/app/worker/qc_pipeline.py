@@ -302,18 +302,30 @@ def _qc_cut_naming(item: dict):
     return _fn
 
 
-async def _ward_code_of(mongo: AsyncMongo, config_id: str | None) -> str:
-    """`qc_sync_configs.name` — kênh QC Sync đặt tên trùng mã Phường/Xã (quy ước
-    đã có, xem WardSyncPanel/`_ward_map` trong routes/qc_sync.py) — dùng làm
-    `DonDangKy.XaId` khi "làm mịn dữ liệu" (không có nguồn thu thập thực địa
-    riêng như dự án gốc `vpdd-don-ai`, xem docs/algorithm.md §10)."""
+async def _classify_meta_of(mongo: AsyncMongo, config_id: str | None) -> tuple[str, str]:
+    """`(ward_code, dest_bucket)` cần cho `raw_record_from_cut` khi "làm mịn dữ
+    liệu": `ward_code` = `qc_sync_configs.name` (kênh QC Sync đặt tên trùng mã
+    Phường/Xã, quy ước đã có, xem WardSyncPanel/`_ward_map` trong
+    routes/qc_sync.py) dùng làm `DonDangKy.XaId` (không có nguồn thu thập thực
+    địa riêng như dự án gốc `vpdd-don-ai`, xem docs/algorithm.md §10);
+    `dest_bucket` = bucket MinIO ĐÍCH thật của kênh (`s3_connections.bucket` của
+    `dest_connection_id`) dùng cho `HoSoQuet.BucketName`."""
     if not config_id:
-        return ""
-    doc = await mongo.db[config.COLL_QC_SYNC_CONFIG].find_one({"_id": config_id}, {"name": 1})
-    return (doc or {}).get("name") or ""
+        return "", ""
+    cfg = await mongo.db[config.COLL_QC_SYNC_CONFIG].find_one(
+        {"_id": config_id}, {"name": 1, "dest_connection_id": 1})
+    if not cfg:
+        return "", ""
+    ward_code = cfg.get("name") or ""
+    dest_bucket = ""
+    dest_id = cfg.get("dest_connection_id")
+    if dest_id:
+        conn = await mongo.db[config.COLL_S3_CONN].find_one({"_id": dest_id}, {"bucket": 1})
+        dest_bucket = (conn or {}).get("bucket") or ""
+    return ward_code, dest_bucket
 
 
-def _classify_cuts(records: list, cuts: list[dict], ward_code: str, item_id: str) -> None:
+def _classify_cuts(records: list, cuts: list[dict], ward_code: str, dest_bucket: str, item_id: str) -> None:
     """"Làm mịn dữ liệu" (build Payload) + phân loại cấu trúc cho MỖI cut, port
     từ `vpdd-don-ai` (docs/algorithm.md §10) — MUTATE `cuts` tại chỗ, ghi
     `cut["refined"]`/`cut["classification"]`. 1 cut lỗi KHÔNG chặn cut khác
@@ -323,7 +335,8 @@ def _classify_cuts(records: list, cuts: list[dict], ward_code: str, item_id: str
             ri = cut.get("index")
             record = records[ri] if isinstance(ri, int) and 0 <= ri < len(records) else {}
             entry = first_entry(record)
-            raw = raw_record_from_cut(entry, cut, ward_code=ward_code, item_id=item_id)
+            raw = raw_record_from_cut(entry, cut, ward_code=ward_code, item_id=item_id,
+                                      dest_bucket=dest_bucket)
             build = build_payload([raw], _REGISTRY)
             cut["refined"] = build.payload.model_dump(mode="json")
             cut["classification"] = classify_structural(build.payload).model_dump(mode="json")
@@ -433,8 +446,8 @@ async def process_qc_item(mongo: AsyncMongo, item: dict) -> str:
         # phí (thuần Python, không gọi API nào) — port từ vpdd-don-ai, xem
         # docs/algorithm.md §10. Người dùng có thể chạy lại thủ công sau qua
         # POST /items/{id}/cuts/{i}/reclassify (routes/qc_sync.py).
-        ward_code = await _ward_code_of(mongo, config_id)
-        _classify_cuts(records, cuts, ward_code=ward_code, item_id=item_id)
+        ward_code, dest_bucket = await _classify_meta_of(mongo, config_id)
+        _classify_cuts(records, cuts, ward_code=ward_code, dest_bucket=dest_bucket, item_id=item_id)
         ocr_doc["cuts"] = cuts
     except DestinationNotConfigured as e:
         # Thiếu S3 đích QC là lỗi HỆ THỐNG (ảnh hưởng mọi cut của item này) —

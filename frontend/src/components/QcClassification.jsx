@@ -22,6 +22,19 @@ const STRUCTURAL_LABEL_OPTIONS = [
   "Có sử dụng chung, riêng",
 ];
 
+// 6 loại GCN thật sự có thể ra từ `_classify_loai_gcn` (resolvers/giay_chung_nhan.py)
+// — catalogs.py có 12 mục nhưng resolver chỉ nhận diện được 6 định dạng số hiệu
+// này, các mục còn lại (Giấy hợp thức hoá, Giấy phép xây dựng...) không bao giờ
+// được gán tự động nên không đưa vào bộ lọc (tránh lựa chọn chết, không ra kết quả).
+const LOAI_GIAY_OPTIONS = [
+  "Giấy chứng nhận QSDĐ theo Luật Đất Đai 2003",
+  "Giấy chứng nhận QSDĐ theo Luật Đất Đai 1993",
+  "Giấy chứng nhận QSHNƠ & QSDĐƠ theo Nghị định 60/NĐ-CP",
+  "Giấy chứng nhận QSHNƠ & QSDĐƠ theo Nghị định 90/NĐ-CP",
+  "Giấy chứng nhận QSDĐƠ & QSHNƠ và TSKGLVĐ theo NĐ 88/NĐ-CP",
+  "Giấy chứng nhận QSDĐƠ & QSHNƠ và TSKGLVĐ theo NĐ 43/NĐ-CP",
+];
+
 const PAGE_SIZE = 50;
 
 export default function QcClassification() {
@@ -29,6 +42,7 @@ export default function QcClassification() {
   const [configId, setConfigId] = useState("");
   const [q, setQ] = useState("");
   const [structuralLabel, setStructuralLabel] = useState("");
+  const [loaiGiay, setLoaiGiay] = useState("");
   const [rows, setRows] = useState([]);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -36,17 +50,17 @@ export default function QcClassification() {
   const [jsonModal, setJsonModal] = useState(null); // {itemId, cutIndex, soGcn, data} | null
 
   useEffect(() => { getQcSyncConfigs().then((d) => setConfigs(d.configs || [])).catch(() => {}); }, []);
-  useEffect(() => { setPage(1); }, [configId, q, structuralLabel]);
+  useEffect(() => { setPage(1); }, [configId, q, structuralLabel, loaiGiay]);
 
   async function load() {
     setLoading(true);
     try {
-      const res = await getQcClassifications({ configId, q, structuralLabel, page, pageSize: PAGE_SIZE });
+      const res = await getQcClassifications({ configId, q, structuralLabel, loaiGiay, page, pageSize: PAGE_SIZE });
       setRows(res.rows || []);
     } catch (e) { toastErr(e.message || e); }
     finally { setLoading(false); }
   }
-  useEffect(() => { load(); }, [configId, q, structuralLabel, page]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [configId, q, structuralLabel, loaiGiay, page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function reclassify(row) {
     const key = `${row.item_id}:${row.cut_index}`;
@@ -110,11 +124,16 @@ export default function QcClassification() {
           <option value="">— Mọi nhãn cấu trúc —</option>
           {STRUCTURAL_LABEL_OPTIONS.map((l) => <option key={l} value={l}>{l}</option>)}
         </select>
+        <select className="text-input" style={{ width: "auto" }} value={loaiGiay}
+          onChange={(e) => setLoaiGiay(e.target.value)}>
+          <option value="">— Mọi loại giấy —</option>
+          {LOAI_GIAY_OPTIONS.map((l) => <option key={l} value={l}>{l}</option>)}
+        </select>
       </div>
 
       <div className="tbl-dense qc-cls-tbl">
         <div className="file-row qc-cls-row qc-cls-head">
-          <span>Số phát hành</span><span>Nhãn cấu trúc</span><span>Số chủ</span>
+          <span>Số phát hành</span><span>Loại giấy</span><span>Nhãn cấu trúc</span><span>Số chủ</span>
           <span>Số thửa</span><span>Đa mục đích</span><span>Chung/riêng</span><span>Thao tác</span>
         </div>
         {rows.map((r) => {
@@ -126,6 +145,7 @@ export default function QcClassification() {
                 rel="noopener noreferrer" title={`Xem file đã cắt: ${r.name || ""}`}>
                 {r.so_phat_hanh || r.name || "—"}
               </a>
+              <span className="fr-meta qc-reason-cell" title={r.loai_giay || ""}>{r.loai_giay || "—"}</span>
               <span className="fr-meta qc-reason-cell" title={(cls.NhanCauTruc || []).join(", ")}>
                 {(cls.NhanCauTruc || []).join(", ") || "—"}
               </span>
