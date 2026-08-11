@@ -487,8 +487,11 @@ function QcSyncDetail({ configId, configName, onClose }) {
               <span className="fr-meta">
                 <VerdictBadge verdict={it.qc?.verdict} reasons={it.qc?.reasons} />
               </span>
-              <span className="fr-meta" title={isError ? it.error : undefined}
-                style={isError ? { color: "var(--err)", whiteSpace: "normal" } : undefined}>
+              <span className="fr-meta qc-reason-cell"
+                title={isError
+                  ? it.error
+                  : (it.qc?.reasons || []).map((r) => r.code).join(", ") || undefined}
+                style={isError ? { color: "var(--err)" } : undefined}>
                 {isError
                   ? `${it.error || "Lỗi không rõ"}${it.error_kind ? ` (${it.error_kind})` : ""}`
                   : (it.qc?.reasons || []).map((r) => r.code).join(", ")}
