@@ -35,7 +35,7 @@ export default function QcClassification() {
   const [busyKey, setBusyKey] = useState(""); // `${itemId}:${cutIndex}` đang "Phân loại lại"
   const [jsonModal, setJsonModal] = useState(null); // {itemId, cutIndex, soGcn, data} | null
 
-  useEffect(() => { getQcSyncConfigs().then(setConfigs).catch(() => {}); }, []);
+  useEffect(() => { getQcSyncConfigs().then((d) => setConfigs(d.configs || [])).catch(() => {}); }, []);
   useEffect(() => { setPage(1); }, [configId, q, structuralLabel]);
 
   async function load() {
