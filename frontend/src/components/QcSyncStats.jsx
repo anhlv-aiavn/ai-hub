@@ -40,6 +40,18 @@ const VERDICT_CLASS = { pass: "dot-ok", warn: "dot-unknown", fail: "dot-err" };
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
 const pct = (n, total) => (total ? Math.round(((n || 0) / total) * 1000) / 10 : 0);
+// Dạng GỌN cho nhãn trong biểu đồ (chỗ hẹp) — số < 1000 vẫn hiện đầy đủ có
+// dấu phân cách; từ hàng nghìn/triệu trở lên rút gọn "12,3k"/"4,5tr" cho vừa
+// cột hẹp. Số liệu CHÍNH XÁC đầy đủ vẫn có ở tooltip hover + khối KPI/hero.
+function fmtCompact(n) {
+  const v = n || 0;
+  const av = Math.abs(v);
+  if (av < 1000) return v.toLocaleString("vi-VN");
+  const useTr = av >= 999_950; // làm tròn 1 chữ số thập phân có thể vọt lên "1000k" — đẩy sang "tr"
+  const unit = useTr ? [1_000_000, "tr"] : [1000, "k"];
+  const rounded = Math.round((v / unit[0]) * 10) / 10;
+  return `${rounded.toLocaleString("vi-VN")}${unit[1]}`;
+}
 function fmtDate(d) {
   if (!d) return "—";
   try { return new Date(d).toLocaleString("vi-VN"); } catch { return String(d); }
@@ -158,13 +170,24 @@ function BarChart({ title, periods, seriesSpec }) {
             )))}
           </svg>
           {/* Lớp nhãn HTML đè lên SVG — KHÔNG bị méo vì không đi qua transform
-              co giãn không đều của viewBox (xem ghi chú trên CHART_H). */}
+              co giãn không đều của viewBox (xem ghi chú trên CHART_H). Dùng
+              fmtCompact (rút gọn "12,3k"/"4,5tr") vì chỗ trong cột/đoạn hẹp
+              — số chính xác đầy đủ vẫn có khi hover (tooltip) hoặc ở khối
+              KPI/hero bên trên (fmt, không rút gọn). */}
           <div className="qc-chart-labels">
             {cols.map((c, i) => (
               <React.Fragment key={c.key}>
+                {/* Nhãn TỪNG ĐOẠN màu (loại) — chỉ hiện khi đoạn đủ cao để
+                    không tràn/chồng chữ ra ngoài. */}
+                {c.segs.filter((seg) => seg.h >= 16).map((seg) => (
+                  <span key={seg.key} className="qc-chart-seg-label"
+                    style={{ left: `${c.cxPct}%`, top: seg.y + seg.h / 2 }}>
+                    {fmtCompact(seg.v)}
+                  </span>
+                ))}
                 {c.total > 0 && (
                   <span className="qc-chart-bar-total" style={{ left: `${c.cxPct}%`, top: c.topY - 1 }}>
-                    {fmt(c.total)}
+                    {fmtCompact(c.total)}
                   </span>
                 )}
                 {i % labelEvery === 0 && (
@@ -316,6 +339,8 @@ function WardItemsPanel({ configId }) {
     getQcSyncItems({ configId, pageSize: 20 }).then((d) => setItems(d.items || []))
       .catch(() => setItems([])).finally(() => setLoading(false));
   }, [configId]);
+
+  console.log(items);
 
   return (
     <div className="qc-ward-detail">
