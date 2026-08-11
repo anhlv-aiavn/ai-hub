@@ -4,11 +4,11 @@ import {
   getS3Connections,
   getQcSyncConfigs, createQcSyncConfig, updateQcSyncConfig, deleteQcSyncConfig,
   runQcSyncNow, getQcSyncActiveJob, cancelQcSyncJob, getQcSyncStats, getQcSyncItems,
-  retryQcSyncItem, deleteQcSyncItem, clearQcSyncConfigItems, qcSyncSourcePdfUrl, qcSyncCutPdfUrl,
+  retryQcSyncItem, deleteQcSyncItem, clearQcSyncConfigItems, qcSyncSourcePdfUrl,
   getQcWards, syncQcWards,
 } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
-import { VerdictBadge } from "./qcSyncShared.jsx";
+import { VerdictBadge, CutLinks } from "./qcSyncShared.jsx";
 
 // Trang "QC Sync" (admin) — pipeline MỚI, song song với pipeline GCN chính:
 // đồng bộ 1 kho MinIO nguồn đã cấu hình, chấm chất lượng qua qc-scanner-server
@@ -399,7 +399,8 @@ function ActiveJobRun({ configId, refreshTick, onDone }) {
 const RANGES = [["day", "Hôm nay"], ["week", "7 ngày"], ["month", "30 ngày"], ["all", "Tổng"]];
 const COUNT_LABELS = [
   ["scanned", "Đã quét"], ["pass", "Đạt"], ["warn", "Đạt (cảnh báo)"], ["fail", "Không đạt"],
-  ["ocr_done", "Đã OCR+cắt"], ["no_gcn", "Không thấy GCN"], ["error", "Lỗi"],
+  ["ocr_done", "Đã OCR+cắt"], ["no_sph", "File cắt không rõ SPH"],
+  ["no_gcn", "Không thấy GCN"], ["error", "Lỗi"],
 ];
 
 function QcSyncDetail({ configId, configName, onClose }) {
@@ -493,12 +494,7 @@ function QcSyncDetail({ configId, configName, onClose }) {
                   : (it.qc?.reasons || []).map((r) => r.code).join(", ")}
               </span>
               <span className="fr-meta qc-cuts-cell">
-                {(it.ocr?.cuts || []).length
-                  ? it.ocr.cuts.map((cut) => (
-                      <a key={cut.index} href={qcSyncCutPdfUrl(it.id, cut.index)} target="_blank"
-                        rel="noopener noreferrer" title={`Xem file đã cắt: ${cut.name}`}>{cut.name}</a>
-                    ))
-                  : "—"}
+                <CutLinks itemId={it.id} cuts={it.ocr?.cuts} />
               </span>
               <span className="fr-meta">{fmtDate(it.finished_at || it.created_at)}</span>
               <span className="s3-actions">

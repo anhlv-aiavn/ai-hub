@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { qcSyncCutPdfUrl } from "../api.js";
 
 // Dùng chung giữa trang quản trị "QC Sync" (QcSync.jsx) và thống kê "Tổng
 // quan" (QcSyncStats.jsx) — tránh lặp lại nhãn/màu verdict + logic hiện chi
@@ -81,4 +82,23 @@ export function VerdictBadge({ verdict, reasons }) {
       )}
     </span>
   );
+}
+
+// Danh sách link "File đã cắt" (mở tab mới xem PDF) — đánh dấu riêng file
+// KHÔNG đọc được Số phát hành (`cut.so_phat_hanh` rỗng, khác `no_gcn`: vẫn
+// tìm thấy + cắt được trang GCN, chỉ là không đọc ra số trên đó) để admin
+// bấm xem trực tiếp thay vì phải dò cả danh sách.
+export function CutLinks({ itemId, cuts }) {
+  const list = cuts || [];
+  if (!list.length) return <span className="muted small">—</span>;
+  return list.map((cut) => {
+    const missingSph = !cut.so_phat_hanh;
+    return (
+      <a key={cut.index} href={qcSyncCutPdfUrl(itemId, cut.index)} target="_blank" rel="noopener noreferrer"
+        className={missingSph ? "qc-cut-nosph" : undefined}
+        title={missingSph ? `Chưa đọc được Số phát hành — ${cut.name}` : `Xem file đã cắt: ${cut.name}`}>
+        {missingSph && "⚠ "}{cut.name}
+      </a>
+    );
+  });
 }

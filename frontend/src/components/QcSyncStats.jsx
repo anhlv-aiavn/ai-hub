@@ -3,10 +3,10 @@ import Icon from "./Icon.jsx";
 import Modal from "./Modal.jsx";
 import {
   getQcSyncConfigs, getQcSyncStats, getQcSyncStatsSeries, getQcSyncStatsByConfig, getQcSyncItems,
-  qcSyncSourcePdfUrl, qcSyncCutPdfUrl,
+  qcSyncSourcePdfUrl,
 } from "../api.js";
 import { toastErr } from "../toast.js";
-import { VerdictBadge } from "./qcSyncShared.jsx";
+import { VerdictBadge, CutLinks } from "./qcSyncShared.jsx";
 
 // Thống kê pipeline QC Sync (F-16, xem docs/algorithm.md §9) trên trang Tổng
 // quan — viewer trở lên xem được, khác trang quản trị "QC Sync" (admin-only,
@@ -245,6 +245,7 @@ function QcQualityHero({ counts }) {
 function OcrKpiStrip({ counts }) {
   const TILES = [
     ["ocr_done", "Đã cắt (item)"], ["cuts_created", "File đã cắt"],
+    ["no_sph", "File cắt không rõ Số phát hành"],
     ["no_gcn", "Không thấy GCN"], ["no_file", "Không thấy file"], ["error", "Lỗi"],
   ];
   return (
@@ -366,12 +367,7 @@ function WardItemsPanel({ configId }) {
               </span>
               <span className="fr-meta">{it.status}</span>
               <span className="qc-cuts-cell">
-                {(it.ocr?.cuts || []).length
-                  ? it.ocr.cuts.map((cut) => (
-                      <a key={cut.index} href={qcSyncCutPdfUrl(it.id, cut.index)} target="_blank"
-                        rel="noopener noreferrer" title={`Xem file đã cắt: ${cut.name}`}>{cut.name}</a>
-                    ))
-                  : <span className="muted small">—</span>}
+                <CutLinks itemId={it.id} cuts={it.ocr?.cuts} />
               </span>
               <span>
                 {(it.ocr?.records || []).length

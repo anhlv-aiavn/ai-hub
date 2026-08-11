@@ -404,5 +404,13 @@ async def process_qc_item(mongo: AsyncMongo, item: dict) -> str:
     # ocr_done = số ITEM cắt được; cuts_created = số FILE cắt thật (1 item có
     # thể ra >1 file nếu nhiều GCN trong cùng 1 file gốc) — 2 số liệu khác
     # nhau, biểu đồ "số file đã cắt" ở Tổng quan cần số THỨ HAI.
-    await _bump_daily(mongo, config_id, ocr_done=1, cuts_created=len(ocr_doc["cuts"]))
+    # no_sph = trong số file ĐÃ CẮT ĐƯỢC, bao nhiêu file KHÔNG đọc được Số
+    # phát hành (`cut["so_phat_hanh"]` rỗng — khác `no_gcn`: đây vẫn tìm thấy
+    # trang GCN và cắt được, chỉ là không đọc ra được số trên đó). KHÔNG cộng
+    # dồn vào biểu đồ stacked OCR_SERIES vì không loại trừ lẫn nhau với
+    # `ocr_done` (1 cut vừa tính vào ocr_done vừa có thể thiếu SPH) — hiện
+    # riêng ở KPI (`OcrKpiStrip`), xem từng file cụ thể qua field `cuts[]`
+    # (`qc_items.ocr.cuts[].so_phat_hanh` null) ở bảng theo dõi.
+    n_no_sph = sum(1 for c in ocr_doc["cuts"] if not c.get("so_phat_hanh"))
+    await _bump_daily(mongo, config_id, ocr_done=1, cuts_created=len(ocr_doc["cuts"]), no_sph=n_no_sph)
     return "done"
