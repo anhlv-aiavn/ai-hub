@@ -6,6 +6,7 @@ import {
   qcSyncSourcePdfUrl, qcSyncCutPdfUrl,
 } from "../api.js";
 import { toastErr } from "../toast.js";
+import { VerdictBadge } from "./qcSyncShared.jsx";
 
 // Thống kê pipeline QC Sync (F-16, xem docs/algorithm.md §9) trên trang Tổng
 // quan — viewer trở lên xem được, khác trang quản trị "QC Sync" (admin-only,
@@ -34,9 +35,6 @@ const OCR_SERIES = [
   { key: "error", label: "Lỗi", color: "var(--err)" },
 ];
 const CUTS_SERIES = [{ key: "cuts_created", label: "File đã cắt", color: "var(--accent)" }];
-
-const VERDICT_LABEL = { pass: "Đạt", warn: "Đạt (cảnh báo)", fail: "Không đạt" };
-const VERDICT_CLASS = { pass: "dot-ok", warn: "dot-unknown", fail: "dot-err" };
 
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
 const pct = (n, total) => (total ? Math.round(((n || 0) / total) * 1000) / 10 : 0);
@@ -364,10 +362,7 @@ function WardItemsPanel({ configId }) {
               <a className="fr-name" href={qcSyncSourcePdfUrl(it.id)} target="_blank" rel="noopener noreferrer"
                 title={`Xem PDF nguồn: ${it.s3_key}`}>{it.s3_key}</a>
               <span className="fr-meta">
-                {it.qc?.verdict && (
-                  <><span className={`dot ${VERDICT_CLASS[it.qc.verdict] || "dot-unknown"}`} />{" "}
-                  {VERDICT_LABEL[it.qc.verdict] || it.qc.verdict}</>
-                )}
+                <VerdictBadge verdict={it.qc?.verdict} reasons={it.qc?.reasons} />
               </span>
               <span className="fr-meta">{it.status}</span>
               <span className="qc-cuts-cell">

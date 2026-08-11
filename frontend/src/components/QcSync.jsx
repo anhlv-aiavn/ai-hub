@@ -8,6 +8,7 @@ import {
   getQcWards, syncQcWards,
 } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
+import { VerdictBadge } from "./qcSyncShared.jsx";
 
 // Trang "QC Sync" (admin) — pipeline MỚI, song song với pipeline GCN chính:
 // đồng bộ 1 kho MinIO nguồn đã cấu hình, chấm chất lượng qua qc-scanner-server
@@ -19,8 +20,6 @@ const EMPTY_FORM = {
   interval_seconds: 300, enabled: true,
 };
 
-const VERDICT_LABEL = { pass: "Đạt", warn: "Đạt (cảnh báo)", fail: "Không đạt" };
-const VERDICT_CLASS = { pass: "dot-ok", warn: "dot-unknown", fail: "dot-err" };
 const ITEM_STATUS_OPTIONS = [
   ["", "— Mọi trạng thái —"], ["error", "Lỗi"], ["no_file", "Không thấy file"],
   ["queued", "Đang chờ"], ["processing", "Đang xử lý"], ["done", "Xong"], ["no_gcn", "Không thấy GCN"],
@@ -485,10 +484,7 @@ function QcSyncDetail({ configId, configName, onClose }) {
                 {it.attempts > 1 && ` (${it.attempts} lần)`}
               </span>
               <span className="fr-meta">
-                {it.qc?.verdict && (
-                  <><span className={`dot ${VERDICT_CLASS[it.qc.verdict] || "dot-unknown"}`} />{" "}
-                  {VERDICT_LABEL[it.qc.verdict] || it.qc.verdict}</>
-                )}
+                <VerdictBadge verdict={it.qc?.verdict} reasons={it.qc?.reasons} />
               </span>
               <span className="fr-meta" title={isError ? it.error : undefined}
                 style={isError ? { color: "var(--err)", whiteSpace: "normal" } : undefined}>
