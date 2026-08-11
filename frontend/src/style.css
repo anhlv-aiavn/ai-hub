@@ -1569,15 +1569,23 @@ a.fr-name:hover { color: var(--brand); text-decoration: underline; }
    tìm thấy + cắt được trang GCN, chỉ là không đọc ra được số trên đó). */
 .qc-cuts-cell .qc-cut-link.qc-cut-nosph { color: #92400e; }
 /* Modal "So sánh" (CutCompareModal) — 2 khung PDF cạnh nhau, gốc bên trái, đã
-   cắt bên phải (cùng tinh thần QcCompareDialog của dự án tham chiếu vpdd-don-ai). */
-.qc-compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
-  height: 76vh; max-height: 820px; max-width: 1400px; margin: 0 auto; }
+   cắt bên phải (cùng tinh thần QcCompareDialog của dự án tham chiếu vpdd-don-ai).
+   Giới hạn max-height/max-width đặt Ở CHÍNH MODAL (không phải khung lưới bên
+   trong) — modal riêng lớn hơn `.modal-card.wide` mặc định (1200px/92vh) vì
+   xem 2 PDF cạnh nhau cần nhiều chỗ hơn form/bảng thông thường; `.modal-body`
+   chuyển sang flex column để khung lưới lấp ĐẦY phần thân còn lại (height:100%)
+   thay vì tự tính riêng theo vh, luôn khớp đúng kích thước modal. */
+.modal-card.qc-compare-modal { width: min(1600px, 97vw); max-height: 96vh; }
+.modal-card.qc-compare-modal .modal-body { display: flex; flex-direction: column; min-height: 0; }
+.qc-compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; height: 100%; min-height: 0; }
 .qc-compare-pane { display: flex; flex-direction: column; gap: 6px; min-height: 0; max-width: 100%; }
 .qc-compare-pane-head { font-size: 12px; font-weight: 600; color: var(--text-2); }
-.qc-compare-pane iframe { flex: 1; min-height: 0; width: 100%; max-width: 100%; max-height: 100%;
+.qc-compare-pane iframe { flex: 1; min-height: 0; width: 100%; max-width: 100%;
   border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
-@media (max-width: 900px) { .qc-compare-grid { grid-template-columns: 1fr; height: auto; max-height: none; }
-  .qc-compare-pane iframe { height: 60vh; max-height: 60vh; } }
+@media (max-width: 900px) {
+  .modal-card.qc-compare-modal { max-height: 96vh; }
+  .qc-compare-grid { grid-template-columns: 1fr; height: auto; }
+  .qc-compare-pane iframe { height: 60vh; } }
 
 /* Bảng "Phân loại" (QcClassification.jsx) — 9 cột: STT, Số phát hành, Loại
    giấy, Nhãn cấu trúc, Số chủ, Số thửa, Đa mục đích, Chung/riêng, Thao tác.

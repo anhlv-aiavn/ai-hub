@@ -100,7 +100,7 @@ export function VerdictBadge({ verdict, reasons }) {
 // mới xem tiếp được danh sách) — 2 khung xem cạnh nhau để đối chiếu ngay.
 function CutCompareModal({ itemId, cut, onClose }) {
   return (
-    <Modal title={`So sánh — ${cut.name}`} onClose={onClose} wide>
+    <Modal title={`So sánh — ${cut.name}`} onClose={onClose} wide className="qc-compare-modal">
       <div className="qc-compare-grid">
         <div className="qc-compare-pane">
           <div className="qc-compare-pane-head">File gốc (nguồn)</div>
