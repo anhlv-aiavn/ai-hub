@@ -1570,13 +1570,14 @@ a.fr-name:hover { color: var(--brand); text-decoration: underline; }
 .qc-cuts-cell .qc-cut-link.qc-cut-nosph { color: #92400e; }
 /* Modal "So sánh" (CutCompareModal) — 2 khung PDF cạnh nhau, gốc bên trái, đã
    cắt bên phải (cùng tinh thần QcCompareDialog của dự án tham chiếu vpdd-don-ai). */
-.qc-compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; height: 76vh; }
-.qc-compare-pane { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.qc-compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  height: 76vh; max-height: 820px; max-width: 1400px; margin: 0 auto; }
+.qc-compare-pane { display: flex; flex-direction: column; gap: 6px; min-height: 0; max-width: 100%; }
 .qc-compare-pane-head { font-size: 12px; font-weight: 600; color: var(--text-2); }
-.qc-compare-pane iframe { flex: 1; min-height: 0; width: 100%; border: 1px solid var(--border);
-  border-radius: var(--radius-sm); background: var(--surface-2); }
-@media (max-width: 900px) { .qc-compare-grid { grid-template-columns: 1fr; height: auto; }
-  .qc-compare-pane iframe { height: 60vh; } }
+.qc-compare-pane iframe { flex: 1; min-height: 0; width: 100%; max-width: 100%; max-height: 100%;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+@media (max-width: 900px) { .qc-compare-grid { grid-template-columns: 1fr; height: auto; max-height: none; }
+  .qc-compare-pane iframe { height: 60vh; max-height: 60vh; } }
 
 /* Bảng "Phân loại" (QcClassification.jsx) — 9 cột: STT, Số phát hành, Loại
    giấy, Nhãn cấu trúc, Số chủ, Số thửa, Đa mục đích, Chung/riêng, Thao tác.
