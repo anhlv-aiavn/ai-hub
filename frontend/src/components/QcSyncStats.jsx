@@ -329,18 +329,26 @@ function WardTable({ range }) {
 
 // Danh sách file gần đây của 1 kênh — CHỈ XEM (không có Chạy lại/Xóa, những
 // thao tác đó nằm ở trang quản trị "QC Sync" admin-only).
+const WARD_ITEMS_PAGE_SIZE = 15;
+
 function WardItemsPanel({ configId }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [ocrItem, setOcrItem] = useState(null);
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     setLoading(true);
-    getQcSyncItems({ configId, pageSize: 20 }).then((d) => setItems(d.items || []))
+    // processedOnly + sortBy "finished_at": panel này chỉ để XEM kết quả đã
+    // xử lý xong (đúng ý "Theo Phường/Xã") — khác bảng admin "File gần đây"
+    // (QcSync.jsx) vốn mặc định thấy CẢ hàng chờ để debug tiến độ. Sort mặc
+    // định trước đây là created_at → luôn nổi lên file MỚI NHẤT ĐƯỢC LIỆT KÊ,
+    // mà file mới liệt kê thường còn "queued" (chưa tới lượt xử lý) — đúng
+    // bug thực tế "toàn ra file queued".
+    getQcSyncItems({ configId, processedOnly: true, sortBy: "finished_at", page, pageSize: WARD_ITEMS_PAGE_SIZE })
+      .then((d) => setItems(d.items || []))
       .catch(() => setItems([])).finally(() => setLoading(false));
-  }, [configId]);
-
-  console.log(items);
+  }, [configId, page]);
 
   return (
     <div className="qc-ward-detail">
@@ -380,7 +388,17 @@ function WardItemsPanel({ configId }) {
           ))}
         </div>
       ) : (
-        <div className="muted center" style={{ padding: 16 }}>Chưa có file nào.</div>
+        <div className="muted center" style={{ padding: 16 }}>
+          {page > 1 ? "Hết file ở trang này." : "Chưa có file nào đã xử lý xong."}
+        </div>
+      )}
+      {!loading && (items.length || page > 1) && (
+        <div className="row" style={{ gap: 8, marginTop: 8 }}>
+          <button className="ghost xs" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>← Trang trước</button>
+          <span className="muted small">Trang {page}</span>
+          <button className="ghost xs" disabled={items.length < WARD_ITEMS_PAGE_SIZE}
+            onClick={() => setPage((p) => p + 1)}>Trang sau →</button>
+        </div>
       )}
       {ocrItem && (
         <Modal title={`Nội dung OCR — ${ocrItem.s3_key}`} onClose={() => setOcrItem(null)} wide>

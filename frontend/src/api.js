@@ -491,11 +491,15 @@ export async function getQcSyncStats({ configId, range = "all" } = {}) {
   if (configId) p.set("config_id", configId);
   return handle(await fetch(`/v1/qc-sync/stats?${p.toString()}`, { headers: headers() }));
 }
-export async function getQcSyncItems({ configId, status, verdict, page = 1, pageSize = 50 } = {}) {
+export async function getQcSyncItems({
+  configId, status, verdict, processedOnly, sortBy, page = 1, pageSize = 50,
+} = {}) {
   const p = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
   if (configId) p.set("config_id", configId);
   if (status) p.set("status", status);
   if (verdict) p.set("verdict", verdict);
+  if (processedOnly) p.set("processed_only", "true");
+  if (sortBy) p.set("sort_by", sortBy);
   return handle(await fetch(`/v1/qc-sync/items?${p.toString()}`, { headers: headers() }));
 }
 export async function retryQcSyncItem(itemId) {

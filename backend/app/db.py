@@ -122,6 +122,10 @@ async def ensure_indexes() -> None:
     await qc_items().create_index("status")
     await qc_items().create_index("config_id")
     await qc_items().create_index([("created_at", -1)], background=True, name="qc_items_created_at_desc")
+    # Panel "Theo Phường/Xã" ở Tổng quan lọc theo config_id + sort finished_at
+    # (chỉ file ĐÃ xử lý, xem routes/qc_sync.py list_items processed_only).
+    await qc_items().create_index([("config_id", 1), ("finished_at", -1)],
+                                  background=True, name="qc_items_config_finished_desc")
     # Rollup ngày để trả "mỗi ngày/tuần/tổng" mà KHÔNG count_documents trên
     # qc_items ở quy mô lớn — xem app/qc_client.py + worker/qc_pipeline.py.
     await qc_stats_daily().create_index([("config_id", 1), ("date", 1)], unique=True)

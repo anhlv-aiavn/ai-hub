@@ -313,6 +313,12 @@ async def get_stats_series(config_id: str | None = Query(default=None),
 async def list_items(config_id: str | None = Query(default=None),
                      status: str | None = Query(default=None),
                      verdict: str | None = Query(default=None),
+                     # "Đã xử lý" = không còn nằm ở hàng chờ/đang chạy — dùng
+                     # cho panel CHỈ-XEM ở Tổng quan (WardItemsPanel), khác
+                     # bảng admin "File gần đây" (có dropdown status riêng,
+                     # mặc định vẫn thấy cả hàng chờ để debug tiến độ).
+                     processed_only: bool = Query(default=False),
+                     sort_by: str = Query(default="created_at", pattern="^(created_at|finished_at)$"),
                      page: int = Query(default=1, ge=1),
                      page_size: int = Query(default=50, ge=1, le=200)):
     flt: dict = {}
@@ -320,10 +326,12 @@ async def list_items(config_id: str | None = Query(default=None),
         flt["config_id"] = config_id
     if status:
         flt["status"] = status
+    elif processed_only:
+        flt["status"] = {"$nin": ["queued", "processing"]}
     if verdict:
         flt["qc.verdict"] = verdict
     skip = (page - 1) * page_size
-    rows = await qc_items().find(flt).sort("created_at", -1).skip(skip).limit(page_size).to_list(length=page_size)
+    rows = await qc_items().find(flt).sort(sort_by, -1).skip(skip).limit(page_size).to_list(length=page_size)
     for r in rows:
         r["id"] = r.pop("_id")
     return {"items": rows, "page": page, "page_size": page_size}
