@@ -43,10 +43,6 @@ mongo · redis · frontend` (MinIO + model VLM là dịch vụ ngoài). Chi ti�
   gian), giải phóng job kẹt, dry-run, phân quyền/audit. Xem `features_issues.md §C`.
 - **Nút thắt lớn nhất chưa xử lý: hiệu năng tầng MinIO** (tạo connection mới mỗi request) →
   GPU đói việc. Đây là ưu tiên số 1 của roadmap. Xem `features_issues.md#perf-minio-pool`.
-- **Mới (F-16): QC Sync** — pipeline song song đồng bộ MinIO nguồn → chấm chất lượng qua
-  `qc-scanner-server` ngoài → OCR (tái dùng VLM) → cắt GCN → MinIO đích riêng. Code xong, CHƯA
-  test sống với endpoint QC thật (nội bộ, không tới được từ môi trường phát triển) — xem
-  `algorithm.md §9`, câu hỏi mở ở `need_exchange.md §C₁`.
 
 ## 5. Bắc Nam của bài toán tốc độ
 

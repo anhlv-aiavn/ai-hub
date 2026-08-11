@@ -25,13 +25,6 @@ from app import config
 from app.batch_counters import bump
 from app.worker.export_job import claim_export_job, process_export_job
 from app.worker.import_job import claim_import_job, process_import_job
-from app.worker.qc_pipeline import (
-    claim_qc_item,
-    claim_qc_sync_job,
-    maybe_schedule_qc_sync_jobs,
-    process_qc_item,
-    process_qc_sync_job,
-)
 from app.worker.run_job import process_doc
 from src.extentions.mongo_helper import AsyncMongo
 from src.extentions.multimodal.vlm_client import endpoint_count, total_vlm_concurrency
@@ -42,12 +35,6 @@ POLL_INTERVAL = float(os.getenv("WORKER_POLL_INTERVAL", "2"))
 PROC_TTL = int(os.getenv("WORKER_PROC_TTL", "1800"))  # claim lại job processing treo
 IMPORT_MAX_CONCURRENT = int(os.getenv("WORKER_IMPORT_MAX_CONCURRENT", "2"))
 EXPORT_MAX_CONCURRENT = int(os.getenv("WORKER_EXPORT_MAX_CONCURRENT", "1"))
-# QC Sync (pipeline mới, song song — app/worker/qc_pipeline.py): 2 trần RIÊNG,
-# tách khỏi MAX_IN_FLIGHT (đó là bound RAM ảnh render GCN, không áp dụng ở
-# đây). QC_ITEM để THẤP mặc định — bước OCR của nó dùng chung pool vLLM với
-# pipeline GCN sản xuất (xem config.py).
-QC_SYNC_MAX_CONCURRENT = config.WORKER_QC_SYNC_MAX_CONCURRENT
-QC_ITEM_MAX_CONCURRENT = config.WORKER_QC_ITEM_MAX_CONCURRENT
 MAX_ATTEMPTS = int(os.getenv("WORKER_MAX_ATTEMPTS", "3"))
 RR_REFRESH_INTERVAL = float(os.getenv("WORKER_FAIRNESS_REFRESH_SECONDS", "3"))
 # Dead-letter sweep là tác vụ nền hiếm — KHÔNG cần chạy mỗi vòng poll (vòng lặp
@@ -143,11 +130,8 @@ async def run() -> None:
     in_flight: set[asyncio.Task] = set()
     import_in_flight: set[asyncio.Task] = set()
     export_in_flight: set[asyncio.Task] = set()
-    qc_sync_in_flight: set[asyncio.Task] = set()
-    qc_item_in_flight: set[asyncio.Task] = set()
     while True:
         await _sweep_dead(mongo)
-        await maybe_schedule_qc_sync_jobs(mongo)
 
         while len(in_flight) < config.MAX_IN_FLIGHT:
             batch_id = await _next_batch_id(mongo)
@@ -172,21 +156,7 @@ async def run() -> None:
                 break
             export_in_flight.add(asyncio.create_task(process_export_job(mongo, job)))
 
-        # QC Sync — 2 loại job RIÊNG (discovery + xử lý item), cùng khuôn
-        # import/export ở trên. Xem app/worker/qc_pipeline.py.
-        while len(qc_sync_in_flight) < QC_SYNC_MAX_CONCURRENT:
-            job = await claim_qc_sync_job(mongo, PROC_TTL)
-            if not job:
-                break
-            qc_sync_in_flight.add(asyncio.create_task(process_qc_sync_job(mongo, job)))
-
-        while len(qc_item_in_flight) < QC_ITEM_MAX_CONCURRENT:
-            item = await claim_qc_item(mongo, PROC_TTL)
-            if not item:
-                break
-            qc_item_in_flight.add(asyncio.create_task(process_qc_item(mongo, item)))
-
-        pending = in_flight | import_in_flight | export_in_flight | qc_sync_in_flight | qc_item_in_flight
+        pending = in_flight | import_in_flight | export_in_flight
         if not pending:
             await asyncio.sleep(POLL_INTERVAL)
             continue
@@ -197,8 +167,6 @@ async def run() -> None:
         in_flight -= done
         import_in_flight -= done
         export_in_flight -= done
-        qc_sync_in_flight -= done
-        qc_item_in_flight -= done
         for t in done:
             exc = t.exception()
             if exc:

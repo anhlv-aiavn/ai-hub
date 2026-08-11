@@ -13,7 +13,6 @@ import ExtractTable from "./components/ExtractTable.jsx";
 import Reconcile from "./components/Reconcile.jsx";
 import ExportView from "./components/ExportView.jsx";
 import BatchManager from "./components/BatchManager.jsx";
-import QcSync from "./components/QcSync.jsx";
 
 const FALLBACK_BRANDING = {
   org_name: "VP Đăng ký đất đai TP Hà Nội",
@@ -26,7 +25,6 @@ const TABS = [
   ["table", "Kết quả trích xuất", "viewer"],
   ["export", "Tổng quan", "viewer"],
   ["manage", "Quản lý lô", "admin"],
-  ["qcsync", "QC Sync", "admin"],
   ["audit", "Audit log", "admin"],
 ];
 const ROLE_RANK = { viewer: 0, operator: 1, admin: 2 };
@@ -148,7 +146,6 @@ export default function App() {
           )}
           {tab === "export" && <ExportView user={user} />}
           {tab === "manage" && isAdmin && <BatchManager />}
-          {tab === "qcsync" && isAdmin && <QcSync />}
           {tab === "audit" && isAdmin && <AuditLog />}
         </div>
       </main>

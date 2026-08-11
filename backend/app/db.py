@@ -50,22 +50,6 @@ def browse_progress_cache():
     return get_db()[config.COLL_BROWSE_PROGRESS]
 
 
-def qc_sync_configs():
-    return get_db()[config.COLL_QC_SYNC_CONFIG]
-
-
-def qc_sync_jobs():
-    return get_db()[config.COLL_QC_SYNC_JOB]
-
-
-def qc_items():
-    return get_db()[config.COLL_QC_ITEM]
-
-
-def qc_stats_daily():
-    return get_db()[config.COLL_QC_STATS_DAILY]
-
-
 async def ensure_indexes() -> None:
     await gcns().create_index("batch_id")
     await gcns().create_index("group_key")
@@ -105,19 +89,3 @@ async def ensure_indexes() -> None:
     await browse_progress_cache().create_index(
         "computed_at", expireAfterSeconds=config.BROWSE_PROGRESS_CACHE_TTL,
     )
-    # ── QC Sync (pipeline mới — xem app/worker/qc_pipeline.py) ─────────────
-    await qc_sync_jobs().create_index("status")
-    await qc_sync_jobs().create_index("started_at")
-    await qc_sync_jobs().create_index("config_id")
-    # "Không chạy lại file đã QC": insert optimistic (insert_many ordered=False),
-    # unique index từ chối êm key trùng — đúng khuôn uniq_source_key_batch (gcn).
-    await qc_items().create_index(
-        [("source_connection_id", 1), ("s3_key", 1)],
-        unique=True, background=True, name="uniq_qc_source_key",
-    )
-    await qc_items().create_index("status")
-    await qc_items().create_index("config_id")
-    await qc_items().create_index([("created_at", -1)], background=True, name="qc_items_created_at_desc")
-    # Rollup ngày để trả "mỗi ngày/tuần/tổng" mà KHÔNG count_documents trên
-    # qc_items ở quy mô lớn — xem app/qc_client.py + worker/qc_pipeline.py.
-    await qc_stats_daily().create_index([("config_id", 1), ("date", 1)], unique=True)

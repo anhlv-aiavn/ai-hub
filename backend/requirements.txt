@@ -8,9 +8,6 @@ redis
 motor
 aioboto3
 
-# HTTP client cho service ngoài (qc-scanner-server — app/qc_client.py)
-httpx
-
 # GCN engine (vendor) deps
 litellm
 python-dotenv

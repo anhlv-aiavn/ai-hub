@@ -14,7 +14,6 @@ const TABS = [
   ["org", "Tổ chức"],
   ["source", "S3 nguồn"],
   ["dest", "S3 đích"],
-  ["destqc", "S3 đích (QC Sync)"],
   ["errors", "Dead-letter/lỗi"],
 ];
 
@@ -33,7 +32,6 @@ export default function AdminSettings({ onClose }) {
         {tab === "org" && <OrgTab />}
         {tab === "source" && <S3Tab role="source" />}
         {tab === "dest" && <S3Tab role="destination" />}
-        {tab === "destqc" && <S3Tab role="destination" purpose="qc" />}
         {tab === "errors" && <ErrorsTab />}
       </div>
     </Modal>
@@ -135,10 +133,7 @@ function statusDot(status) {
   return <span className="dot dot-unknown" />;
 }
 
-// `purpose`: undefined/"gcn" = pipeline trích xuất chính (singleton — chỉ 1
-// đích toàn hệ thống); "qc" = pipeline QC Sync (nhiều bản ghi, mỗi kênh đồng
-// bộ tự chọn 1 đích riêng trong tab "QC Sync").
-function S3Tab({ role, purpose }) {
+function S3Tab({ role }) {
   const [rows, setRows] = useState([]);
   const [editing, setEditing] = useState(null); // null=hidden, {}=new, {...}=edit
   const [form, setForm] = useState(EMPTY_CONN);
@@ -147,10 +142,10 @@ function S3Tab({ role, purpose }) {
   const [bucketOptions, setBucketOptions] = useState([]);
 
   async function refresh() {
-    try { const d = await getS3Connections(role, purpose); setRows(d.connections || []); }
+    try { const d = await getS3Connections(role); setRows(d.connections || []); }
     catch (e) { toastErr(e.message || e); }
   }
-  useEffect(() => { refresh(); setEditing(null); }, [role, purpose]);
+  useEffect(() => { refresh(); setEditing(null); }, [role]);
 
   function openNew() { setForm(EMPTY_CONN); setEditing({}); setTestMsg(null); setBucketOptions([]); }
   function openEdit(c) {
@@ -192,7 +187,7 @@ function S3Tab({ role, purpose }) {
     setBusy(true);
     try {
       if (editing?.id) await updateS3Connection(editing.id, form);
-      else await createS3Connection({ role, purpose: purpose || "gcn", ...form });
+      else await createS3Connection({ role, ...form });
       toastOk("Đã lưu connection");
       setEditing(null); refresh();
     } catch (e) { toastErr(e.message || e); } finally { setBusy(false); }
@@ -220,29 +215,16 @@ function S3Tab({ role, purpose }) {
   }
 
   const isDest = role === "destination";
-  const isQc = purpose === "qc";
-  // Singleton toàn hệ thống CHỈ áp dụng cho đích của pipeline chính (purpose
-  // mặc định "gcn") — đích "qc" được phép nhiều bản ghi, mỗi kênh đồng bộ
-  // (tab "QC Sync") tự chọn 1 trong số đó.
-  const destLimitReached = isDest && !isQc && rows.length >= 1;
+  const destLimitReached = isDest && rows.length >= 1;
 
   return (
     <div className="admin-tab-body">
-      {isDest && !isQc && !rows.length && (
+      {isDest && !rows.length && (
         <div className="admin-warn">
           <Icon name="alertTriangle" size={16} />
           <div>
             <b>Chưa cấu hình S3 đích</b>
             <p>Upload tài liệu, cắt trang, export và upload logo sẽ KHÔNG hoạt động cho tới khi thêm 1 cấu hình đích.</p>
-          </div>
-        </div>
-      )}
-      {isQc && !rows.length && (
-        <div className="admin-warn">
-          <Icon name="alertTriangle" size={16} />
-          <div>
-            <b>Chưa cấu hình S3 đích cho QC Sync</b>
-            <p>Cần ít nhất 1 cấu hình đích ở đây trước khi tạo kênh đồng bộ QC Sync (tab "QC Sync").</p>
           </div>
         </div>
       )}
@@ -285,8 +267,7 @@ function S3Tab({ role, purpose }) {
 
       {editing && (
         <div className="s3-form">
-          <h4>{editing.id ? `Sửa: ${editing.name}`
-            : `Thêm ${role === "source" ? "S3 nguồn" : isQc ? "S3 đích (QC Sync)" : "S3 đích"}`}</h4>
+          <h4>{editing.id ? `Sửa: ${editing.name}` : `Thêm ${role === "source" ? "S3 nguồn" : "S3 đích"}`}</h4>
           <div className="row">
             <input className="text-input" placeholder="Tên" value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })} />

@@ -48,32 +48,6 @@
 - **Hỏi**: Khách dùng bảng mã MĐSD nào (phiên bản/thông tư)? Có file danh mục chính thức không?
 - **Vì sao**: `gan_mdsdd` gắn mã theo bảng nội bộ; phải khớp bảng khách để đối chiếu đúng.
 
-## C₁. QC Sync (F-16 — pipeline mới, `algorithm.md §9`)
-
-### EX-12 · ❓ Chính sách với verdict `warn` của QC Sync
-- **Hỏi**: File QC ra `warn` (đạt nhưng có cảnh báo — `CLIPPED_EDGE`/`GLARE`/`EXTREME_SKEW`…) hiện
-  vẫn chạy OCR như `pass`. Khách có muốn tách riêng để người soi duyệt trước khi OCR không, hay
-  chấp nhận chạy thẳng?
-- **Vì sao**: ảnh hưởng thiết kế hàng chờ hậu kiểm riêng cho QC Sync (chưa có ở v1).
-- **Nếu chưa rõ**: giữ hành vi v1 (warn = chạy thẳng OCR như pass).
-
-### EX-13 · ❓ API key + endpoint thật của `qc-scanner-server`
-- **Hỏi**: `192.168.120.9:5000` có phải endpoint thật trên máy serve? Ai cấp `QC_SCANNER_API_KEY`?
-- **Vì sao**: code viết theo hợp đồng API đọc offline (`qc_scanner` repo), CHƯA test sống được từ
-  môi trường phát triển (IP nội bộ không tới được) — cần xác nhận khi triển khai lên máy serve.
-- **Nếu chưa rõ**: pipeline QC Sync sẽ lỗi 401/kết nối ngay khi bật, cần key thật trước khi dùng.
-
-### EX-14 · ❓ Chu kỳ quét lại + chi phí full re-scan có chấp nhận được không
-- **Hỏi**: Mặc định 300s/lần, MỖI LẦN liệt kê lại TOÀN BỘ prefix nguồn (dedup ở tầng ghi, không
-  phải ở tầng liệt kê — S3 không hỗ trợ lọc theo thời gian sửa). Với thư mục rất lớn, chi phí liệt
-  kê định kỳ có chấp nhận được không, hay cần đầu tư S3 event/webhook (nếu MinIO khách hỗ trợ)?
-- **Vì sao**: quyết định P2 backlog "tối ưu discovery" có đáng làm không.
-
-### EX-15 · ❓ Dùng ảnh đã nắn/cắt của QC cho OCR thay vì PDF gốc
-- **Hỏi**: v1 OCR chạy trên PDF GỐC (xem quyết định `features_issues.md#qc-decide-raw-ocr`). Nếu
-  ảnh đã nắn thẳng của `qc-scanner-server` cải thiện độ chính xác OCR rõ rệt, khách có ưu tiên đầu
-  tư nâng cấp này không (cần eval tập vàng trước khi đổi mặc định — cùng nguyên tắc PERF-6)?
-
 ## C. Vận hành & nghiệm thu
 
 ### EX-8 · ❓ Chỉ tiêu hiệu năng cam kết (SLA throughput)

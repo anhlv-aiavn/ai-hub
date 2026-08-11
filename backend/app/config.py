@@ -21,10 +21,6 @@ COLL_IMPORT_JOB = "import_jobs"
 COLL_ACCESS_LOG = "access_log"
 COLL_EXPORT_JOB = "export_jobs"
 COLL_BROWSE_PROGRESS = "browse_progress_cache"
-COLL_QC_SYNC_CONFIG = "qc_sync_configs"
-COLL_QC_SYNC_JOB = "qc_sync_jobs"
-COLL_QC_ITEM = "qc_items"
-COLL_QC_STATS_DAILY = "qc_stats_daily"
 
 # Hậu kiểm: TTL soft-lock (giữ chỗ khi đang sửa, tránh 2 người ghi đè nhau).
 REVIEW_LOCK_TTL = int(os.getenv("AIHUB_REVIEW_LOCK_TTL", "300"))
@@ -114,34 +110,6 @@ BROWSE_PROGRESS_CAP = int(os.getenv("AIHUB_BROWSE_PROGRESS_CAP", "2000"))
 # (rẻ, 1 query) nên số hóa xong là thấy đúng ngay, không cần invalidate cache.
 # TTL để tự làm mới nếu nội dung kho nguồn đổi ngoài luồng của hệ thống.
 BROWSE_PROGRESS_CACHE_TTL = int(os.getenv("AIHUB_BROWSE_PROGRESS_CACHE_TTL", str(3600)))
-
-# ── QC Sync — kiểm chất lượng qua qc-scanner-server ngoài + OCR + crop GCN ──
-# Pipeline MỚI, song song với pipeline GCN chính: đồng bộ 1 kho MinIO nguồn do
-# người dùng cấu hình, chấm chất lượng scan qua service ngoài (docs/api.md),
-# nếu đạt (pass/warn) thì chạy OCR (tái dùng _pipeline/_build_cuts có sẵn) rồi
-# cắt trang GCN lưu vào MinIO đích RIÊNG (s3_connections purpose="qc").
-QC_SCANNER_BASE_URL = os.getenv("QC_SCANNER_BASE_URL", "http://192.168.120.9:5000").rstrip("/")
-QC_SCANNER_API_KEY = os.getenv("QC_SCANNER_API_KEY", "").strip()
-QC_SCANNER_TIMEOUT = float(os.getenv("QC_SCANNER_TIMEOUT_SECONDS", "60"))
-# Trần số request gửi ĐỒNG THỜI tới qc-scanner-server — RIÊNG, không dùng chung
-# _VLM_SEM của pipeline GCN. Mặc định vừa phải; đọc `max_concurrency` ở
-# GET /healthz của service thật để chỉnh cho khớp máy đích (đừng ghi cứng).
-QC_SCANNER_MAX_CONCURRENT = int(os.getenv("QC_SCANNER_MAX_CONCURRENT", "8"))
-# Retry cho mã DUY NHẤT nên retry theo hợp đồng API (503 SERVER_BUSY) — ảnh
-# chưa được xử lý lần nào, không phải phán quyết về ảnh.
-QC_SCANNER_RETRY_MAX = int(os.getenv("QC_SCANNER_RETRY_MAX", "3"))
-
-# Chu kỳ mặc định (giây) worker tự quét lại 1 kênh đồng bộ để tìm file MỚI —
-# mỗi lượt là full re-scan (S3 liệt kê theo thứ tự key, không theo mtime, nên
-# không "resume" được giữa các chu kỳ); dedup rẻ nhờ unique index qc_items,
-# không đọc trước khi ghi.
-QC_SYNC_DEFAULT_INTERVAL_SECONDS = int(os.getenv("QC_SYNC_DEFAULT_INTERVAL_SECONDS", "300"))
-WORKER_QC_SYNC_MAX_CONCURRENT = int(os.getenv("WORKER_QC_SYNC_MAX_CONCURRENT", "2"))
-# LƯU Ý VẬN HÀNH: bước OCR của qc_item dùng CHUNG pool vLLM (_VLM_SEM) với
-# pipeline GCN sản xuất — đây đang là nút thắt #1 của dự án
-# (features_issues.md#bottleneck-vlm). Mặc định để THẤP, chỉ nới khi xác nhận
-# đủ dư GPU cho cả 2 pipeline.
-WORKER_QC_ITEM_MAX_CONCURRENT = int(os.getenv("WORKER_QC_ITEM_MAX_CONCURRENT", "2"))
 
 # ── SSE gộp mức lô (quy mô lớn) ──────────────────────────────────────────────
 # Lô có file_count vượt ngưỡng này → publish per-doc (processing/done, KHÔNG

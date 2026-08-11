@@ -39,18 +39,17 @@ class DestinationNotConfigured(Exception):
 
 # Cache client theo nguồn/đích — TTL ~30s BẮT BUỘC (nhiều API/worker process,
 # invalidate_s3_cache() chỉ xóa cache của process nhận request; xem PLAN_.md
-# §Đồng thời). source: dict theo id; destination: dict theo `purpose` — pipeline
-# GCN gốc dùng purpose="gcn" (role=destination, đúng bất biến "chỉ 1 đích"),
-# pipeline QC Sync dùng purpose="qc" (nhiều bản ghi được phép, mỗi kênh đồng bộ
-# tự chọn qua qc_sync_configs.dest_connection_id — không singleton).
+# §Đồng thời). source: dict theo id; destination: 1 slot (role=destination —
+# BẮT BUỘC phải có, không còn fallback minio_client/AIHUB_BUCKET).
 _TTL = 30.0
 _source_cache: dict[str, tuple[float, object, str]] = {}
-_dest_cache: dict[str, tuple[float, object, str]] = {}
+_dest_cache: tuple[float, object, str] | None = None
 
 
 def invalidate_s3_cache() -> None:
+    global _dest_cache
     _source_cache.clear()
-    _dest_cache.clear()
+    _dest_cache = None
 
 
 async def _get_source_client(source_connection_id: str):
@@ -66,26 +65,17 @@ async def _get_source_client(source_connection_id: str):
     return client, bucket
 
 
-async def _get_dest_client(purpose: str = "gcn"):
+async def _get_dest_client():
+    global _dest_cache
     now = time.monotonic()
-    cached = _dest_cache.get(purpose)
-    if cached and (now - cached[0]) < _TTL:
-        return cached[1], cached[2]
-    query: dict = {"role": "destination"}
-    if purpose == "gcn":
-        # Tương thích ngược: mọi đích GCN tạo TRƯỚC khi có field `purpose` đều
-        # thiếu field này — coi thiếu = "gcn" (đích QC luôn ghi purpose tường
-        # minh nên không cần fallback cho "qc").
-        query["$or"] = [{"purpose": "gcn"}, {"purpose": {"$exists": False}}]
-    else:
-        query["purpose"] = purpose
-    doc = await s3_connections().find_one(query)
+    if _dest_cache and (now - _dest_cache[0]) < _TTL:
+        return _dest_cache[1], _dest_cache[2]
+    doc = await s3_connections().find_one({"role": "destination"})
     if not doc:
-        label = "S3 đích" if purpose == "gcn" else "S3 đích (QC Sync)"
         raise DestinationNotConfigured(
-            f"Chưa cấu hình {label} — vào Cấu hình hệ thống để thiết lập")
+            "Chưa cấu hình S3 đích — vào Cấu hình hệ thống → S3 đích để thiết lập")
     client, bucket = build_client(doc), doc["bucket"]
-    _dest_cache[purpose] = (now, client, bucket)
+    _dest_cache = (now, client, bucket)
     return client, bucket
 
 # pdfium KHÔNG thread-safe: nhiều render song song (FE nạp loạt thumbnail) trong
@@ -138,12 +128,11 @@ async def _s3_put(client, bucket: str, key: str, data: bytes) -> None:
     await client.async_put_object(bucket, key, io.BytesIO(data))
 
 
-async def put_object(key: str, data: bytes, purpose: str = "gcn") -> None:
+async def put_object(key: str, data: bytes) -> None:
     """Ghi ĐÍCH luôn — dùng chung cho PDF (upload gốc/cuts) và tệp khác (export
-    CSV, logo). `purpose` chọn ĐÍCH nào (mặc định "gcn" — pipeline chính; QC
-    Sync truyền "qc"). `DestinationNotConfigured` (từ `_get_dest_client`)
-    truyền nguyên xuống người gọi — KHÔNG bắt ở đây."""
-    client, bucket = await _get_dest_client(purpose)
+    CSV, logo). `DestinationNotConfigured` (từ `_get_dest_client`) truyền
+    nguyên xuống người gọi — KHÔNG bắt ở đây."""
+    client, bucket = await _get_dest_client()
     await _s3_put(client, bucket, key, data)
 
 
@@ -155,9 +144,9 @@ async def get_object(key: str) -> bytes:
     return buf.getvalue()
 
 
-async def put_pdf(key: str, data: bytes, purpose: str = "gcn") -> None:
+async def put_pdf(key: str, data: bytes) -> None:
     """Ghi ĐÍCH luôn (upload gốc + cuts) — không bao giờ ghi kho nguồn."""
-    await put_object(key, data, purpose)
+    await put_object(key, data)
 
 
 async def get_pdf(key: str, source_connection_id: str | None = None) -> io.BytesIO:
