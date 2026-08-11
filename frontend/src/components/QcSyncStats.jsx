@@ -6,7 +6,7 @@ import {
   qcSyncSourcePdfUrl,
 } from "../api.js";
 import { toastErr } from "../toast.js";
-import { VerdictBadge, CutLinks } from "./qcSyncShared.jsx";
+import { VerdictBadge, CutLinks, Pager, ITEM_STATUS_OPTIONS, VERDICT_OPTIONS } from "./qcSyncShared.jsx";
 
 // Thống kê pipeline QC Sync (F-16, xem docs/algorithm.md §9) trên trang Tổng
 // quan — viewer trở lên xem được, khác trang quản trị "QC Sync" (admin-only,
@@ -346,25 +346,46 @@ const WARD_ITEMS_PAGE_SIZE = 15;
 
 function WardItemsPanel({ configId }) {
   const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [ocrItem, setOcrItem] = useState(null);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [verdictFilter, setVerdictFilter] = useState("");
   const [page, setPage] = useState(1);
+
+  useEffect(() => { setPage(1); }, [statusFilter, verdictFilter]);
 
   useEffect(() => {
     setLoading(true);
-    // processedOnly + sortBy "finished_at": panel này chỉ để XEM kết quả đã
-    // xử lý xong (đúng ý "Theo Phường/Xã") — khác bảng admin "File gần đây"
-    // (QcSync.jsx) vốn mặc định thấy CẢ hàng chờ để debug tiến độ. Sort mặc
-    // định trước đây là created_at → luôn nổi lên file MỚI NHẤT ĐƯỢC LIỆT KÊ,
-    // mà file mới liệt kê thường còn "queued" (chưa tới lượt xử lý) — đúng
+    // processedOnly + sortBy "finished_at": mặc định panel này chỉ XEM kết
+    // quả đã xử lý xong (đúng ý "Theo Phường/Xã") — khác bảng admin "File gần
+    // đây" (QcSync.jsx) vốn mặc định thấy CẢ hàng chờ để debug tiến độ. Chọn
+    // trạng thái "Đang chờ"/"Đang xử lý" ở bộ lọc dưới đây vẫn xem được (status
+    // tường minh thắng processedOnly, xem routes/qc_sync.py::list_items). Sort
+    // mặc định trước đây là created_at → luôn nổi lên file MỚI NHẤT ĐƯỢC LIỆT
+    // KÊ, mà file mới liệt kê thường còn "queued" (chưa tới lượt xử lý) — đúng
     // bug thực tế "toàn ra file queued".
-    getQcSyncItems({ configId, processedOnly: true, sortBy: "finished_at", page, pageSize: WARD_ITEMS_PAGE_SIZE })
-      .then((d) => setItems(d.items || []))
-      .catch(() => setItems([])).finally(() => setLoading(false));
-  }, [configId, page]);
+    getQcSyncItems({
+      configId, processedOnly: true, sortBy: "finished_at",
+      status: statusFilter || undefined, verdict: verdictFilter || undefined,
+      page, pageSize: WARD_ITEMS_PAGE_SIZE,
+    })
+      .then((d) => { setItems(d.items || []); setTotal(d.total || 0); })
+      .catch(() => { setItems([]); setTotal(0); }).finally(() => setLoading(false));
+  }, [configId, statusFilter, verdictFilter, page]);
 
   return (
     <div className="qc-ward-detail">
+      <div className="row" style={{ gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+        <select className="text-input" style={{ width: "auto" }} value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)} title="Lọc theo trạng thái xử lý (OCR/hàng chờ)">
+          {ITEM_STATUS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+        </select>
+        <select className="text-input" style={{ width: "auto" }} value={verdictFilter}
+          onChange={(e) => setVerdictFilter(e.target.value)} title="Lọc theo verdict QC">
+          {VERDICT_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+        </select>
+      </div>
       {loading ? (
         <div className="muted small" style={{ padding: 8 }}>Đang tải…</div>
       ) : items.length ? (
@@ -398,11 +419,8 @@ function WardItemsPanel({ configId }) {
         </div>
       )}
       {!loading && (items.length || page > 1) && (
-        <div className="row" style={{ gap: 8, marginTop: 8 }}>
-          <button className="ghost xs" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>← Trang trước</button>
-          <span className="muted small">Trang {page}</span>
-          <button className="ghost xs" disabled={items.length < WARD_ITEMS_PAGE_SIZE}
-            onClick={() => setPage((p) => p + 1)}>Trang sau →</button>
+        <div style={{ marginTop: 8 }}>
+          <Pager page={page} setPage={setPage} pageSize={WARD_ITEMS_PAGE_SIZE} total={total} />
         </div>
       )}
       {ocrItem && (

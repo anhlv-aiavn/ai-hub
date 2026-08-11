@@ -8,7 +8,7 @@ import {
   getQcWards, syncQcWards,
 } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
-import { VerdictBadge, CutLinks } from "./qcSyncShared.jsx";
+import { VerdictBadge, CutLinks, Pager, ITEM_STATUS_OPTIONS, VERDICT_OPTIONS } from "./qcSyncShared.jsx";
 
 // Trang "QC Sync" (admin) — pipeline MỚI, song song với pipeline GCN chính:
 // đồng bộ 1 kho MinIO nguồn đã cấu hình, chấm chất lượng qua qc-scanner-server
@@ -19,14 +19,6 @@ const EMPTY_FORM = {
   name: "", ward_name: "", source_connection_id: "", prefix: "", dest_connection_id: "",
   interval_seconds: 300, enabled: true,
 };
-
-const ITEM_STATUS_OPTIONS = [
-  ["", "— Mọi trạng thái xử lý —"], ["error", "Lỗi"], ["no_file", "Không thấy file"],
-  ["queued", "Đang chờ"], ["processing", "Đang xử lý"], ["done", "Xong"], ["no_gcn", "Không thấy GCN"],
-];
-const VERDICT_OPTIONS = [
-  ["", "— Mọi verdict QC —"], ["pass", "Đạt"], ["warn", "Đạt (cảnh báo)"], ["fail", "Không đạt"],
-];
 
 // Luôn hiện giờ Việt Nam (UTC+7) — trước đây dùng giờ LOCAL của trình duyệt/
 // máy chủ, sai lệch khi 2 bên khác múi giờ hệ thống (vd server set UTC).
@@ -413,6 +405,7 @@ function QcSyncDetail({ configId, configName, onClose }) {
   const [range, setRange] = useState("week");
   const [stats, setStats] = useState(null);
   const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
   const [statusFilter, setStatusFilter] = useState("");
   const [verdictFilter, setVerdictFilter] = useState("");
   const [page, setPage] = useState(1);
@@ -430,7 +423,8 @@ function QcSyncDetail({ configId, configName, onClose }) {
         configId, status: statusFilter || undefined, verdict: verdictFilter || undefined, page, pageSize,
       });
       setItems(d.items || []);
-    } catch { setItems([]); }
+      setTotal(d.total || 0);
+    } catch { setItems([]); setTotal(0); }
   }
   useEffect(() => { loadItems(); }, [configId, statusFilter, verdictFilter, page]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -525,10 +519,8 @@ function QcSyncDetail({ configId, configName, onClose }) {
         })}
         {!items.length && <div className="muted center" style={{ padding: 16 }}>Chưa có file nào.</div>}
       </div>
-      <div className="row" style={{ gap: 8, marginTop: 8 }}>
-        <button className="ghost xs" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>← Trang trước</button>
-        <span className="muted small">Trang {page}</span>
-        <button className="ghost xs" disabled={items.length < pageSize} onClick={() => setPage((p) => p + 1)}>Trang sau →</button>
+      <div style={{ marginTop: 8 }}>
+        <Pager page={page} setPage={setPage} pageSize={pageSize} total={total} />
       </div>
     </div>
   );

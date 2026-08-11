@@ -6,6 +6,7 @@ import {
   getQcRefinedPayload, qcSyncCutPdfUrl, backfillQcClassifications,
 } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
+import { Pager } from "./qcSyncShared.jsx";
 
 // Trang "Phân loại" (admin) — phase 2 QC Sync: "làm mịn dữ liệu" (chuẩn hoá OCR
 // thành payload) + phân loại cấu trúc hồ sơ (số chủ/số thửa/đa mục đích/
@@ -194,10 +195,8 @@ export default function QcClassification() {
         })}
         {!loading && !rows.length && <div className="muted center" style={{ padding: 16 }}>Chưa có dữ liệu.</div>}
       </div>
-      <div className="row" style={{ gap: 8, margin: "8px 16px", alignItems: "center" }}>
-        <button className="ghost xs" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>← Trang trước</button>
-        <span className="muted small">Trang {page} · Tổng {total.toLocaleString("vi-VN")} bản ghi</span>
-        <button className="ghost xs" disabled={rows.length < PAGE_SIZE} onClick={() => setPage((p) => p + 1)}>Trang sau →</button>
+      <div style={{ margin: "8px 16px" }}>
+        <Pager page={page} setPage={setPage} pageSize={PAGE_SIZE} total={total} />
       </div>
 
       {jsonModal && (

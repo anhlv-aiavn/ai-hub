@@ -1607,6 +1607,14 @@ a.fr-name:hover { color: var(--brand); text-decoration: underline; }
   border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; white-space: pre; }
 
+/* Thanh phân trang dùng chung (Pager, qcSyncShared.jsx) — ô "nhảy tới trang"
+   nhỏ gọn, căn giữa số, bỏ mũi tên tăng/giảm mặc định của input number (chiếm
+   chỗ không cần thiết ở 1 ô chỉ rộng vài chữ số). */
+.qc-pager-jump { display: inline-flex; align-items: center; gap: 4px; }
+.qc-pager-input { width: 46px; padding: 3px 4px; text-align: center; -moz-appearance: textfield; }
+.qc-pager-input::-webkit-outer-spin-button, .qc-pager-input::-webkit-inner-spin-button {
+  -webkit-appearance: none; margin: 0; }
+
 .audit-pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding-top: 4px; }
 .audit-pager .pager-btn { width: auto; height: 32px; padding: 0 12px; display: inline-flex;
   align-items: center; gap: 5px; }

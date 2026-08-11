@@ -339,10 +339,24 @@ async def list_items(config_id: str | None = Query(default=None),
     if verdict:
         flt["qc.verdict"] = verdict
     skip = (page - 1) * page_size
-    rows = await qc_items().find(flt).sort(sort_by, -1).skip(skip).limit(page_size).to_list(length=page_size)
+    # $facet đếm "total" bằng ĐÚNG filter `flt` đã lọc theo status/verdict/
+    # config_id (thường có index hỗ trợ) — không phải quét vô điều kiện toàn
+    # bộ `qc_items` (nguyên tắc bất biến #3 chỉ cấm kiểu đếm KHÔNG lọc gì);
+    # dùng để hiện "Tổng X bản ghi" + tính trang cuối cho ô "nhảy tới trang".
+    pipeline: list[dict] = [
+        {"$match": flt},
+        {"$facet": {
+            "data": [{"$sort": {sort_by: -1}}, {"$skip": skip}, {"$limit": page_size}],
+            "count": [{"$count": "n"}],
+        }},
+    ]
+    res = await qc_items().aggregate(pipeline).to_list(length=1)
+    facet = res[0] if res else {"data": [], "count": []}
+    rows = facet["data"]
+    total = (facet["count"][0]["n"] if facet["count"] else 0)
     for r in rows:
         r["id"] = r.pop("_id")
-    return {"items": rows, "page": page, "page_size": page_size}
+    return {"items": rows, "total": total, "page": page, "page_size": page_size}
 
 
 @router.post("/items/{item_id}/retry")

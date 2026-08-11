@@ -10,6 +10,16 @@ import Modal from "./Modal.jsx";
 export const VERDICT_LABEL = { pass: "Đạt", warn: "Đạt (cảnh báo)", fail: "Không đạt" };
 export const VERDICT_CLASS = { pass: "dot-ok", warn: "dot-warn", fail: "dot-err" };
 
+// Dùng chung cho mọi bộ lọc trạng thái item (QcSync.jsx + QcSyncStats.jsx) —
+// tránh định nghĩa lặp lại 2 nơi lệch nhau.
+export const ITEM_STATUS_OPTIONS = [
+  ["", "— Mọi trạng thái xử lý —"], ["error", "Lỗi"], ["no_file", "Không thấy file"],
+  ["queued", "Đang chờ"], ["processing", "Đang xử lý"], ["done", "Xong"], ["no_gcn", "Không thấy GCN"],
+];
+export const VERDICT_OPTIONS = [
+  ["", "— Mọi verdict QC —"], ["pass", "Đạt"], ["warn", "Đạt (cảnh báo)"], ["fail", "Không đạt"],
+];
+
 // Dịch mã lý do QC (`qc.reasons[].code`, hợp đồng qc-scanner-server đọc lúc
 // dựng `app/qc_client.py`) sang tiếng Việt — CHỈ các mã đã xác nhận từ tài
 // liệu API. Mã lạ/chưa có trong danh sách → hiện nguyên mã + `message` API
@@ -128,5 +138,38 @@ export function CutLinks({ itemId, cuts }) {
       })}
       {compareCut && <CutCompareModal itemId={itemId} cut={compareCut} onClose={() => setCompareCut(null)} />}
     </>
+  );
+}
+
+// Thanh phân trang dùng chung: nút trước/sau + ô "nhảy tới trang" (nhập số,
+// CLAMP về [1, số trang cuối] khi rời ô/Enter — không cho nhảy quá phạm vi) +
+// tổng số bản ghi. `total`/`pageSize` BẮT BUỘC (API đã trả `total` ở cả 3 nơi
+// dùng component này — Phân loại, QC Sync, Tổng quan) để tính được trang cuối.
+export function Pager({ page, setPage, pageSize, total }) {
+  const maxPage = Math.max(1, Math.ceil((total || 0) / pageSize));
+  const [jumpValue, setJumpValue] = useState(String(page));
+  useEffect(() => { setJumpValue(String(page)); }, [page]);
+
+  function commitJump() {
+    const n = parseInt(jumpValue, 10);
+    const clamped = Number.isNaN(n) ? page : Math.min(Math.max(n, 1), maxPage);
+    setJumpValue(String(clamped));
+    if (clamped !== page) setPage(clamped);
+  }
+
+  return (
+    <div className="row qc-pager" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      <button className="ghost xs" disabled={page <= 1} onClick={() => setPage(1)} title="Trang đầu">«</button>
+      <button className="ghost xs" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>← Trang trước</button>
+      <span className="muted small qc-pager-jump">
+        Trang{" "}
+        <input className="text-input qc-pager-input" type="number" min={1} max={maxPage} value={jumpValue}
+          onChange={(e) => setJumpValue(e.target.value)} onBlur={commitJump}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitJump(); } }} />
+        {" "}/ {maxPage} · Tổng {(total || 0).toLocaleString("vi-VN")} bản ghi
+      </span>
+      <button className="ghost xs" disabled={page >= maxPage} onClick={() => setPage((p) => p + 1)}>Trang sau →</button>
+      <button className="ghost xs" disabled={page >= maxPage} onClick={() => setPage(maxPage)} title="Trang cuối">»</button>
+    </div>
   );
 }
