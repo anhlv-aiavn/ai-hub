@@ -127,9 +127,13 @@ export async function getSettingsStatus() {
 }
 
 // ── S3 connections (nguồn/đích) — admin ─────────────────────────────────────
-export async function getS3Connections(role) {
-  const p = role ? `?role=${encodeURIComponent(role)}` : "";
-  return handle(await fetch(`/v1/s3-connections${p}`, { headers: headers() }));
+// `purpose`: "gcn" (mặc định, pipeline chính, singleton) | "qc" (QC Sync, nhiều bản ghi).
+export async function getS3Connections(role, purpose) {
+  const p = new URLSearchParams();
+  if (role) p.set("role", role);
+  if (purpose) p.set("purpose", purpose);
+  const qs = p.toString();
+  return handle(await fetch(`/v1/s3-connections${qs ? `?${qs}` : ""}`, { headers: headers() }));
 }
 export async function createS3Connection(body) {
   return handle(await fetch(`/v1/s3-connections`, {
@@ -448,6 +452,43 @@ export async function createExportJob(body) {
 export async function getExportJob(id) {
   return handle(await fetch(`/v1/gcn/export-jobs/${id}`, { headers: headers() }));
 }
+// ── QC Sync (pipeline mới: MinIO nguồn → QC scanner → OCR → crop GCN) — admin
+export async function getQcSyncConfigs() {
+  return handle(await fetch(`/v1/qc-sync/configs`, { headers: headers() }));
+}
+export async function createQcSyncConfig(body) {
+  return handle(await fetch(`/v1/qc-sync/configs`, {
+    method: "POST", headers: headers({ "Content-Type": "application/json" }), body: JSON.stringify(body),
+  }));
+}
+export async function updateQcSyncConfig(id, body) {
+  return handle(await fetch(`/v1/qc-sync/configs/${encodeURIComponent(id)}`, {
+    method: "PATCH", headers: headers({ "Content-Type": "application/json" }), body: JSON.stringify(body),
+  }));
+}
+export async function deleteQcSyncConfig(id) {
+  return handle(await fetch(`/v1/qc-sync/configs/${encodeURIComponent(id)}`, {
+    method: "DELETE", headers: headers(),
+  }));
+}
+export async function runQcSyncNow(id) {
+  return handle(await fetch(`/v1/qc-sync/configs/${encodeURIComponent(id)}/run`, {
+    method: "POST", headers: headers(),
+  }));
+}
+export async function getQcSyncStats({ configId, range = "all" } = {}) {
+  const p = new URLSearchParams({ range });
+  if (configId) p.set("config_id", configId);
+  return handle(await fetch(`/v1/qc-sync/stats?${p.toString()}`, { headers: headers() }));
+}
+export async function getQcSyncItems({ configId, status, verdict, page = 1, pageSize = 50 } = {}) {
+  const p = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  if (configId) p.set("config_id", configId);
+  if (status) p.set("status", status);
+  if (verdict) p.set("verdict", verdict);
+  return handle(await fetch(`/v1/qc-sync/items?${p.toString()}`, { headers: headers() }));
+}
+
 export async function downloadExportJob(id) {
   const p = new URLSearchParams();
   if (auth.token) p.set("token", auth.token);

@@ -11,7 +11,7 @@ from app.branches import BRANCHES
 from app.db import ensure_indexes, s3_connections as s3_connections_col, site_config, users
 from app.routes import audit as audit_routes
 from app.routes import auth as auth_routes
-from app.routes import batches, browse, dryrun, events, export, gcn, s3_connections, settings
+from app.routes import batches, browse, dryrun, events, export, gcn, qc_sync, s3_connections, settings
 from app.routes import users as users_routes
 from src.extentions.minio_helper import minio_client
 
@@ -29,6 +29,7 @@ app.include_router(browse.router)
 app.include_router(audit_routes.router)
 app.include_router(export.router)
 app.include_router(dryrun.router)
+app.include_router(qc_sync.router)
 
 
 @app.on_event("startup")
