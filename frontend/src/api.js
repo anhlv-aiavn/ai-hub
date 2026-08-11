@@ -546,9 +546,12 @@ export async function getQcWards() {
   return handle(await fetch(`/v1/qc-sync/wards`, { headers: headers() }));
 }
 // Đồng bộ danh sách Phường/Xã từ 1 API ngoài (URL admin tự nhập) — GHI ĐÈ toàn bộ danh sách cũ.
-export async function syncQcWards(url) {
+// `extraHeaders`: object {name: value} — vd { Cookie: "..." } cho API cần đăng
+// nhập qua session thay vì Bearer token đơn giản.
+export async function syncQcWards(url, extraHeaders) {
   return handle(await fetch(`/v1/qc-sync/wards/sync`, {
-    method: "POST", headers: headers({ "Content-Type": "application/json" }), body: JSON.stringify({ url }),
+    method: "POST", headers: headers({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ url, headers: extraHeaders && Object.keys(extraHeaders).length ? extraHeaders : undefined }),
   }));
 }
 

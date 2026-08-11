@@ -1513,9 +1513,10 @@ label.file-row { width: 100%; }
 .qc-wardsync-toggle:hover { background: var(--surface-3); }
 .qc-wardsync-toggle b { color: var(--text); font-variant-numeric: tabular-nums; }
 .qc-wardsync-body { margin-top: 8px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); }
-.qc-wardsync-body .row { margin-top: 6px; }
-.qc-wardsync-body .row .text-input { flex: 1; }
+  border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: 8px; }
+.qc-wardsync-body .text-input { margin-top: 0; width: 100%; }
+.qc-wardsync-headers { font-family: var(--mono); font-size: 12px; resize: vertical; }
+.qc-wardsync-body .admin-tab-foot { margin-top: 0; }
 
 /* Bảng "File gần đây" (QcSyncDetail) — 7 cột (khác .s3-tbl 5 cột): thêm cột
    "File đã cắt" (có thể nhiều link/dòng nếu 1 file gốc ra nhiều GCN) + cột

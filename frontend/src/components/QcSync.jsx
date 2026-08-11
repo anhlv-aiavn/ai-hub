@@ -69,9 +69,26 @@ function RowMenu({ items }) {
 // Đồng bộ danh sách Phường/Xã (dùng để tự hiện tên P/X thay mã kênh, khớp
 // theo "Tên kênh" == mã xã) — URL API do admin tự nhập mỗi lần đồng bộ,
 // backend gọi HTTP GET an toàn bằng httpx (KHÔNG chạy lệnh curl qua shell).
+// "Name: value" mỗi dòng (đúng cú pháp -H của curl) → object header — cho
+// phép dán "Cookie: ..." (API cần đăng nhập qua session, vd hub-vpdk.hanoi.
+// gov.vn dùng next-auth cookie, không phải Bearer token đơn giản) hoặc bất
+// kỳ header nào khác cho các API tương lai.
+function parseHeadersText(text) {
+  const out = {};
+  for (const raw of (text || "").split("\n")) {
+    const idx = raw.indexOf(":");
+    if (idx <= 0) continue;
+    const name = raw.slice(0, idx).trim();
+    const value = raw.slice(idx + 1).trim();
+    if (name && value) out[name] = value;
+  }
+  return out;
+}
+
 function WardSyncPanel() {
   const [wards, setWards] = useState([]);
   const [url, setUrl] = useState("");
+  const [headersText, setHeadersText] = useState("");
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
 
@@ -89,7 +106,7 @@ function WardSyncPanel() {
     )) return;
     setBusy(true);
     try {
-      const res = await syncQcWards(url.trim());
+      const res = await syncQcWards(url.trim(), parseHeadersText(headersText));
       toastOk(`Đã đồng bộ ${res.imported} xã${res.skipped ? ` (bỏ qua ${res.skipped} dòng lỗi)` : ""}`);
       refresh();
     } catch (e) { toastErr(e.message || e); } finally { setBusy(false); }
@@ -105,11 +122,15 @@ function WardSyncPanel() {
         <div className="qc-wardsync-body">
           <p className="muted small">
             Dùng để tự hiện tên Phường/Xã thay mã kênh ở bảng dưới và trang Tổng quan (khớp theo
-            "Tên kênh" = mã xã). Đồng bộ sẽ ghi đè toàn bộ danh sách hiện có.
+            "Tên kênh" = mã xã). Đồng bộ sẽ ghi đè toàn bộ danh sách hiện có. URL/header KHÔNG được
+            lưu lại — nhập lại mỗi lần đồng bộ (cookie/session thường có hạn dùng).
           </p>
-          <div className="row">
-            <input className="text-input" placeholder='URL API trả về {"data":[{"maXa","tenXa"}],"success"}'
-              value={url} onChange={(e) => setUrl(e.target.value)} />
+          <input className="text-input" placeholder='URL API trả về {"data":[{"maXa","tenXa"}],"success"}'
+            value={url} onChange={(e) => setUrl(e.target.value)} />
+          <textarea className="text-input qc-wardsync-headers" rows={3}
+            placeholder={"Header tuỳ chỉnh (không bắt buộc) — mỗi dòng 1 header, vd:\nCookie: __Secure-next-auth.session-token=..."}
+            value={headersText} onChange={(e) => setHeadersText(e.target.value)} />
+          <div className="admin-tab-foot">
             <button className="primary sm" disabled={busy} onClick={sync}>
               {busy ? "Đang đồng bộ…" : "Đồng bộ"}
             </button>

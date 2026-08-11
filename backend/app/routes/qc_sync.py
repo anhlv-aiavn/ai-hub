@@ -446,6 +446,12 @@ async def get_cut_pdf(item_id: str, cut_index: int, admin: dict = Depends(requir
 
 class WardSyncIn(BaseModel):
     url: str
+    # Header tuỳ chỉnh (vd "Cookie" cho API đăng nhập qua session — thực tế
+    # gặp: hub-vpdk.hanoi.gov.vn yêu cầu Cookie next-auth, không phải Bearer
+    # token đơn giản). Admin tự nhập mỗi lần đồng bộ (không lưu lại — cookie/
+    # session token hết hạn, lưu vào DB chỉ tạo ra secret chết mà không ai
+    # dọn). KHÔNG ghi vào audit log (secret trong header).
+    headers: dict[str, str] | None = None
 
 
 @router.get("/wards")
@@ -474,7 +480,7 @@ async def sync_wards(body: WardSyncIn, admin: dict = Depends(require_admin)):
         raise HTTPException(status_code=400, detail="Cần nhập URL")
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(url)
+            resp = await client.get(url, headers=body.headers or None)
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"Không gọi được API: {e}") from e
     if resp.status_code != 200:
