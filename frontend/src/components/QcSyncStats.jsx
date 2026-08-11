@@ -86,10 +86,21 @@ function resample(series, granularity, maxBars) {
 }
 
 // ── Bar chart SVG tối giản: N cột theo thời gian, mỗi cột 1 hoặc nhiều đoạn
-// (stacked) theo `seriesSpec`, có nhãn TỔNG số trực tiếp trên đầu mỗi cột.
-// Đủ dùng cho 3 biểu đồ này — không tổng quát hoá quá mức thành 1 lib riêng.
+// (stacked) theo `seriesSpec`. Đủ dùng cho 3 biểu đồ này — không tổng quát
+// hoá quá mức thành 1 lib riêng.
+//
+// QUAN TRỌNG: SVG dùng viewBox 100 x CHART_H + preserveAspectRatio="none" để
+// co giãn LẤP ĐẦY khung chứa (chart rộng ngắn tuỳ layout) — trục X và Y vì
+// vậy bị kéo giãn KHÔNG ĐỀU NHAU (vd rộng gấp 4 lần cao). Hình chữ nhật (bar)
+// không sao vì chỉ là khối màu, nhưng <text> BÊN TRONG svg đó sẽ bị kéo méo
+// theo (chữ số/nhãn ngày bị "dẹt" — đúng lỗi thực tế gặp phải). Sửa bằng
+// cách KHÔNG đặt text trong SVG nữa — render nhãn bằng HTML thường, đặt đè
+// lên bằng position:absolute (trục X dùng %, trục Y dùng px vì chiều cao
+// SVG khớp đúng 1:1 với CHART_H — xem CSS height của .qc-chart-svg).
 const CHART_H = 184;
 const BAR_GAP = 6;
+const BAR_BOTTOM = CHART_H - 20; // đáy vẽ, chừa chỗ nhãn trục X
+const PLOT_H = CHART_H - 32; // chừa thêm chỗ nhãn tổng số phía trên
 
 function BarChart({ title, periods, seriesSpec }) {
   const [hover, setHover] = useState(null);
@@ -101,6 +112,23 @@ function BarChart({ title, periods, seriesSpec }) {
   // Chỉ dán nhãn trục X chọn lọc (≤ ~10 nhãn) — nhiều cột thì nhãn sẽ chồng chữ.
   const labelEvery = Math.max(1, Math.ceil(n / 10));
 
+  // Tính trước hình học từng cột (vị trí %, các đoạn stack, đỉnh cột) — dùng
+  // chung cho cả lớp SVG (bar) lẫn lớp HTML nhãn đè lên (không lệch nhau).
+  const cols = periods.map((p, i) => {
+    const xPct = i * (100 / n);
+    const cxPct = xPct + (100 / n) / 2;
+    let yTop = BAR_BOTTOM;
+    const segs = seriesSpec.map((s) => {
+      const v = p.counts[s.key] || 0;
+      if (!v) return null;
+      const h = (v / max) * PLOT_H;
+      const y = yTop - h;
+      yTop = y - 1.2; // khoảng cách giữa các đoạn stack
+      return { key: s.key, x: xPct + (100 / n - barW) / 2, y, h: Math.max(0.6, h), color: s.color, label: s.label, v };
+    }).filter(Boolean);
+    return { key: p.key, label: p.label, cxPct, segs, topY: yTop, total: total(p) };
+  });
+
   return (
     <div className="qc-chart-block">
       <div className="qc-chart-head">
@@ -110,52 +138,43 @@ function BarChart({ title, periods, seriesSpec }) {
       {!n ? (
         <div className="muted center" style={{ padding: 24 }}>Chưa có dữ liệu trong khoảng này.</div>
       ) : (
-        <div className="qc-chart-svg-wrap">
+        <div className="qc-chart-svg-wrap" style={{ height: CHART_H }}>
           <svg viewBox={`0 0 100 ${CHART_H}`} preserveAspectRatio="none" className="qc-chart-svg">
             {[0, 0.5, 1].map((f) => (
               <line key={f} x1={0} x2={100} y1={12 + (CHART_H - 32) * f} y2={12 + (CHART_H - 32) * f}
                 stroke="var(--border)" strokeWidth={0.3} />
             ))}
-            {periods.map((p, i) => {
-              const x = i * (100 / n) + (100 / n - barW) / 2;
-              let yTop = CHART_H - 20; // đáy vẽ, chừa chỗ nhãn trục X
-              const plotH = CHART_H - 32; // chừa thêm chỗ nhãn tổng số phía trên
-              const barTotal = total(p);
-              const segs = seriesSpec.map((s) => {
-                const v = p.counts[s.key] || 0;
-                if (!v) return null;
-                const h = (v / max) * plotH;
-                yTop -= h;
-                const y = yTop;
-                yTop -= 1.2; // khoảng cách giữa các đoạn stack
-                return (
-                  <rect key={s.key} x={x} y={y} width={barW} height={Math.max(0.6, h)} rx={0.8} fill={s.color}
-                    onMouseEnter={(e) => {
-                      const box = e.currentTarget.ownerSVGElement.getBoundingClientRect();
-                      setHover({
-                        label: `${p.label} · ${s.label}`, value: v, color: s.color,
-                        cx: box.left + ((x + barW / 2) / 100) * box.width,
-                        cy: box.top + (y / CHART_H) * box.height,
-                      });
-                    }}
-                    onMouseLeave={() => setHover(null)} />
-                );
-              });
-              return (
-                <g key={p.key}>
-                  {segs}
-                  {barTotal > 0 && (
-                    <text x={i * (100 / n) + (100 / n) / 2} y={Math.max(6, yTop - 1)} textAnchor="middle"
-                      fontSize={4.4} fontWeight={700} fill="var(--text-2)">{fmt(barTotal)}</text>
-                  )}
-                  {i % labelEvery === 0 && (
-                    <text x={i * (100 / n) + (100 / n) / 2} y={CHART_H - 6} textAnchor="middle"
-                      fontSize={4.2} fill="var(--text-3)">{p.label}</text>
-                  )}
-                </g>
-              );
-            })}
+            {cols.map((c) => c.segs.map((seg) => (
+              <rect key={seg.key} x={seg.x} y={seg.y} width={barW} height={seg.h} rx={0.8} fill={seg.color}
+                onMouseEnter={(e) => {
+                  const box = e.currentTarget.ownerSVGElement.getBoundingClientRect();
+                  setHover({
+                    label: `${c.label} · ${seg.label}`, value: seg.v, color: seg.color,
+                    cx: box.left + (c.cxPct / 100) * box.width,
+                    cy: box.top + (seg.y / CHART_H) * box.height,
+                  });
+                }}
+                onMouseLeave={() => setHover(null)} />
+            )))}
           </svg>
+          {/* Lớp nhãn HTML đè lên SVG — KHÔNG bị méo vì không đi qua transform
+              co giãn không đều của viewBox (xem ghi chú trên CHART_H). */}
+          <div className="qc-chart-labels">
+            {cols.map((c, i) => (
+              <React.Fragment key={c.key}>
+                {c.total > 0 && (
+                  <span className="qc-chart-bar-total" style={{ left: `${c.cxPct}%`, top: c.topY - 1 }}>
+                    {fmt(c.total)}
+                  </span>
+                )}
+                {i % labelEvery === 0 && (
+                  <span className="qc-chart-x-label" style={{ left: `${c.cxPct}%`, top: CHART_H - 16 }}>
+                    {c.label}
+                  </span>
+                )}
+              </React.Fragment>
+            ))}
+          </div>
           {hover && (
             <div className="qc-chart-tooltip" style={{ left: hover.cx, top: hover.cy }}>
               <i style={{ background: hover.color }} />{hover.label}: <b>{fmt(hover.value)}</b>
@@ -391,7 +410,7 @@ export default function QcSyncStats() {
               <option key={c.id} value={c.id}>{c.ward_name || c.name}</option>
             ))}
           </select>
-          <div className="seg-toggle sm">
+          <div className="seg-toggle sm" style={{marginTop: 0, flexShrink: 0}}>
             {RANGES.map(([k, label]) => (
               <button key={k} type="button" className={range === k ? "active" : ""}
                 onClick={() => setRange(k)}>{label}</button>
