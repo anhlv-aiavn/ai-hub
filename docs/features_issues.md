@@ -210,6 +210,26 @@ Audit khi chạy nhiều worker (quan sát `processing`=384 = 3 worker × MAX_IN
 - 🟡 Fairness `distinct(batch_id,{status:queued})` mỗi 3s/worker trên corpus lớn khi thực tế chỉ
   1 lô chạy — tốn (thiếu compound index PERF-7). Cân nhắc nới `WORKER_FAIRNESS_REFRESH_SECONDS`.
 
+### ⚡ QC-1 · P1 · 🔴 · `qc_item` (OCR) dùng CHUNG pool vLLM với pipeline GCN sản xuất {#qc-shared-vlm}
+
+Bước OCR của pipeline **QC Sync** (F-16) tái dùng nguyên `run_job._pipeline` — nghĩa là cùng
+`_VLM_SEM`/pool vLLM đang là [nút thắt #1](#bottleneck-vlm) của pipeline GCN sản xuất. Bật QC Sync
+với `WORKER_QC_ITEM_MAX_CONCURRENT` cao có thể làm chậm pipeline chính.
+
+**Hướng xử lý hiện tại (v1)**: mặc định `WORKER_QC_ITEM_MAX_CONCURRENT=2` (thấp), chỉ nới khi xác
+nhận đủ dư GPU cho cả 2 pipeline (đo bằng `bench_pipeline`/`watch --timings` khi cả 2 cùng chạy).
+Chưa có ưu tiên/isolation giữa 2 pipeline ở tầng vLLM — nếu cần, cân nhắc endpoint vLLM riêng cho
+QC Sync hoặc hàng đợi có ưu tiên (P2, chưa làm).
+
+### 🔒 Quyết định: OCR của QC Sync dùng PDF GỐC, không dùng ảnh đã nắn QC trả về {#qc-decide-raw-ocr}
+
+**Đã chốt cho v1.** `qc-scanner-server` trả về ảnh đã nắn thẳng/cắt biên (`?format=json` có field
+`image`/`pages[].image`) — về lý thuyết dùng ảnh này cho OCR có thể chính xác hơn ảnh scan gốc.
+V1 KHÔNG dùng: OCR gọi `run_job._pipeline(pdf_buf)` với PDF gốc tải từ MinIO nguồn, y hệt pipeline
+GCN chính — rủi ro thấp nhất (không phải re-eval chất lượng OCR trên input mới), tái dùng nguyên
+vẹn hàm đã kiểm chứng. Nâng cấp sau nếu cần (ghép ảnh QC trả về thành pdf_buf giả rồi feed vào
+cùng pipeline) — chưa làm, chưa đo tác động chất lượng.
+
 ## B. ISSUES — Đúng đắn / vận hành
 
 ### OPS-1 · P1 · 🟢 · NoSuchKey → trạng thái `no_file` (tách khỏi "Lỗi"/retry) {#nosuchkey}
@@ -263,6 +283,7 @@ chưa có. **Hướng**: định nghĩa chính sách cùng khách hàng (xem `ne
 | F-13 | **Giải phóng job kẹt** processing→queued (ngưỡng an toàn) | `POST /v1/gcn/release-stuck` |
 | F-14 | Quản lý S3 nguồn/đích, phân quyền lô, audit log, JWT/1-phiên | `routes/{s3_connections,users,audit,auth}.py` |
 | F-15 | Dry-run trích xuất (bucket/collection riêng, TTL tự dọn) | `routes/dryrun.py` |
+| F-16 | **QC Sync**: đồng bộ MinIO nguồn → chấm chất lượng qua qc-scanner-server ngoài → OCR (tái dùng VLM) → cắt GCN → MinIO đích riêng | `worker/qc_pipeline.py`, `qc_client.py`, `routes/qc_sync.py`, FE `QcSync.jsx` |
 
 ## D. FEATURES — Đề xuất (backlog)
 

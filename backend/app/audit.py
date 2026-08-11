@@ -24,6 +24,10 @@ class AuditAction(str, Enum):
     GCN_VIEW = "gcn.view"
     GCN_DOWNLOAD = "gcn.download"
     EXPORT_CREATE = "export.create"
+    QC_SYNC_CONFIG_CREATE = "qc_sync_config.create"
+    QC_SYNC_CONFIG_UPDATE = "qc_sync_config.update"
+    QC_SYNC_CONFIG_DELETE = "qc_sync_config.delete"
+    QC_SYNC_RUN = "qc_sync_config.run"
 
 
 def _redact(detail: dict | None) -> dict:

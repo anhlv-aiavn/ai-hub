@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from app import storage
 from app.audit import AuditAction, log_action
-from app.db import gcns, s3_connections
+from app.db import gcns, qc_sync_configs, s3_connections
 from app.deps import require_admin
 from app.s3_util import async_test_connection
 
@@ -19,6 +19,10 @@ router = APIRouter(prefix="/v1/s3-connections", tags=["s3-connections"],
 
 class ConnIn(BaseModel):
     role: str                      # source | destination
+    # "gcn" = pipeline trích xuất chính (singleton — chỉ 1 đích toàn hệ thống).
+    # "qc" = pipeline QC Sync (app/worker/qc_pipeline.py) — KHÔNG singleton, mỗi
+    # kênh đồng bộ (qc_sync_configs) tự chọn 1 đích qua dest_connection_id.
+    purpose: str = "gcn"
     name: str
     endpoint_url: str
     access_key_id: str
@@ -49,7 +53,8 @@ class TestDraft(BaseModel):
 
 def _public(c: dict) -> dict:
     return {
-        "id": c["_id"], "role": c.get("role"), "name": c.get("name"),
+        "id": c["_id"], "role": c.get("role"), "purpose": c.get("purpose") or "gcn",
+        "name": c.get("name"),
         "endpoint_url": c.get("endpoint_url"), "access_key_id": c.get("access_key_id"),
         "secret_set": bool(c.get("secret_access_key")), "bucket": c.get("bucket"),
         "verify_tls": bool(c.get("verify_tls")),
@@ -61,8 +66,14 @@ def _public(c: dict) -> dict:
 
 
 @router.get("")
-async def list_conns(role: str | None = Query(default=None)):
-    flt = {"role": role} if role else {}
+async def list_conns(role: str | None = Query(default=None), purpose: str | None = Query(default=None)):
+    flt: dict = {}
+    if role:
+        flt["role"] = role
+    if purpose:
+        # "gcn" bao gồm cả doc cũ chưa có field `purpose` (tạo trước khi có
+        # field này) — cùng fallback với storage._get_dest_client.
+        flt["purpose"] = {"$in": [purpose, None]} if purpose == "gcn" else purpose
     rows = await s3_connections().find(flt).sort("name", 1).to_list(length=500)
     return {"connections": [_public(c) for c in rows]}
 
@@ -71,15 +82,20 @@ async def list_conns(role: str | None = Query(default=None)):
 async def create_conn(body: ConnIn, admin: dict = Depends(require_admin)):
     if body.role not in ("source", "destination"):
         raise HTTPException(status_code=400, detail="role phải là source hoặc destination")
+    purpose = body.purpose or "gcn"
     if not body.secret_access_key:
         raise HTTPException(status_code=400, detail="Cần secret_access_key khi tạo mới")
-    if body.role == "destination" and await s3_connections().count_documents({"role": "destination"}):
+    # Chỉ đích của pipeline GCN chính là singleton (bất biến cũ, giữ nguyên).
+    # Đích "qc" (QC Sync) được phép nhiều bản ghi — mỗi kênh đồng bộ tự chọn.
+    if body.role == "destination" and purpose == "gcn" and await s3_connections().count_documents(
+        {"role": "destination", "$or": [{"purpose": "gcn"}, {"purpose": {"$exists": False}}]}
+    ):
         raise HTTPException(status_code=409, detail={
             "message": "Đã có 1 S3 đích — chỉ hỗ trợ đúng 1 cấu hình đích, xoá cấu hình cũ trước khi thêm mới",
         })
     now = datetime.now(timezone.utc)
     doc = {
-        "_id": str(uuid.uuid4()), "role": body.role, "name": body.name,
+        "_id": str(uuid.uuid4()), "role": body.role, "purpose": purpose, "name": body.name,
         "endpoint_url": body.endpoint_url, "access_key_id": body.access_key_id,
         "secret_access_key": body.secret_access_key, "bucket": body.bucket,
         "verify_tls": body.verify_tls, "created_at": now, "updated_at": now,
@@ -120,6 +136,8 @@ async def delete_conn(conn_id: str, force: bool = False, admin: dict = Depends(r
     if not doc:
         raise HTTPException(status_code=404, detail="Không tìm thấy connection")
     n_ref = await gcns().count_documents({"source_connection_id": conn_id})
+    n_ref += await qc_sync_configs().count_documents(
+        {"$or": [{"source_connection_id": conn_id}, {"dest_connection_id": conn_id}]})
     if n_ref and not force:
         raise HTTPException(status_code=409, detail={
             "message": "Connection còn được tham chiếu bởi GCN đã import",

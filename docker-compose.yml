@@ -5,7 +5,7 @@ name: ai-hub
 
 services:
   mongo:
-    image: mongo:7
+    image: mongo:4.4
     restart: unless-stopped
     ports: ["27018:27017"]
     volumes: ["mongo_data:/data/db"]
@@ -86,7 +86,7 @@ services:
     build: ./frontend
     restart: unless-stopped
     depends_on: [api]
-    ports: ["3000:80"]
+    ports: ["8090:80"]
 
 volumes:
   mongo_data:
