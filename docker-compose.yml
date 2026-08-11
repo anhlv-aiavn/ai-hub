@@ -69,6 +69,15 @@ services:
       # 0 = KHÔNG đặt trần token (để server quyết). Đặt trần làm JSON bị cắt dở.
       SPH_LUOT_HAI_MAX_TOKENS: ${SPH_LUOT_HAI_MAX_TOKENS:-0}
       EXTRACT_RETRY_THINKING: ${EXTRACT_RETRY_THINKING:-false}
+      # QC Sync — qc-scanner-server ngoài (docs/algorithm.md §9).
+      QC_SCANNER_BASE_URL: ${QC_SCANNER_BASE_URL:-http://192.168.120.9:5000}
+      QC_SCANNER_API_KEY: ${QC_SCANNER_API_KEY:-}
+      QC_SCANNER_TIMEOUT_SECONDS: ${QC_SCANNER_TIMEOUT_SECONDS:-60}
+      QC_SCANNER_MAX_CONCURRENT: ${QC_SCANNER_MAX_CONCURRENT:-8}
+      QC_SCANNER_RETRY_MAX: ${QC_SCANNER_RETRY_MAX:-3}
+      QC_SYNC_DEFAULT_INTERVAL_SECONDS: ${QC_SYNC_DEFAULT_INTERVAL_SECONDS:-300}
+      WORKER_QC_SYNC_MAX_CONCURRENT: ${WORKER_QC_SYNC_MAX_CONCURRENT:-2}
+      WORKER_QC_ITEM_MAX_CONCURRENT: ${WORKER_QC_ITEM_MAX_CONCURRENT:-2}
     ports: ["18002:8000"]
     # tmp/ của repo mount READ-ONLY vào /work: sửa prompt thử nghiệm bằng VS Code
     # trên máy serve là container thấy ngay, khỏi cp/build. CHỈ service api —

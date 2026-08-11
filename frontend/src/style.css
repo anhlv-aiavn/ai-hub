@@ -1352,6 +1352,19 @@ label.file-row { width: 100%; }
 .bm-assign-panel { padding: 12px 14px 14px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
 .bm-assign-panel .admin-tab-toolbar { margin-top: 10px; }
 
+/* ── QC Sync (QcSync.jsx) — bảng kênh đồng bộ, 6 cột (khác .s3-tbl 5 cột) ───
+   Cùng lý do .bm-tbl: mỗi dòng phải CỐ ĐỊNH cột (không "auto" theo nội dung
+   riêng dòng đó) để mọi dòng thẳng hàng; height:auto + min-height (thay vì
+   .file-row height:34px cố định) để dòng không bị bóp khi nội dung dài
+   (nguồn/prefix, lần quét cuối) xuống dòng. */
+.qc-cfg-tbl .qc-cfg-row {
+  display: grid; grid-template-columns: 1.2fr 1.7fr 1.3fr 80px 1.6fr auto;
+  align-items: center; height: auto; min-height: 42px; padding: 7px 10px; gap: 10px;
+}
+.qc-cfg-tbl .qc-cfg-row > * { min-width: 0; }
+.qc-cfg-tbl .qc-cfg-head { background: var(--surface-3); color: var(--text-3); font-size: 11px;
+  text-transform: uppercase; letter-spacing: .04em; font-weight: 600; cursor: default; }
+
 .audit-pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding-top: 4px; }
 .audit-pager .pager-btn { width: auto; height: 32px; padding: 0 12px; display: inline-flex;
   align-items: center; gap: 5px; }

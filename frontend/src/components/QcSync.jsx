@@ -99,8 +99,8 @@ export default function QcSync() {
         </div>
       )}
 
-      <div className="tbl-dense s3-tbl" style={{ margin: "0 16px" }}>
-        <div className="file-row s3-head">
+      <div className="tbl-dense qc-cfg-tbl" style={{ margin: "0 16px" }}>
+        <div className="file-row qc-cfg-row qc-cfg-head">
           <span>Tên</span><span>Nguồn / prefix</span><span>Đích</span><span>Chu kỳ</span>
           <span>Lần quét cuối</span><span />
         </div>
@@ -108,7 +108,7 @@ export default function QcSync() {
           const src = sources.find((s) => s.id === c.source_connection_id);
           const dest = dests.find((d) => d.id === c.dest_connection_id);
           return (
-            <div className="file-row s3-row" key={c.id}>
+            <div className="file-row qc-cfg-row" key={c.id}>
               <span className="fr-name">
                 {c.name} {!c.enabled && <span className="muted small">(tắt)</span>}
               </span>
