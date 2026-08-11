@@ -66,6 +66,10 @@ def qc_stats_daily():
     return get_db()[config.COLL_QC_STATS_DAILY]
 
 
+def qc_wards():
+    return get_db()[config.COLL_QC_WARD]
+
+
 async def ensure_indexes() -> None:
     await gcns().create_index("batch_id")
     await gcns().create_index("group_key")

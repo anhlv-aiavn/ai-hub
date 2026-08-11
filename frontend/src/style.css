@@ -1443,26 +1443,60 @@ label.file-row { width: 100%; }
 .bm-assign-panel { padding: 12px 14px 14px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
 .bm-assign-panel .admin-tab-toolbar { margin-top: 10px; }
 
-/* ── QC Sync (QcSync.jsx) — bảng kênh đồng bộ, 6 cột (khác .s3-tbl 5 cột) ───
-   Cùng lý do .bm-tbl: mỗi dòng phải CỐ ĐỊNH cột (không "auto" theo nội dung
-   riêng dòng đó) để mọi dòng thẳng hàng; height:auto + min-height (thay vì
-   .file-row height:34px cố định) để dòng không bị bóp khi nội dung dài
-   (nguồn/prefix, lần quét cuối) xuống dòng. */
-.qc-cfg-tbl .qc-cfg-row {
-  display: grid; grid-template-columns: 1.2fr 1.7fr 1.3fr 80px 1.6fr auto;
-  align-items: center; height: auto; min-height: 42px; padding: 7px 10px; gap: 10px;
-}
-.qc-cfg-tbl .qc-cfg-row > * { min-width: 0; }
-.qc-cfg-tbl .qc-cfg-head { background: var(--surface-3); color: var(--text-3); font-size: 11px;
-  text-transform: uppercase; letter-spacing: .04em; font-weight: 600; cursor: default; }
-/* Băng tiến độ lượt quét đang chạy (ActiveJobRun) — nằm dưới dòng cấu hình,
-   không phải 1 hàng grid nên không cần khớp cột. */
+/* ── QC Sync (QcSync.jsx) — danh sách kênh dạng CARD (không phải bảng lưới) ──
+   Trước đây 1 dòng lưới 6 cột + 6 nút hành động phẳng trên cùng 1 hàng gây
+   "ríu rít" khi tên dài/nhiều thao tác. Card cho phép tên xuống dòng tự
+   nhiên, gom thao tác PHỤ (Tạm dừng/Thống kê/Xóa) vào menu "⋯" (RowMenu),
+   chỉ giữ 2 thao tác CHÍNH (Chạy ngay/Sửa) hiện thẳng. */
+.qc-cfg-list { display: flex; flex-direction: column; gap: 10px; }
+.qc-cfg-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 10px 12px; }
+.qc-cfg-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.qc-cfg-card-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.qc-cfg-card-name { font-weight: 600; font-size: 14px; color: var(--text);
+  max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qc-cfg-card-code { font-size: 11.5px; color: var(--text-3); white-space: nowrap; }
+.qc-cfg-card-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+.qc-cfg-card-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 6px;
+  font-size: 12px; color: var(--text-2); }
+.qc-cfg-card-meta span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.badge.off { background: var(--surface-3); color: var(--text-3); }
+.badge.paused { background: #fef3c7; color: #92400e; }
+
+/* Menu "⋯" (RowMenu) — cùng pattern popover với .acct-* (AccountMenu.jsx),
+   thu nhỏ lại cho vừa 1 dòng trong danh sách/bảng. */
+.row-menu { position: relative; display: inline-block; }
+.row-menu-trigger { line-height: 1; padding-left: 9px; padding-right: 9px; letter-spacing: 1px; }
+.row-menu-pop { position: absolute; top: calc(100% + 4px); right: 0; min-width: 170px; padding: 5px; z-index: 30;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-lg); }
+.row-menu-item { display: block; width: 100%; padding: 7px 9px; border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text); font: inherit; font-size: 12.5px; text-align: left;
+  cursor: pointer; transition: background .15s; }
+.row-menu-item:hover { background: var(--surface-3); }
+.row-menu-item.is-danger { color: var(--err); }
+.row-menu-item.is-danger:hover { background: #fdf3f2; }
+
+/* Băng tiến độ lượt quét đang chạy (ActiveJobRun) — nằm trong .qc-cfg-card,
+   bo góc + tự cách dòng trên thay vì border-bottom kiểu hàng bảng cũ. */
 .qc-active-job {
   display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 12px;
-  color: var(--text-2); background: var(--accent-50); border-bottom: 1px solid var(--border);
+  color: var(--text-2); background: var(--accent-50); border-radius: var(--radius-sm); margin-top: 8px;
 }
 .qc-active-job b { color: var(--text); font-variant-numeric: tabular-nums; }
 .qc-active-job button { margin-left: auto; }
+
+/* Panel "Danh sách Phường/Xã" (WardSyncPanel) — thu gọn mặc định, không chiếm
+   chỗ khi ít khi dùng tới (chỉ đồng bộ 1 lần rồi để đó). */
+.qc-wardsync-toggle { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border);
+  background: var(--surface); border-radius: var(--radius-sm); padding: 6px 10px; font: inherit;
+  font-size: 12.5px; color: var(--text-2); cursor: pointer; }
+.qc-wardsync-toggle:hover { background: var(--surface-3); }
+.qc-wardsync-toggle b { color: var(--text); font-variant-numeric: tabular-nums; }
+.qc-wardsync-body { margin-top: 8px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); }
+.qc-wardsync-body .row { margin-top: 6px; }
+.qc-wardsync-body .row .text-input { flex: 1; }
 
 /* Bảng "File gần đây" (QcSyncDetail) — 7 cột (khác .s3-tbl 5 cột): thêm cột
    "File đã cắt" (có thể nhiều link/dòng nếu 1 file gốc ra nhiều GCN) + cột

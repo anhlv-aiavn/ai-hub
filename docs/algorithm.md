@@ -365,10 +365,22 @@ lên xem được, CHỈ XEM — khác trang quản trị "QC Sync" admin-only c
   `GET /v1/qc-sync/stats/by-config?range=` — đếm theo TỪNG kênh cho 1 khung (`day|week|month|all`,
   dùng chung hàm `_range_match` với `/stats`), 1 lần gọi thay vì N lần gọi `/stats?config_id=` phía
   FE cho từng kênh.
-- Bộ lọc kênh trên toàn bộ khối dùng `qc_sync_configs.ward_name` (tên Phường/Xã, field mới — người
-  dùng tự nhập vì đã có sẵn bảng mã→tên, hệ thống không tự ánh xạ) làm nhãn thay cho `name` nội bộ
-  nếu có set; mỗi kênh QC Sync vốn đã ứng với đúng 1 prefix/thư mục nguồn (thường đặt `name` trùng
-  mã P/X, vd "00004") nên lọc theo kênh ≈ lọc theo P/X, không cần gộp nhiều kênh.
+- Bộ lọc kênh trên toàn bộ khối dùng tên Phường/Xã làm nhãn thay cho `name` nội bộ; mỗi kênh QC
+  Sync vốn đã ứng với đúng 1 prefix/thư mục nguồn (thường đặt `name` trùng mã P/X, vd "00004") nên
+  lọc theo kênh ≈ lọc theo P/X, không cần gộp nhiều kênh. Tên P/X ưu tiên `qc_sync_configs.ward_name`
+  nếu admin nhập tay (ghi đè), KHÔNG thì tự suy từ collection `qc_wards` (khớp `maXa` == `name`).
+
+**Đồng bộ danh sách Phường/Xã** (`qc_wards`, panel "Danh sách Phường/Xã" trên trang admin
+`QcSync.jsx`, thu gọn mặc định): `POST /v1/qc-sync/wards/sync` — body `{"url": "..."}`, URL admin tự
+nhập MỖI LẦN đồng bộ trên UI (không hardcode trong hệ thống). Backend gọi `httpx.AsyncClient().get(url)`
+— KHÔNG shell ra lệnh `curl` với chuỗi người dùng gõ (rủi ro command injection), kết quả tương đương
+"chạy curl" nhưng an toàn, cùng idiom `qc_client.py`. Kỳ vọng response
+`{"data": [{"id", "tenXa", "maXa"}, ...], "success": bool}`; `maXa` dùng làm `_id` (khoá tự nhiên,
+tra theo mã xã O(1)). Mỗi lần đồng bộ GHI ĐÈ TOÀN BỘ danh sách cũ (`delete_many` rồi `insert_many`)
+— FE `window.confirm()` cảnh báo trước nếu đang có dữ liệu (cùng pattern các thao tác ghi đè/xoá
+khác trong trang, không có cờ `confirm` ở tầng API). `GET /v1/qc-sync/wards` liệt kê danh sách hiện
+có; `_ward_map()` (helper nội bộ `routes/qc_sync.py`) build `{maXa: tenXa}` 1 lần/request, dùng ở
+mọi nơi trả `ward_name` (`/configs`, `/stats/by-config`).
 - 2 bump còn thiếu đã vá để đủ số liệu: `no_file` (trước đây nhánh `SourceObjectMissing` trong
   `process_qc_item` không bump gì cả) và `cuts_created` (số FILE cắt thật, cộng cùng lúc với
   `ocr_done` khi `_build_cuts` thành công).

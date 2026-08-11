@@ -537,6 +537,16 @@ export async function getQcSyncStatsSeries({ configId, days = 90 } = {}) {
 export async function getQcSyncStatsByConfig(range = "all") {
   return handle(await fetch(`/v1/qc-sync/stats/by-config?range=${encodeURIComponent(range)}`, { headers: headers() }));
 }
+// Danh sách Phường/Xã đã đồng bộ (dùng để hiện tên thay mã kênh).
+export async function getQcWards() {
+  return handle(await fetch(`/v1/qc-sync/wards`, { headers: headers() }));
+}
+// Đồng bộ danh sách Phường/Xã từ 1 API ngoài (URL admin tự nhập) — GHI ĐÈ toàn bộ danh sách cũ.
+export async function syncQcWards(url) {
+  return handle(await fetch(`/v1/qc-sync/wards/sync`, {
+    method: "POST", headers: headers({ "Content-Type": "application/json" }), body: JSON.stringify({ url }),
+  }));
+}
 
 export async function downloadExportJob(id) {
   const p = new URLSearchParams();

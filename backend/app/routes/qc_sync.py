@@ -7,13 +7,14 @@ import io
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app import config, storage
 from app.audit import AuditAction, log_action
-from app.db import qc_items, qc_stats_daily, qc_sync_configs, qc_sync_jobs, s3_connections
+from app.db import qc_items, qc_stats_daily, qc_sync_configs, qc_sync_jobs, qc_wards, s3_connections
 from app.deps import require_admin
 from app.storage import SourceObjectMissing, SourceObjectUnavailable
 
@@ -27,9 +28,10 @@ class ConfigIn(BaseModel):
     dest_connection_id: str
     interval_seconds: int | None = None
     enabled: bool = True
-    # Tên Phường/Xã hiển thị thay cho `name` (thường đặt trùng mã P/X, vd
-    # "00004") trên biểu đồ/bộ lọc ở trang Tổng quan — người dùng tự nhập
-    # (đã có sẵn bảng mã→tên), KHÔNG có ánh xạ tự động trong hệ thống.
+    # Tên Phường/Xã hiển thị thay cho `name` — mặc định TỰ ĐỘNG suy từ danh
+    # sách xã đã đồng bộ (`qc_wards`, khớp theo `name` == mã xã, xem
+    # `POST /wards/sync`); field này chỉ cần điền tay khi muốn GHI ĐÈ (vd
+    # `name` không khớp mã xã nào, hoặc muốn hiển thị tên khác).
     ward_name: str | None = None
 
 
@@ -48,9 +50,12 @@ class ConfigPatch(BaseModel):
     ward_name: str | None = None
 
 
-def _public_config(c: dict) -> dict:
+def _public_config(c: dict, ward_map: dict | None = None) -> dict:
+    # `ward_name` NHẬP TAY thắng nếu có; không thì tự suy từ danh sách xã đã
+    # đồng bộ (khớp mã xã == `name` — quy ước đặt tên kênh hiện tại).
+    ward_name = c.get("ward_name") or (ward_map or {}).get(c.get("name"), "")
     return {
-        "id": c["_id"], "name": c.get("name"), "ward_name": c.get("ward_name") or "",
+        "id": c["_id"], "name": c.get("name"), "ward_name": ward_name,
         "source_connection_id": c.get("source_connection_id"), "prefix": c.get("prefix") or "",
         "dest_connection_id": c.get("dest_connection_id"),
         "interval_seconds": c.get("interval_seconds") or config.QC_SYNC_DEFAULT_INTERVAL_SECONDS,
@@ -60,6 +65,13 @@ def _public_config(c: dict) -> dict:
         "created_at": c.get("created_at"), "updated_at": c.get("updated_at"),
         "created_by": c.get("created_by"),
     }
+
+
+async def _ward_map() -> dict:
+    """`{maXa: tenXa}` từ `qc_wards` (đã đồng bộ qua `POST /wards/sync`) —
+    fetch 1 lần/request, KHÔNG lặp query cho từng config (tập nhỏ, load hết
+    vào RAM là đủ rẻ — cùng tinh thần các map nhỏ khác trong file này)."""
+    return {w["_id"]: w.get("ten_xa") async for w in qc_wards().find()}
 
 
 async def _validate_refs(source_id: str | None, dest_id: str | None) -> None:
@@ -76,7 +88,8 @@ async def _validate_refs(source_id: str | None, dest_id: str | None) -> None:
 @router.get("/configs")
 async def list_configs():
     rows = await qc_sync_configs().find().sort("name", 1).to_list(length=500)
-    return {"configs": [_public_config(c) for c in rows]}
+    ward_map = await _ward_map()
+    return {"configs": [_public_config(c, ward_map) for c in rows]}
 
 
 @router.post("/configs")
@@ -95,7 +108,7 @@ async def create_config(body: ConfigIn, admin: dict = Depends(require_admin)):
     await qc_sync_configs().insert_one(doc)
     await log_action(admin["username"], AuditAction.QC_SYNC_CONFIG_CREATE, doc["_id"],
                      {"after": {k: v for k, v in doc.items() if k != "_id"}})
-    return {"ok": True, "config": _public_config(doc)}
+    return {"ok": True, "config": _public_config(doc, await _ward_map())}
 
 
 @router.patch("/configs/{config_id}")
@@ -116,7 +129,7 @@ async def update_config(config_id: str, body: ConfigPatch, admin: dict = Depends
     after = await qc_sync_configs().find_one({"_id": config_id})
     await log_action(admin["username"], AuditAction.QC_SYNC_CONFIG_UPDATE, config_id,
                      {"before": before, "after": after})
-    return {"ok": True, "config": _public_config(after)}
+    return {"ok": True, "config": _public_config(after, await _ward_map())}
 
 
 @router.delete("/configs/{config_id}")
@@ -263,8 +276,10 @@ async def get_stats_by_config(range: str = Query(default="all", pattern="^(day|w
         for k, v in (d.get("counts") or {}).items():
             bucket[k] = bucket.get(k, 0) + v
     configs = await qc_sync_configs().find().sort("name", 1).to_list(length=500)
+    ward_map = await _ward_map()
     rows = [
-        {"config_id": c["_id"], "name": c.get("name"), "ward_name": c.get("ward_name") or "",
+        {"config_id": c["_id"], "name": c.get("name"),
+         "ward_name": c.get("ward_name") or ward_map.get(c.get("name"), ""),
          "counts": by_config.get(c["_id"], {})}
         for c in configs
     ]
@@ -417,3 +432,73 @@ async def get_cut_pdf(item_id: str, cut_index: int, admin: dict = Depends(requir
         io.BytesIO(buf.getvalue()), media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
+
+
+# ── Danh sách Phường/Xã (để hiện tên thay mã kênh) ──────────────────────────
+
+class WardSyncIn(BaseModel):
+    url: str
+
+
+@router.get("/wards")
+async def list_wards():
+    rows = await qc_wards().find().sort("ten_xa", 1).to_list(length=5000)
+    return {"wards": [
+        {"ma_xa": r["_id"], "ten_xa": r.get("ten_xa"), "id": r.get("id"), "synced_at": r.get("synced_at")}
+        for r in rows
+    ]}
+
+
+@router.post("/wards/sync")
+async def sync_wards(body: WardSyncIn, admin: dict = Depends(require_admin)):
+    """Đồng bộ danh sách Phường/Xã từ 1 API bên ngoài — URL do admin tự nhập
+    trên UI mỗi lần đồng bộ (không hardcode). GHI ĐÈ TOÀN BỘ danh sách cũ (FE
+    đã `window.confirm()` cảnh báo trước nếu đang có dữ liệu — cùng pattern
+    các thao tác ghi đè/xoá khác trong trang này, xem `QcSync.jsx`).
+
+    Gọi HTTP GET bằng `httpx` — KHÔNG shell ra lệnh `curl` với chuỗi người
+    dùng gõ (rủi ro command injection nếu URL/tham số chứa ký tự đặc biệt);
+    kết quả tương đương "chạy curl" nhưng an toàn, cùng idiom `qc_client.py`.
+
+    Kỳ vọng response `{"data": [{"id", "tenXa", "maXa"}, ...], "success": bool}`."""
+    url = body.url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="Cần nhập URL")
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(url)
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Không gọi được API: {e}") from e
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502,
+                            detail=f"API trả về lỗi (mã {resp.status_code}): {resp.text[:300]}")
+    try:
+        payload = resp.json()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"API không trả về JSON hợp lệ: {e}") from e
+    if not isinstance(payload, dict) or payload.get("success") is False:
+        raise HTTPException(status_code=502, detail=f"API báo lỗi: {payload}")
+    data = payload.get("data")
+    if not isinstance(data, list):
+        raise HTTPException(status_code=502, detail="API trả về thiếu field 'data' (danh sách xã)")
+
+    now = datetime.now(timezone.utc)
+    docs, skipped = [], 0
+    for item in data:
+        if not isinstance(item, dict):
+            skipped += 1
+            continue
+        ma_xa = str(item.get("maXa") or "").strip()
+        ten_xa = str(item.get("tenXa") or "").strip()
+        if not ma_xa or not ten_xa:
+            skipped += 1
+            continue
+        docs.append({"_id": ma_xa, "id": item.get("id"), "ten_xa": ten_xa, "synced_at": now})
+    if not docs:
+        raise HTTPException(status_code=400, detail="Không có xã hợp lệ nào trong dữ liệu trả về")
+
+    await qc_wards().delete_many({})
+    await qc_wards().insert_many(docs, ordered=False)
+    await log_action(admin["username"], AuditAction.QC_SYNC_WARDS_SYNC, "wards",
+                     {"url": url, "imported": len(docs), "skipped": skipped})
+    return {"ok": True, "imported": len(docs), "skipped": skipped, "url": url}

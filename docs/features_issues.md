@@ -293,7 +293,7 @@ chưa có. **Hướng**: định nghĩa chính sách cùng khách hàng (xem `ne
 | F-13 | **Giải phóng job kẹt** processing→queued (ngưỡng an toàn) | `POST /v1/gcn/release-stuck` |
 | F-14 | Quản lý S3 nguồn/đích, phân quyền lô, audit log, JWT/1-phiên | `routes/{s3_connections,users,audit,auth}.py` |
 | F-15 | Dry-run trích xuất (bucket/collection riêng, TTL tự dọn) | `routes/dryrun.py` |
-| F-16 | **QC Sync**: đồng bộ MinIO nguồn → chấm chất lượng qua qc-scanner-server ngoài → OCR (tái dùng VLM) → cắt GCN → MinIO đích riêng; có dashboard (QC/OCR/số file cắt theo ngày/tuần/tháng/tổng, lọc theo Phường/Xã) ở trang Tổng quan | `worker/qc_pipeline.py`, `qc_client.py`, `routes/qc_sync.py`, FE `QcSync.jsx`/`QcSyncStats.jsx` |
+| F-16 | **QC Sync**: đồng bộ MinIO nguồn → chấm chất lượng qua qc-scanner-server ngoài → OCR (tái dùng VLM) → cắt GCN → MinIO đích riêng; có dashboard (QC/OCR/số file cắt theo ngày/tuần/tháng/tổng, lọc theo Phường/Xã) ở trang Tổng quan; đồng bộ danh sách Phường/Xã từ API ngoài (URL tự nhập) để tự hiện tên P/X | `worker/qc_pipeline.py`, `qc_client.py`, `routes/qc_sync.py`, FE `QcSync.jsx`/`QcSyncStats.jsx` |
 
 ## D. FEATURES — Đề xuất (backlog)
 

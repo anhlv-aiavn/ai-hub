@@ -25,6 +25,7 @@ COLL_QC_SYNC_CONFIG = "qc_sync_configs"
 COLL_QC_SYNC_JOB = "qc_sync_jobs"
 COLL_QC_ITEM = "qc_items"
 COLL_QC_STATS_DAILY = "qc_stats_daily"
+COLL_QC_WARD = "qc_wards"
 
 # Hậu kiểm: TTL soft-lock (giữ chỗ khi đang sửa, tránh 2 người ghi đè nhau).
 REVIEW_LOCK_TTL = int(os.getenv("AIHUB_REVIEW_LOCK_TTL", "300"))

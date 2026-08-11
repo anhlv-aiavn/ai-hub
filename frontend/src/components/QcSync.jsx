@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
 import {
   getS3Connections,
   getQcSyncConfigs, createQcSyncConfig, updateQcSyncConfig, deleteQcSyncConfig,
   runQcSyncNow, getQcSyncActiveJob, cancelQcSyncJob, getQcSyncStats, getQcSyncItems,
   retryQcSyncItem, deleteQcSyncItem, clearQcSyncConfigItems, qcSyncSourcePdfUrl, qcSyncCutPdfUrl,
+  getQcWards, syncQcWards,
 } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 
@@ -28,6 +29,95 @@ const ITEM_STATUS_OPTIONS = [
 function fmtDate(d) {
   if (!d) return "—";
   try { return new Date(d).toLocaleString("vi-VN"); } catch { return String(d); }
+}
+
+// Menu "⋯" gọn cho các thao tác PHỤ của 1 dòng — cùng pattern popover với
+// AccountMenu.jsx (click-outside đóng, Escape đóng). Dùng để bớt rối khi 1
+// dòng có nhiều thao tác (trước đây 6 nút phẳng trên 1 dòng gây "ríu rít").
+function RowMenu({ items }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e) { if (!ref.current?.contains(e.target)) setOpen(false); }
+    function onKey(e) { if (e.key === "Escape") setOpen(false); }
+    document.addEventListener("mousedown", onDoc, true);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("mousedown", onDoc, true);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [open]);
+
+  return (
+    <div className="row-menu" ref={ref}>
+      <button type="button" className="ghost sm row-menu-trigger" aria-haspopup="menu" aria-expanded={open}
+        title="Thêm thao tác" onClick={() => setOpen((v) => !v)}>⋯</button>
+      {open && (
+        <div className="row-menu-pop" role="menu">
+          {items.map((it, i) => (
+            <button key={i} type="button" className={`row-menu-item ${it.danger ? "is-danger" : ""}`}
+              role="menuitem" onClick={() => { setOpen(false); it.onClick(); }}>{it.label}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Đồng bộ danh sách Phường/Xã (dùng để tự hiện tên P/X thay mã kênh, khớp
+// theo "Tên kênh" == mã xã) — URL API do admin tự nhập mỗi lần đồng bộ,
+// backend gọi HTTP GET an toàn bằng httpx (KHÔNG chạy lệnh curl qua shell).
+function WardSyncPanel() {
+  const [wards, setWards] = useState([]);
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  async function refresh() {
+    try { const d = await getQcWards(); setWards(d.wards || []); }
+    catch (e) { toastErr(e.message || e); }
+  }
+  useEffect(() => { refresh(); }, []);
+
+  async function sync() {
+    if (!url.trim()) { toastErr("Nhập URL API danh sách xã"); return; }
+    if (wards.length && !window.confirm(
+      `Đã có ${wards.length} xã trong hệ thống.\n\n` +
+      `Đồng bộ sẽ GHI ĐÈ TOÀN BỘ danh sách cũ bằng dữ liệu mới lấy từ URL này.\n\nTiếp tục?`
+    )) return;
+    setBusy(true);
+    try {
+      const res = await syncQcWards(url.trim());
+      toastOk(`Đã đồng bộ ${res.imported} xã${res.skipped ? ` (bỏ qua ${res.skipped} dòng lỗi)` : ""}`);
+      refresh();
+    } catch (e) { toastErr(e.message || e); } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="qc-wardsync" style={{ margin: "0 16px 12px" }}>
+      <button type="button" className="qc-wardsync-toggle" onClick={() => setOpen((v) => !v)}>
+        <Icon name={open ? "chevronDown" : "chevronRight"} size={14} />
+        Danh sách Phường/Xã <b>({wards.length})</b>
+      </button>
+      {open && (
+        <div className="qc-wardsync-body">
+          <p className="muted small">
+            Dùng để tự hiện tên Phường/Xã thay mã kênh ở bảng dưới và trang Tổng quan (khớp theo
+            "Tên kênh" = mã xã). Đồng bộ sẽ ghi đè toàn bộ danh sách hiện có.
+          </p>
+          <div className="row">
+            <input className="text-input" placeholder='URL API trả về {"data":[{"maXa","tenXa"}],"success"}'
+              value={url} onChange={(e) => setUrl(e.target.value)} />
+            <button className="primary sm" disabled={busy} onClick={sync}>
+              {busy ? "Đang đồng bộ…" : "Đồng bộ"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function QcSync() {
@@ -127,6 +217,8 @@ export default function QcSync() {
         riêng (cấu hình ở Cấu hình hệ thống → "S3 đích (QC Sync)"). File đã quét sẽ KHÔNG bị quét lại.
       </p>
 
+      <WardSyncPanel />
+
       {!dests.length && (
         <div className="admin-warn" style={{ margin: "0 16px 12px" }}>
           <Icon name="alertTriangle" size={16} />
@@ -137,43 +229,47 @@ export default function QcSync() {
         </div>
       )}
 
-      <div className="tbl-dense qc-cfg-tbl" style={{ margin: "0 16px" }}>
-        <div className="file-row qc-cfg-row qc-cfg-head">
-          <span>Tên</span><span>Nguồn / prefix</span><span>Đích</span><span>Chu kỳ</span>
-          <span>Lần quét cuối</span><span />
-        </div>
+      <div className="qc-cfg-list" style={{ margin: "0 16px" }}>
         {configs.map((c) => {
           const src = sources.find((s) => s.id === c.source_connection_id);
           const dest = dests.find((d) => d.id === c.dest_connection_id);
           return (
-            <React.Fragment key={c.id}>
-              <div className="file-row qc-cfg-row">
-                <span className="fr-name">
-                  {c.ward_name || c.name}
-                  {c.ward_name && c.ward_name !== c.name && <span className="muted small"> ({c.name})</span>}
-                  {!c.enabled && <span className="muted small"> (tắt)</span>}
-                  {c.items_paused && <span className="muted small"> · đang tạm dừng xử lý</span>}
+            <div className="qc-cfg-card" key={c.id}>
+              <div className="qc-cfg-card-top">
+                <div className="qc-cfg-card-title">
+                  <span className="qc-cfg-card-name" title={c.ward_name || c.name}>{c.ward_name || c.name}</span>
+                  {c.ward_name && c.ward_name !== c.name && <span className="qc-cfg-card-code">Mã: {c.name}</span>}
+                  {!c.enabled && <span className="badge off">Tắt</span>}
+                  {c.items_paused && <span className="badge paused">Tạm dừng xử lý</span>}
+                </div>
+                <div className="qc-cfg-card-actions">
+                  <button className="ghost sm" onClick={() => runNow(c)}>Chạy ngay</button>
+                  <button className="ghost sm" onClick={() => openEdit(c)}>Sửa</button>
+                  <RowMenu items={[
+                    {
+                      label: c.items_paused ? "Tiếp tục xử lý" : "Tạm dừng xử lý",
+                      onClick: () => togglePause(c),
+                    },
+                    { label: "Xem thống kê", onClick: () => setSelectedConfigId(c.id) },
+                    { label: "Xóa dữ liệu đã quét", onClick: () => clearItems(c), danger: true },
+                    { label: "Xóa kênh", onClick: () => remove(c), danger: true },
+                  ]} />
+                </div>
+              </div>
+              <div className="qc-cfg-card-meta">
+                <span title="Nguồn / prefix">
+                  <Icon name="folder" size={12} /> {src?.name || c.source_connection_id}
+                  {c.prefix ? ` · /${c.prefix}` : ""}
                 </span>
-                <span className="fr-meta">{src?.name || c.source_connection_id} · /{c.prefix || ""}</span>
-                <span className="fr-meta">{dest?.name || c.dest_connection_id}</span>
-                <span className="fr-meta">{c.interval_seconds}s</span>
-                <span className="fr-meta">
-                  {fmtDate(c.last_run_at)}
-                  {c.last_run_status && ` · ${c.last_run_status === "done" ? "OK" : c.last_run_status}`}
-                </span>
-                <span className="s3-actions">
-                  <button className="ghost xs" onClick={() => runNow(c)}>Chạy ngay</button>
-                  <button className="ghost xs" title="File đã claim vẫn chạy nốt, chỉ chặn nhận file MỚI từ hàng chờ"
-                    onClick={() => togglePause(c)}>{c.items_paused ? "Tiếp tục xử lý" : "Tạm dừng xử lý"}</button>
-                  <button className="ghost xs" onClick={() => setSelectedConfigId(c.id)}>Thống kê</button>
-                  <button className="ghost xs" onClick={() => openEdit(c)}>Sửa</button>
-                  <button className="ghost xs danger" title="Xóa lịch sử quét — quét lại từ đầu cả thư mục"
-                    onClick={() => clearItems(c)}>Xóa dữ liệu</button>
-                  <button className="ghost xs danger" onClick={() => remove(c)}>Xóa kênh</button>
+                <span>→ {dest?.name || c.dest_connection_id}</span>
+                <span>Chu kỳ {c.interval_seconds}s</span>
+                <span>
+                  Quét lần cuối: {fmtDate(c.last_run_at)}
+                  {c.last_run_status && ` (${c.last_run_status === "done" ? "OK" : c.last_run_status})`}
                 </span>
               </div>
               <ActiveJobRun configId={c.id} refreshTick={refreshTick} onDone={refreshConfigs} />
-            </React.Fragment>
+            </div>
           );
         })}
         {!configs.length && <div className="muted center" style={{ padding: 16 }}>Chưa có kênh đồng bộ nào.</div>}
@@ -185,7 +281,7 @@ export default function QcSync() {
           <div className="row">
             <input className="text-input" placeholder="Tên kênh" value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            <input className="text-input" placeholder="Tên Phường/Xã (hiện thay tên kênh ở Tổng quan)"
+            <input className="text-input" placeholder="Tên Phường/Xã (để trống = tự lấy từ danh sách đã đồng bộ)"
               value={form.ward_name} onChange={(e) => setForm({ ...form, ward_name: e.target.value })} />
           </div>
           <div className="row">
@@ -354,7 +450,7 @@ function QcSyncDetail({ configId, configName, onClose }) {
       <div className="tbl-dense qc-items-tbl">
         <div className="file-row qc-item-row qc-item-head">
           <span>S3 key (bấm để xem PDF nguồn)</span><span>Trạng thái</span><span>Verdict QC</span>
-          <span>Lý do / lỗi</span><span>File đã cắt</span><span>Lúc</span><span />
+          <span>Lý do / lỗi</span><span>File đã cắt</span><span>Lúc</span><span>Thao tác</span>
         </div>
         {items.map((it) => {
           const isError = it.status === "error" || it.status === "no_file";
