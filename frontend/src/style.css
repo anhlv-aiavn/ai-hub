@@ -1324,7 +1324,8 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
    `overflow:hidden` của bảng chứa badge (xem ghi chú trong qcSyncShared.jsx). */
 .qc-verdict-pop { position: fixed; min-width: 220px; max-width: 320px;
   z-index: 40; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-lg); padding: 8px 10px; font-size: 12px; color: var(--text-2); }
+  box-shadow: var(--shadow-lg); padding: 8px 10px; font-size: 12px; color: var(--text-2);
+  overflow-y: auto; }
 .qc-verdict-reason { padding: 4px 0; }
 .qc-verdict-reason + .qc-verdict-reason { border-top: 1px solid var(--border); }
 .qc-verdict-reason code { font-family: var(--mono); font-size: 11px; background: var(--surface-3);

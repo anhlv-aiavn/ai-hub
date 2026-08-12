@@ -67,9 +67,28 @@ export function VerdictBadge({ verdict, reasons, pages }) {
   const hasContent = list.length > 0 || badPages.length > 0;
   const open = (pinned || hovering) && hasContent;
 
+  // Tự chọn đặt popover TRÊN hay DƯỚI trigger tuỳ chỗ trống trong viewport —
+  // trước đây LUÔN đặt dưới, danh sách lý do/trang dài mà trigger ở gần đáy
+  // màn hình (vd hàng cuối bảng) sẽ tràn ra ngoài, mất nội dung không cuộn
+  // tới được. Không đo được chiều cao popover THẬT trước khi render (chưa
+  // mount, list dài ngắn tuỳ item) nên dùng `maxHeight` = đúng khoảng trống
+  // của phía đã chọn + `overflow-y:auto` (CSS) làm lưới an toàn: dù ước
+  // lượng phía trên/dưới có lệch, nội dung vẫn cuộn được bên trong thay vì bị
+  // cắt mất hẳn. Kẹp thêm `left` để khỏi tràn mép phải màn hình.
   function updatePos() {
     const r = ref.current?.getBoundingClientRect();
-    if (r) setPos({ left: r.left, top: r.bottom + 6 });
+    if (!r) return;
+    const margin = 8;
+    const spaceBelow = window.innerHeight - r.bottom - margin;
+    const spaceAbove = r.top - margin;
+    const placeAbove = spaceBelow < 180 && spaceAbove > spaceBelow;
+    const maxHeight = Math.max(120, Math.round(placeAbove ? spaceAbove : spaceBelow));
+    setPos({
+      left: Math.max(margin, Math.min(r.left, window.innerWidth - 336)),
+      top: placeAbove ? undefined : r.bottom + 6,
+      bottom: placeAbove ? window.innerHeight - r.top + 6 : undefined,
+      maxHeight,
+    });
   }
 
   useEffect(() => {
@@ -96,7 +115,8 @@ export function VerdictBadge({ verdict, reasons, pages }) {
         {VERDICT_LABEL[verdict] || verdict}
       </button>
       {open && pos && createPortal(
-        <div className="qc-verdict-pop" role="tooltip" style={{ left: pos.left, top: pos.top }}>
+        <div className="qc-verdict-pop" role="tooltip"
+          style={{ left: pos.left, top: pos.top, bottom: pos.bottom, maxHeight: pos.maxHeight }}>
           {badPages.length > 0 && (
             <div className="qc-verdict-pages">
               {badPages.map((p) => (
