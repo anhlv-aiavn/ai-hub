@@ -23,14 +23,18 @@ const FALLBACK_BRANDING = {
 };
 
 const TABS = [
-  // "create"/"table"/"manage" ẩn khỏi nav theo yêu cầu — component + route
-  // tab vẫn còn nguyên (xem `tab === "create"|"table"|"manage"` bên dưới),
-  // chỉ không có nút bấm vào nữa.
+  ["create", "Số hóa", "operator"],
+  ["table", "Kết quả trích xuất", "viewer"],
   ["export", "Tổng quan", "viewer"],
+  ["manage", "Quản lý lô", "admin"],
   ["qcsync", "QC Sync", "admin"],
   ["qcclass", "Phân loại", "admin"],
   ["audit", "Audit log", "admin"],
 ];
+// ẨN (không xoá) khỏi nav theo yêu cầu — route/component vẫn còn nguyên
+// (xem `tab === "create"|"table"|"manage"` bên dưới), chỉ bỏ nút bấm.
+// Bỏ khỏi Set này để hiện lại, KHÔNG cần sửa TABS ở trên.
+const HIDDEN_TABS = new Set(["create", "table", "manage"]);
 const ROLE_RANK = { viewer: 0, operator: 1, admin: 2 };
 
 export default function App() {
@@ -107,7 +111,7 @@ export default function App() {
   const isAdmin = user.role === "admin";
   const rank = ROLE_RANK[user.role] ?? 0;
   // "create" bị lọc khỏi nav cho viewer → không có đường click vào, không cần guard runtime.
-  const tabs = TABS.filter(([, , minRole]) => rank >= (ROLE_RANK[minRole] ?? 0));
+  const tabs = TABS.filter(([k, , minRole]) => rank >= (ROLE_RANK[minRole] ?? 0) && !HIDDEN_TABS.has(k));
 
   return (
     <div className="app wide">
