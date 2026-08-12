@@ -256,7 +256,7 @@ async def _bump_daily(mongo: AsyncMongo, config_id: str | None, **deltas: int) -
     inc = {f"counts.{k}": v for k, v in deltas.items() if v}
     if not inc:
         return
-    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date = datetime.now(config.QC_VN_TZ).strftime("%Y-%m-%d")  # ngày lịch VN, không phải UTC
     await mongo.db[config.COLL_QC_STATS_DAILY].update_one(
         {"config_id": config_id, "date": date},
         {"$inc": inc, "$setOnInsert": {"config_id": config_id, "date": date}},

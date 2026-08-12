@@ -1186,8 +1186,6 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
    ít control hơn, không thì tràn/cắt chữ ở màn hình vừa (ảnh lỗi thực tế). */
 .qc-stats-sec .export-head .et-filters { flex-wrap: nowrap; }
 .qc-stats-sec { margin-bottom: 20px; }
-.qc-chart-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
-@media (max-width: 1100px) { .qc-chart-grid { grid-template-columns: 1fr; } }
 .qc-chart-block { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 12px 14px 10px; }
 .qc-chart-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
@@ -1228,32 +1226,18 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .qc-chart-legend span { display: inline-flex; align-items: center; gap: 5px; cursor: default; }
 .qc-chart-legend i { width: 9px; height: 9px; border-radius: 3px; flex: none; }
 
-/* Khối "Tổng chất lượng QC" — hero heuristic: 1 chỉ số quan trọng (% đạt)
-   không cần vẽ chart, chỉ cần số to + progress bar mảnh. */
-.qc-hero { display: flex; align-items: center; gap: 20px; background: var(--surface);
-  border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px; margin-bottom: 12px; }
-.qc-hero-pct-wrap { display: flex; flex-direction: column; align-items: center; flex: none;
-  min-width: 92px; border-right: 1px solid var(--border); padding-right: 18px; }
-.qc-hero-pct { font-size: 30px; font-weight: 800; color: var(--brand); font-variant-numeric: tabular-nums; line-height: 1.1; }
-.qc-hero-pct-label { font-size: 11px; color: var(--text-3); margin-top: 2px; white-space: nowrap; }
-.qc-hero-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
-.qc-hero-bar { height: 10px; border-radius: 5px; background: var(--surface-3); overflow: hidden; }
-.qc-hero-bar-fill { height: 100%; background: var(--ok); border-radius: 5px; transition: width .3s; }
-.qc-hero-nums { display: flex; flex-wrap: wrap; gap: 14px 20px; font-size: 13px; color: var(--text-2); }
-.qc-hero-nums b { color: var(--text); font-variant-numeric: tabular-nums; }
-.qc-hero-ok, .qc-hero-err { display: inline-flex; align-items: center; gap: 5px; }
-.qc-hero-ok i, .qc-hero-err i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
-.qc-hero-ok i { background: var(--ok); }
-.qc-hero-err i { background: var(--err); }
-@media (max-width: 640px) {
-  .qc-hero { flex-direction: column; align-items: stretch; gap: 12px; }
-  .qc-hero-pct-wrap { flex-direction: row; justify-content: space-between; border-right: none;
-    border-bottom: 1px solid var(--border); padding: 0 0 10px; min-width: 0; }
-}
+/* Mỗi "dòng" thống kê (QC / OCR): lưới KPI 2x2 bên trái + 1 biểu đồ lớn bên
+   phải — thay cho hero % + dải KPI 6 ô + 3 biểu đồ nhỏ trước đây. */
+.qc-row-sec { margin-bottom: 20px; }
+.qc-row-title { font-size: 13px; font-weight: 700; color: var(--text-2); margin: 0 0 8px; }
+.qc-row-grid { display: grid; grid-template-columns: minmax(220px, 320px) 1fr; gap: 14px; align-items: stretch; }
+@media (max-width: 900px) { .qc-row-grid { grid-template-columns: 1fr; } }
+.qc-row-tiles { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 10px; }
+.qc-chart-empty { display: flex; align-items: center; justify-content: center; min-height: 160px; }
 
-.qc-kpi-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
-.qc-kpi-tile { flex: 1 1 110px; background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.qc-kpi-tile { background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 10px 12px; display: flex; flex-direction: column;
+  justify-content: center; gap: 2px; }
 .qc-kpi-n { font-size: 20px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
 .qc-kpi-label { font-size: 11.5px; color: var(--text-3); }
 

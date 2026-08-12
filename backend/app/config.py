@@ -2,6 +2,7 @@
 (MONGO_*, *_MINIO, VLLM_*) để minio_helper/mongo_helper/vlm_client chạy nguyên trạng."""
 
 import os
+from datetime import timedelta, timezone
 
 
 def _b(name: str, default: str = "false") -> bool:
@@ -138,6 +139,13 @@ QC_SCANNER_RETRY_MAX = int(os.getenv("QC_SCANNER_RETRY_MAX", "3"))
 # không đọc trước khi ghi.
 QC_SYNC_DEFAULT_INTERVAL_SECONDS = int(os.getenv("QC_SYNC_DEFAULT_INTERVAL_SECONDS", "300"))
 WORKER_QC_SYNC_MAX_CONCURRENT = int(os.getenv("WORKER_QC_SYNC_MAX_CONCURRENT", "2"))
+# Giờ VN (UTC+7, không DST) — quy đổi mốc "ngày" của `qc_stats_daily` (rollup
+# theo ngày, xem qc_pipeline._bump_daily) VÀ ngưỡng ngày của range day/week/
+# month (routes/qc_sync.py._range_match, get_stats_series) sang lịch VN thay
+# vì lịch UTC mặc định — trước đây 1 file xử lý 18h-24h VN (giờ UTC đã sang
+# ngày MỚI) bị tính nhầm sang "hôm qua" theo UTC. Cùng idiom VN_TZ cục bộ đã
+# có ở routes/gcn.py (không import chéo, tránh phụ thuộc vòng route↔config).
+QC_VN_TZ = timezone(timedelta(hours=7))
 # LƯU Ý VẬN HÀNH: bước OCR của qc_item dùng CHUNG pool vLLM (_VLM_SEM) với
 # pipeline GCN sản xuất — đây đang là nút thắt #1 của dự án
 # (features_issues.md#bottleneck-vlm). Mặc định để THẤP, chỉ nới khi xác nhận

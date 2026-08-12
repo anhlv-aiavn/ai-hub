@@ -243,8 +243,10 @@ async def cancel_job(job_id: str, admin: dict = Depends(require_admin)):
 
 def _range_match(range: str) -> dict:
     """`date` match cho `range` day|week|month|all — dùng chung giữa `/stats`
-    và `/stats/by-config` (tránh lặp lại logic quy đổi range→ngưỡng ngày)."""
-    today = datetime.now(timezone.utc).date()
+    và `/stats/by-config` (tránh lặp lại logic quy đổi range→ngưỡng ngày).
+    Ngưỡng "hôm nay" tính theo giờ VN (`config.QC_VN_TZ`), khớp với ngày lịch
+    VN mà `qc_pipeline._bump_daily` dùng để ghi `qc_stats_daily.date`."""
+    today = datetime.now(config.QC_VN_TZ).date()
     if range == "day":
         return {"date": today.isoformat()}
     if range == "week":
@@ -303,7 +305,7 @@ async def get_stats_series(config_id: str | None = Query(default=None),
     Gộp theo ngày bằng vòng lặp Python (không lọc `config_id` → nhiều kênh
     CÙNG 1 ngày phải cộng dồn) — collection nhỏ (bounded theo số ngày × số
     kênh), không cần aggregation pipeline. Resample ngày→tuần/tháng do FE lo."""
-    since = (datetime.now(timezone.utc).date() - timedelta(days=days - 1)).isoformat()
+    since = (datetime.now(config.QC_VN_TZ).date() - timedelta(days=days - 1)).isoformat()
     match: dict = {"date": {"$gte": since}}
     if config_id:
         match["config_id"] = config_id

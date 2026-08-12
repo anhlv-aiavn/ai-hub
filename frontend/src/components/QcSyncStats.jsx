@@ -34,10 +34,7 @@ const OCR_SERIES = [
   { key: "no_file", label: "Không thấy file", color: "var(--info)" },
   { key: "error", label: "Lỗi", color: "var(--err)" },
 ];
-const CUTS_SERIES = [{ key: "cuts_created", label: "File đã cắt", color: "var(--accent)" }];
-
 const fmt = (n) => (n || 0).toLocaleString("vi-VN");
-const pct = (n, total) => (total ? Math.round(((n || 0) / total) * 1000) / 10 : 0);
 // Dạng GỌN cho nhãn trong biểu đồ (chỗ hẹp) — số < 1000 vẫn hiện đầy đủ có
 // dấu phân cách; từ hàng nghìn/triệu trở lên rút gọn "12,3k"/"4,5tr" cho vừa
 // cột hẹp. Số liệu CHÍNH XÁC đầy đủ vẫn có ở tooltip hover + khối KPI/hero.
@@ -228,48 +225,32 @@ function BarChart({ title, periods, seriesSpec }) {
   );
 }
 
-// ── Khối "Tổng chất lượng QC" — số + % đạt, hero heuristic (1 chỉ số quan
-// trọng không cần vẽ chart, xem skill dataviz §choosing-a-form). ─────────────
-function QcQualityHero({ counts }) {
-  const scanned = counts?.scanned || 0;
-  const dat = (counts?.pass || 0) + (counts?.warn || 0);
-  const fail = counts?.fail || 0;
-  const datPct = pct(dat, scanned);
+// ── 1 "dòng" thống kê: lưới 2x2 ô KPI bên trái + 1 biểu đồ lớn bên phải
+// (theo layout người dùng yêu cầu — thay cho hero % + dải KPI 6 ô + 3 biểu đồ
+// nhỏ trước đây). `tiles` = [[giá trị, nhãn], ...] đúng 4 phần tử. Biểu đồ chỉ
+// vẽ được khi có `periods` theo thời gian (range != "all") — range "all" chỉ
+// hiện lưới KPI, chỗ biểu đồ để trống kèm gợi ý đổi range.
+function StatRow({ title, tiles, chartTitle, periods, seriesSpec }) {
   return (
-    <div className="qc-hero">
-      <div className="qc-hero-pct-wrap">
-        <span className="qc-hero-pct">{scanned ? `${datPct}%` : "—"}</span>
-        <span className="qc-hero-pct-label">tỉ lệ đạt QC</span>
+    <div className="qc-row-sec">
+      <h4 className="qc-row-title">{title}</h4>
+      <div className="qc-row-grid">
+        <div className="qc-row-tiles">
+          {tiles.map(([n, label]) => (
+            <div key={label} className="qc-kpi-tile">
+              <span className="qc-kpi-n">{fmt(n)}</span>
+              <span className="qc-kpi-label">{label}</span>
+            </div>
+          ))}
+        </div>
+        {periods ? (
+          <BarChart title={chartTitle} periods={periods} seriesSpec={seriesSpec} />
+        ) : (
+          <div className="qc-chart-block qc-chart-empty muted center">
+            Chọn khoảng Ngày/Tuần/Tháng để xem biểu đồ theo thời gian.
+          </div>
+        )}
       </div>
-      <div className="qc-hero-body">
-        <div className="qc-hero-bar">
-          <div className="qc-hero-bar-fill" style={{ width: `${datPct}%` }} />
-        </div>
-        <div className="qc-hero-nums">
-          <span><b>{fmt(scanned)}</b> đã quét</span>
-          <span className="qc-hero-ok"><i />Đạt <b>{fmt(dat)}</b> ({datPct}%)</span>
-          <span className="qc-hero-err"><i />Không đạt <b>{fmt(fail)}</b> ({pct(fail, scanned)}%)</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Dải KPI phụ (OCR/cắt) — bổ sung cho hero, không lặp lại pass/warn/fail/scanned.
-function OcrKpiStrip({ counts }) {
-  const TILES = [
-    ["ocr_done", "Đã cắt (item)"], ["cuts_created", "File đã cắt"],
-    ["no_sph", "File cắt không rõ Số phát hành"],
-    ["no_gcn", "Không thấy GCN"], ["no_file", "Không thấy file"], ["error", "Lỗi"],
-  ];
-  return (
-    <div className="qc-kpi-row">
-      {TILES.map(([k, label]) => (
-        <div key={k} className="qc-kpi-tile">
-          <span className="qc-kpi-n">{fmt(counts?.[k])}</span>
-          <span className="qc-kpi-label">{label}</span>
-        </div>
-      ))}
     </div>
   );
 }
@@ -497,16 +478,26 @@ export default function QcSyncStats() {
         </div>
       </div>
 
-      <QcQualityHero counts={totalCounts} />
-      <OcrKpiStrip counts={totalCounts} />
-
-      {range !== "all" && (
-        <div className="qc-chart-grid">
-          <BarChart title="Kiểm chất lượng (QC)" periods={periods} seriesSpec={QC_SERIES} />
-          <BarChart title="Kết quả OCR" periods={periods} seriesSpec={OCR_SERIES} />
-          <BarChart title="Số file đã cắt" periods={periods} seriesSpec={CUTS_SERIES} />
-        </div>
-      )}
+      {(() => {
+        const c = totalCounts || {};
+        const scanned = c.scanned || 0, pass = c.pass || 0, warn = c.warn || 0, fail = c.fail || 0;
+        const ocrDone = c.ocr_done || 0, noGcn = c.no_gcn || 0;
+        // "Lỗi" (tile OCR) gộp error + no_file — cả 2 đều là hỏng ở tầng hạ
+        // tầng/nguồn (khác no_gcn: chạy được nhưng không tìm thấy trang GCN)
+        // — chart bên cạnh (OCR_SERIES) vẫn tách riêng 4 loại cho ai cần xem
+        // chi tiết (hover/legend), tile chỉ gộp cho gọn theo đúng layout yêu cầu.
+        const ocrErr = (c.error || 0) + (c.no_file || 0);
+        const ocrTotal = ocrDone + noGcn + ocrErr;
+        const p = range === "all" ? null : periods;
+        return (
+          <>
+            <StatRow title="QC" chartTitle="Biểu đồ QC" periods={p} seriesSpec={QC_SERIES}
+              tiles={[[scanned, "Tổng số QC"], [pass, "Số đạt"], [warn, "Số cảnh báo"], [fail, "Số không đạt"]]} />
+            <StatRow title="OCR" chartTitle="Biểu đồ OCR" periods={p} seriesSpec={OCR_SERIES}
+              tiles={[[ocrTotal, "Tổng số OCR"], [ocrDone, "Thành công"], [noGcn, "Không có giấy"], [ocrErr, "Lỗi"]]} />
+          </>
+        );
+      })()}
       {loading && <div className="muted small" style={{ padding: "6px 2px" }}>Đang tải…</div>}
 
       {!configId && <WardTable range={range} refreshTick={refreshTick} />}
