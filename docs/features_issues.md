@@ -251,6 +251,12 @@ GCN chính — rủi ro thấp nhất (không phải re-eval chất lượng OCR
 vẹn hàm đã kiểm chứng. Nâng cấp sau nếu cần (ghép ảnh QC trả về thành pdf_buf giả rồi feed vào
 cùng pipeline) — chưa làm, chưa đo tác động chất lượng.
 
+**Cập nhật**: quyết định này chỉ áp dụng cho INPUT của OCR (vẫn PDF gốc, không đổi). Ảnh đã nắn của
+`qc-scanner-server` đã được DÙNG ở bước KHÁC — file CẮT XUẤT RA (sau khi biết `page_indices` từng
+GCN), qua QC LẦN 2 (`qc_pipeline._qc2_correct`, xem [algorithm.md §9c bước
+6](algorithm.md#9c-qc_item--qc--ocr--crop-1-file)). Rủi ro thấp hơn: chỉ thay ảnh XUẤT RA, không
+ảnh hưởng dữ liệu OCR đã trích xuất; lỗi/không nắn được thì fallback về bản cắt thô, không mất file.
+
 ## B. ISSUES — Đúng đắn / vận hành
 
 ### OPS-1 · P1 · 🟢 · NoSuchKey → trạng thái `no_file` (tách khỏi "Lỗi"/retry) {#nosuchkey}

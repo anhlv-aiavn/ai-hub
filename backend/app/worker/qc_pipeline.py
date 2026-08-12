@@ -302,6 +302,49 @@ def _qc_cut_naming(item: dict):
     return _fn
 
 
+def _extract_corrected_images(raw: dict) -> list[str]:
+    """Lấy ảnh đã nắn phối cảnh/deskew (base64 PNG, cùng định dạng `images` mà
+    `run_job._images_to_pdf` nhận) từ response `qc-scanner-server`: PDF nhiều
+    trang trả `pages[].image` theo THỨ TỰ trang gốc; 1 trang/ảnh đơn trả thẳng
+    `image` top-level. Trang nào thiếu `image` (server không nắn được trang đó)
+    bị BỎ QUA — `_qc2_correct` coi cả cut là chưa nắn được nếu số ảnh thu về
+    không khớp số trang gửi đi (an toàn hơn ghép thiếu trang)."""
+    if "pages" in raw:
+        return [p.get("image") for p in (raw.get("pages") or []) if p.get("image")]
+    img = raw.get("image")
+    return [img] if img else []
+
+
+async def _qc2_correct(pdf_bytes: bytes, ri: int) -> tuple[bytes, dict | None]:
+    """QC LẦN 2 — chấm lại + lấy ảnh đã nắn phối cảnh/deskew CHO CHÍNH bản cắt
+    (khác QC lần 1 chấm PDF GỐC để quyết định có OCR hay không, xem
+    docs/features_issues.md#qc-decide-raw-ocr — quyết định đó KHÔNG đổi, đây
+    là bước RIÊNG áp dụng sau khi đã biết page_indices của từng GCN, để file
+    XUẤT RA đẹp hơn bản render thô). Lỗi/không nắn được ở BẤT KỲ bước nào →
+    FALLBACK về `pdf_bytes` gốc (không chặn pipeline, chỉ là bản cắt không có
+    hiệu ứng nắn) — ghi lại verdict/lỗi vào `extra["qc2"]` để biết cut nào
+    chưa nắn được."""
+    try:
+        qc2 = await qc_client.check_pdf(pdf_bytes, filename=f"cut-{ri}.pdf")
+    except qc_client.QCError as e:
+        log.warning("qc_item cut %s: QC-2 lỗi, giữ bản cắt gốc: %s", ri, e)
+        return pdf_bytes, {"qc2": {"verdict": None, "error": str(e)}}
+
+    qc2_doc = {"verdict": qc2.verdict, "reasons": qc2.reasons}
+    images_b64 = _extract_corrected_images(qc2.raw)
+    expected = qc2.page_count or 1
+    if not images_b64 or len(images_b64) != expected:
+        qc2_doc["error"] = "missing_corrected_image"
+        return pdf_bytes, {"qc2": qc2_doc}
+
+    corrected_pdf = run_job._images_to_pdf(images_b64)
+    if not corrected_pdf:
+        qc2_doc["error"] = "rebuild_pdf_failed"
+        return pdf_bytes, {"qc2": qc2_doc}
+
+    return corrected_pdf, {"qc2": qc2_doc}
+
+
 async def _classify_meta_of(mongo: AsyncMongo, config_id: str | None) -> tuple[str, str]:
     """`(ward_code, dest_bucket)` cần cho `raw_record_from_cut` khi "làm mịn dữ
     liệu": `ward_code` = `qc_sync_configs.name` (kênh QC Sync đặt tên trùng mã
@@ -359,11 +402,14 @@ async def _finish_item(mongo: AsyncMongo, item_id: str, status: str, *, qc: dict
 
 
 async def process_qc_item(mongo: AsyncMongo, item: dict) -> str:
-    """Tải PDF nguồn → QC (qc_client) → nếu đạt (pass/warn): OCR + crop, TÁI
-    DÙNG NGUYÊN `run_job._pipeline`/`_build_cuts` (hàm thuần, không phụ thuộc
-    doc `gcn`) — đích cắt là `dest_purpose="qc"` (S3 đích RIÊNG của kênh này).
-    QC "fail" KHÔNG phải lỗi hệ thống — item vẫn `status="done"`, chỉ là
-    không đạt (dữ liệu QC đã lưu đủ để thống kê).
+    """Tải PDF nguồn → QC LẦN 1 (qc_client, trên PDF GỐC) → nếu đạt (pass/warn):
+    OCR + crop, TÁI DÙNG NGUYÊN `run_job._pipeline`/`_build_cuts` (hàm thuần,
+    không phụ thuộc doc `gcn`) — đích cắt là `dest_purpose="qc"` (S3 đích RIÊNG
+    của kênh này). MỖI bản cắt còn qua QC LẦN 2 (`_qc2_correct`, truyền vào
+    `_build_cuts` qua `correct_fn`) để lấy ảnh đã nắn phối cảnh/deskew — file
+    lưu S3 đích là bản ĐÃ NẮN (fallback về bản thô nếu QC-2 lỗi/không nắn
+    được, xem `_qc2_correct`). QC "fail" (lần 1) KHÔNG phải lỗi hệ thống — item
+    vẫn `status="done"`, chỉ là không đạt (dữ liệu QC đã lưu đủ để thống kê).
 
     RESUMABLE theo yêu cầu thực tế (lỗi mạng/QC không nên bắt quét QC lại từ
     đầu cho file ĐÃ CÓ verdict): nếu `item["qc"]` đã có sẵn (do 1 lần chạy
@@ -440,7 +486,7 @@ async def process_qc_item(mongo: AsyncMongo, item: dict) -> str:
     try:
         cuts = await run_job._build_cuts(
             gcn_id=item_id, batch_id=config_id, images=images, records=records,
-            dest_purpose="qc", naming_fn=_qc_cut_naming(item),
+            dest_purpose="qc", naming_fn=_qc_cut_naming(item), correct_fn=_qc2_correct,
         )
         # "Làm mịn dữ liệu" (build Payload) + phân loại cấu trúc — TỰ ĐỘNG, miễn
         # phí (thuần Python, không gọi API nào) — port từ vpdd-don-ai, xem

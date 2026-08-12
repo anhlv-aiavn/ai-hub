@@ -287,6 +287,16 @@ Claim atomic (queued hoặc processing-treo quá `PROC_TTL`, giống nhánh `gcn
    nhau ghi CÙNG 1 đích và tình cờ ra cùng Số GCN + thư mục gốc + tên file sẽ ĐÈ lên nhau (đã giảm
    nhiều so với v1 đầu tiên nhờ thêm tên thư mục gốc, nhưng chưa loại bỏ hoàn toàn). Chấp nhận cho
    v1 theo đúng yêu cầu; nếu cần an toàn tuyệt đối, cân nhắc thêm hậu tố phân biệt theo kênh.
+6. **QC LẦN 2 (làm đẹp bản cắt)**: `_build_cuts` nhận thêm `correct_fn=qc_pipeline._qc2_correct` —
+   gọi NGAY TRƯỚC KHI ghi mỗi bản cắt lên S3 đích. `_qc2_correct` gửi LẠI chính PDF vừa cắt (đã chỉ
+   còn đúng trang của 1 GCN) qua `qc_client.check_pdf` lần 2, lấy field `image`/`pages[].image`
+   (ảnh đã nắn phối cảnh + deskew, base64 PNG — cùng định dạng `qc-scanner-server` docs) và GHÉP LẠI
+   thành PDF thay thế bản thô bằng `run_job._images_to_pdf`. Đây là bước RIÊNG, KHÔNG đụng tới QC
+   lần 1 (vẫn chấm PDF gốc để quyết định OCR — xem quyết định
+   [QC-1](features_issues.md#qc-decide-raw-ocr), không đổi) và KHÔNG dùng ảnh nắn cho OCR — chỉ áp
+   dụng cho FILE XUẤT RA cuối cùng. Lỗi/không nắn được (mã lỗi QC, hoặc số ảnh trả về không khớp số
+   trang gửi) → FALLBACK về bản cắt thô, verdict/lỗi QC-2 ghi vào `cuts[].qc2` để biết bản nào chưa
+   nắn được — KHÔNG chặn pipeline, KHÔNG mất file.
 
 ### 9d. Vận hành
 

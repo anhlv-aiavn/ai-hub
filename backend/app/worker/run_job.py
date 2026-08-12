@@ -208,7 +208,7 @@ def _entry_sph(rec: dict) -> str | None:
 
 
 async def _build_cuts(gcn_id: str, batch_id, images: list[str], records: list,
-                      dest_purpose: str = "gcn", naming_fn=None) -> list[dict]:
+                      dest_purpose: str = "gcn", naming_fn=None, correct_fn=None) -> list[dict]:
     """`dest_purpose` chọn ĐÍCH nào nhận file cắt (mặc định "gcn" — pipeline
     chính, không đổi hành vi cũ). Pipeline QC Sync (app/worker/qc_pipeline.py)
     gọi hàm này với `dest_purpose="qc"` để ghi vào S3 đích RIÊNG của nó, dùng
@@ -217,7 +217,13 @@ async def _build_cuts(gcn_id: str, batch_id, images: list[str], records: list,
 
     `naming_fn(ri, sph, stem) -> (s3_key, display_name)` — nếu truyền, GHI ĐÈ
     quy ước đặt khoá S3/tên hiển thị mặc định bên dưới (dùng cho QC Sync: KHÔNG
-    tạo thư mục con, tên file = tên GCN + tên file gốc + "_cropped")."""
+    tạo thư mục con, tên file = tên GCN + tên file gốc + "_cropped").
+
+    `correct_fn(pdf_bytes, ri) -> (pdf_bytes, extra)` — nếu truyền, gọi NGAY
+    TRƯỚC KHI ghi lên S3 đích để "làm đẹp" bản cắt (vd QC Sync dùng QC-2, xem
+    `qc_pipeline._qc2_correct`); `pdf_bytes` trả về THAY THẾ bản cắt gốc,
+    `extra` (dict hoặc None) được gộp thêm vào entry `cuts[]` tương ứng.
+    Mặc định None — hành vi pipeline GCN chính KHÔNG đổi."""
     cuts: list[dict] = []
     for ri, rec in enumerate(records):
         pages = rec.get("page_indices") if isinstance(rec, dict) else None
@@ -227,6 +233,9 @@ async def _build_cuts(gcn_id: str, batch_id, images: list[str], records: list,
         pdf_bytes = _images_to_pdf(group)
         if not pdf_bytes:
             continue
+        extra = None
+        if correct_fn:
+            pdf_bytes, extra = await correct_fn(pdf_bytes, ri)
         sph = _entry_sph(rec)
         # Tên tệp cắt chuẩn: "<Số phát hành>-GCN.pdf". Thiếu Số phát hành → kèm
         # index để khỏi trùng giữa các bản cắt cùng file.
@@ -236,10 +245,13 @@ async def _build_cuts(gcn_id: str, batch_id, images: list[str], records: list,
         else:
             ckey, name = f"{batch_id}/{gcn_id}/cut-{ri}.pdf", f"{stem}-GCN.pdf"
         await storage.put_pdf(ckey, pdf_bytes, purpose=dest_purpose)
-        cuts.append({
+        cut = {
             "index": ri, "s3_key": ckey, "page_indices": pages,
             "page_count": len(group), "so_phat_hanh": sph, "name": name,
-        })
+        }
+        if extra:
+            cut.update(extra)
+        cuts.append(cut)
     return cuts
 
 
