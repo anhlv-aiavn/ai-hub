@@ -257,17 +257,25 @@ function StatRow({ title, tiles, chartTitle, periods, seriesSpec }) {
 
 // ── Bảng "Theo Phường/Xã" — liệt kê MỌI kênh (kể cả kênh chưa có hoạt động
 // nào) + xem nhanh danh sách file/OCR/file cắt của từng kênh ngay tại chỗ. ──
-function WardTable({ range, refreshTick }) {
+function WardTable({ range, refreshTick, bgTick }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState("");
   const [sortBy, setSortBy] = useState("name");
 
-  useEffect(() => {
-    setLoading(true);
-    getQcSyncStatsByConfig(range).then((d) => setRows(d.rows || []))
-      .catch((e) => toastErr(e.message || e)).finally(() => setLoading(false));
-  }, [range, refreshTick]);
+  // silent=true (polling ngầm qua bgTick) không đụng `loading` — bảng vẫn
+  // hiện dữ liệu cũ nguyên vẹn cho tới khi có dữ liệu mới, không nhấp nháy
+  // "Đang tải…"/không toast lỗi.
+  async function load(silent) {
+    if (!silent) setLoading(true);
+    try {
+      const d = await getQcSyncStatsByConfig(range);
+      setRows(d.rows || []);
+    } catch (e) { if (!silent) toastErr(e.message || e); }
+    finally { if (!silent) setLoading(false); }
+  }
+  useEffect(() => { load(false); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [range, refreshTick]);
+  useEffect(() => { if (bgTick) load(true); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [bgTick]);
 
   const sorted = useMemo(() => {
     const arr = [...rows];
@@ -309,7 +317,7 @@ function WardTable({ range, refreshTick }) {
                   </button>
                 </span>
               </div>
-              {isOpen && <WardItemsPanel configId={r.config_id} refreshTick={refreshTick} />}
+              {isOpen && <WardItemsPanel configId={r.config_id} refreshTick={refreshTick} bgTick={bgTick} />}
             </React.Fragment>
           );
         })}
@@ -325,7 +333,7 @@ function WardTable({ range, refreshTick }) {
 // thao tác đó nằm ở trang quản trị "QC Sync" admin-only).
 const WARD_ITEMS_PAGE_SIZE = 15;
 
-function WardItemsPanel({ configId, refreshTick }) {
+function WardItemsPanel({ configId, refreshTick, bgTick }) {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -336,28 +344,42 @@ function WardItemsPanel({ configId, refreshTick }) {
 
   useEffect(() => { setPage(1); }, [statusFilter, verdictFilter]);
 
+  // silent=true (polling ngầm qua bgTick) không đụng `loading` — panel giữ
+  // NGUYÊN bảng đang xem (không đè "Đang tải…" lên nội dung, không toast lỗi)
+  // cho tới khi có dữ liệu mới, đúng ý "chạy ngầm, không ảnh hưởng trải
+  // nghiệm" (khác refreshTick — đổi filter/bấm Làm mới vẫn cần thấy loading).
+  async function load(silent) {
+    if (!silent) setLoading(true);
+    try {
+      // processedOnly + sortBy "finished_at": mặc định panel này chỉ XEM kết
+      // quả đã xử lý xong (đúng ý "Theo Phường/Xã") — khác bảng admin "File gần
+      // đây" (QcSync.jsx) vốn mặc định thấy CẢ hàng chờ để debug tiến độ. Chọn
+      // trạng thái "Đang chờ"/"Đang xử lý" ở bộ lọc dưới đây vẫn xem được (status
+      // tường minh thắng processedOnly, xem routes/qc_sync.py::list_items). Sort
+      // mặc định trước đây là created_at → luôn nổi lên file MỚI NHẤT ĐƯỢC LIỆT
+      // KÊ, mà file mới liệt kê thường còn "queued" (chưa tới lượt xử lý) — đúng
+      // bug thực tế "toàn ra file queued".
+      const d = await getQcSyncItems({
+        configId, processedOnly: true, sortBy: "finished_at",
+        status: statusFilter || undefined, verdict: verdictFilter || undefined,
+        page, pageSize: WARD_ITEMS_PAGE_SIZE,
+      });
+      setItems(d.items || []); setTotal(d.total || 0);
+    } catch { if (!silent) { setItems([]); setTotal(0); } }
+    finally { if (!silent) setLoading(false); }
+  }
+  // refreshTick: panel này mở ra thường ĐỂ LÂU theo dõi tiến độ — thiếu
+  // refreshTick trước đây khiến bảng tổng "Theo Phường/Xã" tự làm mới nhưng
+  // danh sách file MỞ RỘNG bên trong đứng yên, phải tự đóng/mở lại panel mới
+  // thấy dữ liệu mới.
   useEffect(() => {
-    setLoading(true);
-    // processedOnly + sortBy "finished_at": mặc định panel này chỉ XEM kết
-    // quả đã xử lý xong (đúng ý "Theo Phường/Xã") — khác bảng admin "File gần
-    // đây" (QcSync.jsx) vốn mặc định thấy CẢ hàng chờ để debug tiến độ. Chọn
-    // trạng thái "Đang chờ"/"Đang xử lý" ở bộ lọc dưới đây vẫn xem được (status
-    // tường minh thắng processedOnly, xem routes/qc_sync.py::list_items). Sort
-    // mặc định trước đây là created_at → luôn nổi lên file MỚI NHẤT ĐƯỢC LIỆT
-    // KÊ, mà file mới liệt kê thường còn "queued" (chưa tới lượt xử lý) — đúng
-    // bug thực tế "toàn ra file queued".
-    getQcSyncItems({
-      configId, processedOnly: true, sortBy: "finished_at",
-      status: statusFilter || undefined, verdict: verdictFilter || undefined,
-      page, pageSize: WARD_ITEMS_PAGE_SIZE,
-    })
-      .then((d) => { setItems(d.items || []); setTotal(d.total || 0); })
-      .catch(() => { setItems([]); setTotal(0); }).finally(() => setLoading(false));
-    // refreshTick: panel này mở ra thường ĐỂ LÂU theo dõi tiến độ (giống lý do
-    // polling 30s ở component cha) — thiếu refreshTick trước đây khiến bảng
-    // tổng "Theo Phường/Xã" tự làm mới nhưng danh sách file MỞ RỘNG bên trong
-    // đứng yên, phải tự đóng/mở lại panel mới thấy dữ liệu mới.
+    load(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [configId, statusFilter, verdictFilter, page, refreshTick]);
+  useEffect(() => {
+    if (bgTick) load(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bgTick]);
 
   return (
     <div className="qc-ward-detail">
@@ -424,33 +446,43 @@ export default function QcSyncStats() {
   const [series, setSeries] = useState([]);
   const [totalCounts, setTotalCounts] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [refreshTick, setRefreshTick] = useState(0); // bump (nút "Làm mới" HOẶC polling) → gọi lại API ngay
+  const [refreshTick, setRefreshTick] = useState(0); // bump = nút "Làm mới" (hoặc đổi filter) → hiện loading bình thường
+  const [bgTick, setBgTick] = useState(0); // bump = polling NGẦM 5 phút → gọi lại API NHƯNG không hiện loading/spin ở đâu cả
 
   useEffect(() => {
     getQcSyncConfigs().then((d) => setConfigs(d.configs || [])).catch(() => {});
-  }, [refreshTick]);
+  }, [refreshTick, bgTick]);
 
-  // Tự động làm mới mỗi 30s — trang "Tổng quan" thường mở lâu (theo dõi vận
-  // hành), số liệu cũ dần nếu không có cơ chế polling, phải tự bấm "Làm mới".
+  // Tự động làm mới mỗi 5 phút — trang "Tổng quan" thường mở lâu (theo dõi vận
+  // hành), số liệu cũ dần nếu không có cơ chế polling. Dùng `bgTick` RIÊNG
+  // (không dùng chung `refreshTick`) để phân biệt "polling ngầm" (không hiện
+  // loading, không disable nút "Làm mới") với "người dùng chủ động" (bấm Làm
+  // mới hoặc đổi filter/range/kênh — vẫn cần thấy phản hồi loading như cũ).
   useEffect(() => {
-    const id = setInterval(() => setRefreshTick((t) => t + 1), 30_000);
+    const id = setInterval(() => setBgTick((t) => t + 1), 5 * 60_000);
     return () => clearInterval(id);
   }, []);
 
   const rangeDef = RANGES.find(([k]) => k === range);
 
-  useEffect(() => {
-    setLoading(true);
-    getQcSyncStats({ configId: configId || undefined, range })
-      .then((d) => setTotalCounts(d.counts || {}))
-      .catch((e) => toastErr(e.message || e));
-    if (range === "all") { setSeries([]); setLoading(false); return; }
-    getQcSyncStatsSeries({ configId: configId || undefined, days: rangeDef[2] })
-      .then((d) => setSeries(d.series || []))
-      .catch((e) => toastErr(e.message || e))
-      .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [configId, range, refreshTick]);
+  // `silent=true` (gọi từ bgTick) KHÔNG đụng `loading` (giữ UI y nguyên, kể cả
+  // khi lỗi — không toast làm phiền cho 1 lượt polling ngầm) — CHỈ cập nhật số
+  // liệu lặng lẽ khi có kết quả mới.
+  async function loadStats(silent) {
+    if (!silent) setLoading(true);
+    try {
+      const d = await getQcSyncStats({ configId: configId || undefined, range });
+      setTotalCounts(d.counts || {});
+    } catch (e) { if (!silent) toastErr(e.message || e); }
+    if (range === "all") { setSeries([]); if (!silent) setLoading(false); return; }
+    try {
+      const d2 = await getQcSyncStatsSeries({ configId: configId || undefined, days: rangeDef[2] });
+      setSeries(d2.series || []);
+    } catch (e) { if (!silent) toastErr(e.message || e); }
+    finally { if (!silent) setLoading(false); }
+  }
+  useEffect(() => { loadStats(false); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [configId, range, refreshTick]);
+  useEffect(() => { if (bgTick) loadStats(true); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [bgTick]);
 
   const periods = useMemo(() => {
     if (range === "all") return [];
@@ -504,7 +536,7 @@ export default function QcSyncStats() {
       })()}
       {loading && <div className="muted small" style={{ padding: "6px 2px" }}>Đang tải…</div>}
 
-      {!configId && <WardTable range={range} refreshTick={refreshTick} />}
+      {!configId && <WardTable range={range} refreshTick={refreshTick} bgTick={bgTick} />}
     </div>
   );
 }
