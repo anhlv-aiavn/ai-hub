@@ -274,21 +274,26 @@ def _safe_key_part(s: str) -> str:
     return out or "gcn"
 
 
-def _qc_cut_naming(item: dict):
+def _qc_cut_naming(item: dict, channel_folder: str):
     """Quy ước đặt tên RIÊNG cho QC Sync (khác pipeline GCN chính, xem
-    `_build_cuts.naming_fn`): KHÔNG tạo thư mục con — ghi PHẲNG ngay tại bucket
-    đích; tên file = "<Số GCN đã OCR>_<tên thư mục gốc>_<tên file gốc>.pdf".
-    "Số GCN" = Số phát hành (nếu đọc được) — thiếu thì dùng `stem` (`_build_cuts`
-    đã tự fallback về `{item_id}-{ri+1}`). "tên thư mục gốc" = thư mục CHA
-    trực tiếp của file trên kho nguồn — giữ lại làm 1 phần tên (dù ghi phẳng,
-    không tạo thư mục con ở đích) để còn phân biệt được nguồn gốc + giảm khả
-    năng đè khi 2 thư mục khác nhau tình cờ có file trùng tên (xem
-    features_issues.md#qc-flat-naming-collision)."""
+    `_build_cuts.naming_fn`): ghi vào THƯ MỤC RIÊNG theo KÊNH đồng bộ
+    (`channel_folder/`, xem lời gọi ở `process_qc_item` — lấy TRƯỚC khi cắt để
+    có sẵn folder ngay từ `s3_key` đầu tiên, không phải rename sau); trong thư
+    mục đó tên file PHẲNG = "<Số GCN đã OCR>_<tên thư mục gốc>_<tên file
+    gốc>.pdf". "Số GCN" = Số phát hành (nếu đọc được) — thiếu thì dùng `stem`
+    (`_build_cuts` đã tự fallback về `{item_id}-{ri+1}`). "tên thư mục gốc" =
+    thư mục CHA trực tiếp của file trên kho nguồn — giữ lại làm 1 phần tên để
+    còn phân biệt được nguồn gốc + giảm khả năng đè khi 2 thư mục khác nhau
+    tình cờ có file trùng tên; tách theo `channel_folder` GIẢM HẲN rủi ro đè
+    giữa 2 KÊNH khác nhau so với trước (xem
+    features_issues.md#qc-flat-naming-collision — vẫn còn rủi ro đè trong
+    CÙNG 1 kênh nếu 2 lần quét ra trùng cả Số GCN/thư mục gốc/tên file)."""
     parts = item["s3_key"].split("/")
     src_name = parts[-1]
     src_stem = src_name[:-4] if src_name.lower().endswith(".pdf") else src_name
     src_stem = _safe_key_part(src_stem)
     folder_name = _safe_key_part(parts[-2]) if len(parts) >= 2 else ""
+    channel = _safe_key_part(channel_folder) if channel_folder else "khac"
 
     def _fn(ri: int, sph: str | None, stem: str) -> tuple[str, str]:
         gcn_name = _safe_key_part(sph or stem)
@@ -297,7 +302,7 @@ def _qc_cut_naming(item: dict):
         if ri:  # >=2 GCN trong cùng 1 file gốc — hậu tố index để khỏi đè nhau
             base = f"{base}_{ri + 1}"
         fname = f"{base}.pdf"
-        return fname, fname
+        return f"{channel}/{fname}", fname
 
     return _fn
 
@@ -494,15 +499,20 @@ async def process_qc_item(mongo: AsyncMongo, item: dict) -> str:
     # không riêng Số phát hành đã tách ra field `cuts[].so_phat_hanh`.
     ocr_doc = {"records_count": len(records), "records": records, "cuts": []}
     try:
+        # Lấy ward_code TRƯỚC khi cắt — vừa dùng làm THƯ MỤC ĐÍCH theo kênh
+        # (_qc_cut_naming), vừa dùng cho "làm mịn dữ liệu" bên dưới (1 query,
+        # không tách rời như trước — trước đây chỉ gọi SAU _build_cuts vì lúc
+        # đó chưa cần cho naming_fn).
+        ward_code, dest_bucket = await _classify_meta_of(mongo, config_id)
         cuts = await run_job._build_cuts(
             gcn_id=item_id, batch_id=config_id, images=images, records=records,
-            dest_purpose="qc", naming_fn=_qc_cut_naming(item), correct_fn=_qc2_correct,
+            dest_purpose="qc", naming_fn=_qc_cut_naming(item, ward_code or config_id),
+            correct_fn=_qc2_correct,
         )
         # "Làm mịn dữ liệu" (build Payload) + phân loại cấu trúc — TỰ ĐỘNG, miễn
         # phí (thuần Python, không gọi API nào) — port từ vpdd-don-ai, xem
         # docs/algorithm.md §10. Người dùng có thể chạy lại thủ công sau qua
         # POST /items/{id}/cuts/{i}/reclassify (routes/qc_sync.py).
-        ward_code, dest_bucket = await _classify_meta_of(mongo, config_id)
         _classify_cuts(records, cuts, ward_code=ward_code, dest_bucket=dest_bucket, item_id=item_id)
         ocr_doc["cuts"] = cuts
     except DestinationNotConfigured as e:

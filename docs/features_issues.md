@@ -221,15 +221,16 @@ nhận đủ dư GPU cho cả 2 pipeline (đo bằng `bench_pipeline`/`watch --t
 Chưa có ưu tiên/isolation giữa 2 pipeline ở tầng vLLM — nếu cần, cân nhắc endpoint vLLM riêng cho
 QC Sync hoặc hàng đợi có ưu tiên (P2, chưa làm).
 
-### ⚠️ QC-2 · P2 · 🟡 · File cắt QC Sync ghi PHẲNG, tên suy từ nội dung → có thể đè nhau {#qc-flat-naming-collision}
+### ⚠️ QC-2 · P2 · 🟡 · File cắt QC Sync tên suy từ nội dung → có thể đè nhau TRONG CÙNG 1 kênh {#qc-flat-naming-collision}
 
-Theo yêu cầu: file cắt của QC Sync ghi thẳng vào bucket đích (KHÔNG thư mục con
-`{config_id}/{item_id}/...` như trước), tên = `{Số GCN}_{tên thư mục gốc}_{tên file gốc}.pdf`
-(`app/worker/qc_pipeline.py#_qc_cut_naming`, `run_job._build_cuts(naming_fn=...)`) — có kèm tên thư
-mục gốc (đợt sửa sau) để giảm bớt khả năng trùng so với bản đầu chỉ có Số GCN + tên file. Nếu 2
-kênh đồng bộ khác nhau dùng CHUNG 1 đích và tình cờ ra cùng Số GCN + cùng tên thư mục gốc + cùng tên
-file → file sau ĐÈ file trước, không cảnh báo. Chấp nhận cho v1 theo đúng yêu cầu (mỗi kênh nên dùng
-1 đích riêng để né rủi ro này); chưa có cơ chế phát hiện/ngăn trùng.
+**Cập nhật**: file cắt của QC Sync giờ ghi vào THƯ MỤC RIÊNG theo kênh (`{ward_code}/...`, fallback
+`{config_id}/...` nếu kênh chưa có `ward_code` — xem `app/worker/qc_pipeline.py#_qc_cut_naming`,
+`process_qc_item`), KHÔNG còn ghi phẳng chung 1 đích như trước — đã loại bỏ rủi ro đè giữa 2 KÊNH
+khác nhau dùng chung 1 bucket đích. Trong thư mục 1 kênh, tên file vẫn PHẲNG (không thư mục con nữa
+cấp) = `{Số GCN}_{tên thư mục gốc}_{tên file gốc}.pdf` (`run_job._build_cuts(naming_fn=...)`) — có
+kèm tên thư mục gốc để giảm bớt khả năng trùng so với bản đầu chỉ có Số GCN + tên file. Nếu CÙNG 1
+kênh quét ra 2 lần tình cờ cùng Số GCN + cùng tên thư mục gốc + cùng tên file → file sau ĐÈ file
+trước, không cảnh báo. Chấp nhận cho v1; chưa có cơ chế phát hiện/ngăn trùng trong cùng kênh.
 
 ### ⚠️ QC-3 · P2 · 🟡 · Phân loại (F-17) không gộp "attempts" khi 1 GCN được quét lại nhiều lần {#qc-classify-no-attempts}
 

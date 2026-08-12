@@ -273,20 +273,21 @@ Claim atomic (queued hoặc processing-treo quá `PROC_TTL`, giống nhánh `gcn
    `gcn.extractions`). `records` rỗng → `no_gcn`.
 5. `records` có dữ liệu → lưu NGUYÊN VẸN vào `qc_items.ocr.records` (không chỉ đếm số lượng — cần
    tra cứu lại toàn bộ thông tin đã trích xuất: chủ sử dụng, thửa đất...), rồi
-   `run_job._build_cuts(gcn_id=item_id, batch_id=config_id, ..., dest_purpose="qc",
-   naming_fn=_qc_cut_naming(item))` — TÁI DÙNG nguyên hàm cắt/gộp trang GCN của pipeline chính, chỉ
-   đổi `dest_purpose` để ghi vào MinIO đích RIÊNG (`storage._get_dest_client(purpose="qc")`), và đổi
-   `naming_fn` để KHÔNG tạo thư mục con — ghi PHẲNG ngay tại bucket đích với tên
-   `{Số GCN}_{tên thư mục gốc}_{tên file gốc}.pdf` ("Số GCN" = Số phát hành nếu đọc được (thiếu thì
-   dùng id tạm), "tên thư mục gốc" = thư mục CHA trực tiếp của file trên kho nguồn — giữ lại làm 1
-   phần tên dù ghi phẳng, để phân biệt nguồn gốc + giảm khả năng đè khi 2 thư mục khác nhau tình cờ
-   trùng tên file). Đổi tên/vị trí lưu là QUYẾT ĐỊNH RIÊNG của QC Sync —
-   `_build_cuts` mặc định (`naming_fn=None`, pipeline GCN chính) giữ nguyên khoá cũ
-   `{batch_id}/{gcn_id}/cut-{ri}.pdf`, không đổi hành vi.
-   **Rủi ro đã biết**: đặt phẳng + tên suy từ nội dung (không theo batch/id) → 2 kênh đồng bộ khác
-   nhau ghi CÙNG 1 đích và tình cờ ra cùng Số GCN + thư mục gốc + tên file sẽ ĐÈ lên nhau (đã giảm
-   nhiều so với v1 đầu tiên nhờ thêm tên thư mục gốc, nhưng chưa loại bỏ hoàn toàn). Chấp nhận cho
-   v1 theo đúng yêu cầu; nếu cần an toàn tuyệt đối, cân nhắc thêm hậu tố phân biệt theo kênh.
+   `_classify_meta_of(mongo, config_id)` lấy TRƯỚC `ward_code` (= `qc_sync_configs.name`, mã
+   Phường/Xã của kênh), rồi `run_job._build_cuts(gcn_id=item_id, batch_id=config_id, ...,
+   dest_purpose="qc", naming_fn=_qc_cut_naming(item, ward_code or config_id))` — TÁI DÙNG nguyên hàm
+   cắt/gộp trang GCN của pipeline chính, chỉ đổi `dest_purpose` để ghi vào MinIO đích RIÊNG
+   (`storage._get_dest_client(purpose="qc")`), và đổi `naming_fn` để ghi vào THƯ MỤC RIÊNG THEO KÊNH
+   (`{ward_code}/`, fallback `config_id` nếu kênh chưa có `ward_code`) — trong thư mục đó tên file
+   PHẲNG `{Số GCN}_{tên thư mục gốc}_{tên file gốc}.pdf` ("Số GCN" = Số phát hành nếu đọc được (thiếu
+   thì dùng id tạm), "tên thư mục gốc" = thư mục CHA trực tiếp của file trên kho nguồn — giữ lại làm 1
+   phần tên để phân biệt nguồn gốc + giảm khả năng đè khi 2 thư mục khác nhau tình cờ trùng tên file).
+   Đổi tên/vị trí lưu là QUYẾT ĐỊNH RIÊNG của QC Sync — `_build_cuts` mặc định (`naming_fn=None`,
+   pipeline GCN chính) giữ nguyên khoá cũ `{batch_id}/{gcn_id}/cut-{ri}.pdf`, không đổi hành vi.
+   **Rủi ro đã biết**: tách thư mục theo KÊNH đã loại bỏ rủi ro đè giữa 2 kênh khác nhau (trước đây
+   ghi phẳng chung 1 đích) — vẫn còn rủi ro đè trong CÙNG 1 kênh nếu tên suy từ nội dung (Số GCN +
+   thư mục gốc + tên file) trùng nhau giữa 2 lần quét (xem
+   [QC-2](features_issues.md#qc-flat-naming-collision)).
 6. **QC LẦN 2 (làm đẹp bản cắt)**: `_build_cuts` nhận thêm `correct_fn=qc_pipeline._qc2_correct` —
    gọi NGAY TRƯỚC KHI ghi mỗi bản cắt lên S3 đích. `_qc2_correct` gửi LẠI chính PDF vừa cắt (đã chỉ
    còn đúng trang của 1 GCN) qua `qc_client.check_pdf` lần 2, lấy field `image`/`pages[].image`
