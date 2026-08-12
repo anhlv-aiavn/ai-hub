@@ -23,10 +23,10 @@ const FALLBACK_BRANDING = {
 };
 
 const TABS = [
-  ["create", "Số hóa", "operator"],
-  ["table", "Kết quả trích xuất", "viewer"],
+  // "create"/"table"/"manage" ẩn khỏi nav theo yêu cầu — component + route
+  // tab vẫn còn nguyên (xem `tab === "create"|"table"|"manage"` bên dưới),
+  // chỉ không có nút bấm vào nữa.
   ["export", "Tổng quan", "viewer"],
-  ["manage", "Quản lý lô", "admin"],
   ["qcsync", "QC Sync", "admin"],
   ["qcclass", "Phân loại", "admin"],
   ["audit", "Audit log", "admin"],

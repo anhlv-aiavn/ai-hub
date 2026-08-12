@@ -297,16 +297,6 @@ export default function ExportView({ user }) {
         </div>
       </div>
 
-      <div className="seg-row">
-        <SegBar title="Trạng thái xử lý" segs={STATUS_SEGS} data={st} pendingKeys={["queued", "processing"]} />
-        <SegBar title="Hậu kiểm" segs={REVIEW_SEGS} data={s.by_review || {}} />
-      </div>
-
-      {canViewReviewerTable && (
-        <ReviewerTable rows={s.by_reviewer || []} days={reviewerDays} onDaysChange={setReviewerDays}
-          rangeFrom={reviewerFrom} rangeTo={reviewerTo} onRangeChange={onReviewerRangeChange} />
-      )}
-
       <QcSyncStats />
 
       <div className="export-sec">
