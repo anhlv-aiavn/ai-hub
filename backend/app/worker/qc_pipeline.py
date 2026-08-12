@@ -323,26 +323,36 @@ async def _qc2_correct(pdf_bytes: bytes, ri: int) -> tuple[bytes, dict | None]:
     XUẤT RA đẹp hơn bản render thô). Lỗi/không nắn được ở BẤT KỲ bước nào →
     FALLBACK về `pdf_bytes` gốc (không chặn pipeline, chỉ là bản cắt không có
     hiệu ứng nắn) — ghi lại verdict/lỗi vào `extra["qc2"]` để biết cut nào
-    chưa nắn được."""
+    chưa nắn được. HÀM NÀY KHÔNG ĐƯỢC RAISE — `_build_cuts` gọi trong vòng lặp
+    NHIỀU cut của 1 item, 1 exception lọt ra sẽ làm hỏng CẢ item (toàn bộ
+    `cuts[]` còn lại bị bỏ qua, `process_qc_item` nuốt lỗi ở tầng ngoài và
+    đánh dấu `status="done"` nhưng KHÔNG có file cắt nào — bug đã gặp thực
+    tế khi chỉ bắt `qc_client.QCError`, bỏ sót lỗi bất ngờ như JSON hỏng/
+    response sai hợp đồng). Vì vậy bọc try/except Exception RỘNG ở CẢ 2 nửa
+    hàm (gọi QC-2, và xử lý ảnh trả về)."""
     try:
         qc2 = await qc_client.check_pdf(pdf_bytes, filename=f"cut-{ri}.pdf")
-    except qc_client.QCError as e:
+    except Exception as e:  # noqa: BLE001 — bao gồm cả QCError lẫn lỗi bất ngờ, xem docstring
         log.warning("qc_item cut %s: QC-2 lỗi, giữ bản cắt gốc: %s", ri, e)
         return pdf_bytes, {"qc2": {"verdict": None, "error": str(e)}}
 
-    qc2_doc = {"verdict": qc2.verdict, "reasons": qc2.reasons}
-    images_b64 = _extract_corrected_images(qc2.raw)
-    expected = qc2.page_count or 1
-    if not images_b64 or len(images_b64) != expected:
-        qc2_doc["error"] = "missing_corrected_image"
-        return pdf_bytes, {"qc2": qc2_doc}
+    try:
+        qc2_doc = {"verdict": qc2.verdict, "reasons": qc2.reasons}
+        images_b64 = _extract_corrected_images(qc2.raw)
+        expected = qc2.page_count or 1
+        if not images_b64 or len(images_b64) != expected:
+            qc2_doc["error"] = "missing_corrected_image"
+            return pdf_bytes, {"qc2": qc2_doc}
 
-    corrected_pdf = run_job._images_to_pdf(images_b64)
-    if not corrected_pdf:
-        qc2_doc["error"] = "rebuild_pdf_failed"
-        return pdf_bytes, {"qc2": qc2_doc}
+        corrected_pdf = run_job._images_to_pdf(images_b64)
+        if not corrected_pdf:
+            qc2_doc["error"] = "rebuild_pdf_failed"
+            return pdf_bytes, {"qc2": qc2_doc}
 
-    return corrected_pdf, {"qc2": qc2_doc}
+        return corrected_pdf, {"qc2": qc2_doc}
+    except Exception as e:  # noqa: BLE001 — response sai hợp đồng dự kiến (thiếu field, sai kiểu...)
+        log.warning("qc_item cut %s: QC-2 xử lý ảnh lỗi, giữ bản cắt gốc: %s", ri, e)
+        return pdf_bytes, {"qc2": {"verdict": qc2.verdict, "error": str(e)}}
 
 
 async def _classify_meta_of(mongo: AsyncMongo, config_id: str | None) -> tuple[str, str]:

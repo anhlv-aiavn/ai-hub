@@ -235,7 +235,14 @@ async def _build_cuts(gcn_id: str, batch_id, images: list[str], records: list,
             continue
         extra = None
         if correct_fn:
-            pdf_bytes, extra = await correct_fn(pdf_bytes, ri)
+            try:
+                pdf_bytes, extra = await correct_fn(pdf_bytes, ri)
+            except Exception as e:  # noqa: BLE001 — 1 cut lỗi correct_fn KHÔNG được xoá cả
+                # cuts còn lại của item (đã từng gặp thật với QC Sync — xem
+                # qc_pipeline._qc2_correct); giữ bản cắt gốc, bỏ qua extra.
+                log.warning("_build_cuts %s cut %s: correct_fn lỗi, giữ bản cắt gốc: %s",
+                           gcn_id, ri, e)
+                extra = None
         sph = _entry_sph(rec)
         # Tên tệp cắt chuẩn: "<Số phát hành>-GCN.pdf". Thiếu Số phát hành → kèm
         # index để khỏi trùng giữa các bản cắt cùng file.
