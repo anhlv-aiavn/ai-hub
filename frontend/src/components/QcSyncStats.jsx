@@ -309,7 +309,7 @@ function WardTable({ range, refreshTick }) {
                   </button>
                 </span>
               </div>
-              {isOpen && <WardItemsPanel configId={r.config_id} />}
+              {isOpen && <WardItemsPanel configId={r.config_id} refreshTick={refreshTick} />}
             </React.Fragment>
           );
         })}
@@ -325,7 +325,7 @@ function WardTable({ range, refreshTick }) {
 // thao tác đó nằm ở trang quản trị "QC Sync" admin-only).
 const WARD_ITEMS_PAGE_SIZE = 15;
 
-function WardItemsPanel({ configId }) {
+function WardItemsPanel({ configId, refreshTick }) {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -353,7 +353,11 @@ function WardItemsPanel({ configId }) {
     })
       .then((d) => { setItems(d.items || []); setTotal(d.total || 0); })
       .catch(() => { setItems([]); setTotal(0); }).finally(() => setLoading(false));
-  }, [configId, statusFilter, verdictFilter, page]);
+    // refreshTick: panel này mở ra thường ĐỂ LÂU theo dõi tiến độ (giống lý do
+    // polling 30s ở component cha) — thiếu refreshTick trước đây khiến bảng
+    // tổng "Theo Phường/Xã" tự làm mới nhưng danh sách file MỞ RỘNG bên trong
+    // đứng yên, phải tự đóng/mở lại panel mới thấy dữ liệu mới.
+  }, [configId, statusFilter, verdictFilter, page, refreshTick]);
 
   return (
     <div className="qc-ward-detail">
@@ -379,7 +383,7 @@ function WardItemsPanel({ configId }) {
               <a className="fr-name" href={qcSyncSourcePdfUrl(it.id)} target="_blank" rel="noopener noreferrer"
                 title={`Xem PDF nguồn: ${it.s3_key}`}>{it.s3_key}</a>
               <span className="fr-meta">
-                <VerdictBadge verdict={it.qc?.verdict} reasons={it.qc?.reasons} />
+                <VerdictBadge verdict={it.qc?.verdict} reasons={it.qc?.reasons} pages={it.qc?.pages} />
               </span>
               <span className="fr-meta">{it.status}</span>
               <span className="qc-cuts-cell">

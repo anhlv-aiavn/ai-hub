@@ -35,6 +35,16 @@ export function reasonLabel(reason) {
   return REASON_VI[reason?.code] || reason?.message || reason?.code || "Không rõ lý do";
 }
 
+// Màu theo SEVERITY của từng lý do (khác màu verdict tổng — 1 lý do "warn" có
+// thể nằm trong trang "fail" nếu trang đó còn lý do khác nặng hơn) — API trả
+// severity "fail"/"warn" (đôi khi "error", coi cùng nhóm "fail" cho chắc).
+function reasonSeverityClass(reason) {
+  const sev = reason?.severity;
+  if (sev === "fail" || sev === "error") return "dot-err";
+  if (sev === "warn") return "dot-warn";
+  return "dot-unknown";
+}
+
 // Badge verdict (chấm màu + nhãn) — hover HOẶC bấm vào sẽ hiện popover liệt
 // kê từng lý do QC: mã gốc + tên tiếng Việt (+ gợi ý nếu API có trả `hint`).
 // Bấm để "ghim" mở (đóng khi bấm ra ngoài/Esc) — hữu ích khi cần đọc lâu hoặc
@@ -44,13 +54,18 @@ export function reasonLabel(reason) {
 // tính bằng getBoundingClientRect) — KHÔNG lồng trong DOM của badge, vì badge
 // nằm trong bảng `.tbl-dense` có `overflow:hidden` (bo góc); nếu định vị
 // tương đối bình thường, popover ở gần đáy/mép bảng sẽ bị CẮT MẤT.
-export function VerdictBadge({ verdict, reasons }) {
+export function VerdictBadge({ verdict, reasons, pages }) {
   const [pinned, setPinned] = useState(false);
   const [hovering, setHovering] = useState(false);
   const [pos, setPos] = useState(null);
   const ref = useRef(null);
   const list = reasons || [];
-  const open = (pinned || hovering) && list.length > 0;
+  // Breakdown theo TRANG chỉ đáng hiện khi có >1 trang (PDF nhiều trang) VÀ
+  // chỉ trang KHÔNG "pass" mới cần liệt kê (trang đạt không có gì để xem).
+  const badPages = (pages || []).length > 1
+    ? (pages || []).filter((p) => p.verdict && p.verdict !== "pass") : [];
+  const hasContent = list.length > 0 || badPages.length > 0;
+  const open = (pinned || hovering) && hasContent;
 
   function updatePos() {
     const r = ref.current?.getBoundingClientRect();
@@ -74,17 +89,29 @@ export function VerdictBadge({ verdict, reasons }) {
   return (
     <span className="qc-verdict" ref={ref}
       onMouseEnter={() => { setHovering(true); updatePos(); }} onMouseLeave={() => setHovering(false)}>
-      <button type="button" className="qc-verdict-trigger" disabled={!list.length}
-        aria-haspopup={list.length ? "true" : undefined} aria-expanded={open}
-        onClick={() => { if (!list.length) return; updatePos(); setPinned((v) => !v); }}>
+      <button type="button" className="qc-verdict-trigger" disabled={!hasContent}
+        aria-haspopup={hasContent ? "true" : undefined} aria-expanded={open}
+        onClick={() => { if (!hasContent) return; updatePos(); setPinned((v) => !v); }}>
         <span className={`dot ${VERDICT_CLASS[verdict] || "dot-unknown"}`} />
         {VERDICT_LABEL[verdict] || verdict}
       </button>
       {open && pos && createPortal(
         <div className="qc-verdict-pop" role="tooltip" style={{ left: pos.left, top: pos.top }}>
+          {badPages.length > 0 && (
+            <div className="qc-verdict-pages">
+              {badPages.map((p) => (
+                <span key={p.page} className="qc-verdict-page-chip">
+                  <span className={`dot ${VERDICT_CLASS[p.verdict] || "dot-unknown"}`} />
+                  Trang {p.page}: {VERDICT_LABEL[p.verdict] || p.verdict}
+                </span>
+              ))}
+            </div>
+          )}
           {list.map((r, i) => (
             <div className="qc-verdict-reason" key={i}>
-              <div><code>{r.code}</code> — {reasonLabel(r)}</div>
+              <div>
+                <span className={`dot ${reasonSeverityClass(r)}`} /> <code>{r.code}</code> — {reasonLabel(r)}
+              </div>
               {r.hint && <div className="muted small">{r.hint}</div>}
             </div>
           ))}

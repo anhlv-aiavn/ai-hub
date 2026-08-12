@@ -494,7 +494,7 @@ function QcSyncDetail({ configId, configName, onClose }) {
                 {it.attempts > 1 && ` (${it.attempts} lần)`}
               </span>
               <span className="fr-meta">
-                <VerdictBadge verdict={it.qc?.verdict} reasons={it.qc?.reasons} />
+                <VerdictBadge verdict={it.qc?.verdict} reasons={it.qc?.reasons} pages={it.qc?.pages} />
               </span>
               <span className="fr-meta qc-reason-cell"
                 title={isError

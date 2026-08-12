@@ -50,14 +50,21 @@ class QCUnavailable(QCError):
 
 
 class QCResult:
-    __slots__ = ("verdict", "reasons", "metrics", "page_count", "raw")
+    __slots__ = ("verdict", "reasons", "metrics", "page_count", "raw", "pages")
 
-    def __init__(self, verdict: str, reasons: list, metrics: dict, page_count: int, raw: dict):
+    def __init__(self, verdict: str, reasons: list, metrics: dict, page_count: int, raw: dict,
+                 pages: list | None = None):
         self.verdict = verdict
         self.reasons = reasons
         self.metrics = metrics
         self.page_count = page_count
         self.raw = raw
+        # `pages` = verdict/reasons TỪNG TRANG (khác `reasons` đã gộp-khử-trùng
+        # theo code ở trên, mất thông tin "trang nào" — FE cần cái này để hiện
+        # "trang X: lỗi/cảnh báo", xem qcSyncShared.VerdictBadge). PDF/ảnh 1
+        # trang không có `pages[]` thật từ server → tự dựng 1 phần tử duy nhất
+        # cho ĐỒNG NHẤT hình dạng dữ liệu ở tầng gọi (khỏi phải if/else 2 nơi).
+        self.pages = pages if pages is not None else [{"page": 1, "verdict": verdict, "reasons": reasons or []}]
 
 
 def _parse(body: dict) -> QCResult:
@@ -65,22 +72,28 @@ def _parse(body: dict) -> QCResult:
     trang/PDF 1 trang có `reasons` phẳng; PDF nhiều trang có `pages[]` và
     `verdict` TOP-LEVEL đã là verdict gộp (trang tệ nhất) — không cần tự suy
     lại. `reasons` gộp cho thống kê là hợp nhất theo `code` (không lặp) từ mọi
-    trang; chi tiết từng trang vẫn giữ nguyên trong `raw`."""
+    trang; `pages` (mới) giữ NGUYÊN chi tiết verdict/reasons từng trang cho FE
+    hiện "trang nào lỗi, trang nào cảnh báo" (xem QCResult.pages)."""
     verdict = body.get("verdict")
     reasons = body.get("reasons")
-    if reasons is None and "pages" in body:
+    pages_raw = body.get("pages")
+    if reasons is None and pages_raw:
         seen: set[str] = set()
         reasons = []
-        for p in body.get("pages") or []:
+        for p in pages_raw:
             for r in p.get("reasons") or []:
                 code = r.get("code")
                 if code and code not in seen:
                     seen.add(code)
                     reasons.append(r)
-    page_count = body.get("page_count") or len(body.get("pages") or []) or 1
+    page_count = body.get("page_count") or len(pages_raw or []) or 1
     metrics = body.get("metrics") or {}
+    pages = None
+    if pages_raw:
+        pages = [{"page": p.get("page"), "verdict": p.get("verdict"), "reasons": p.get("reasons") or []}
+                 for p in pages_raw]
     return QCResult(verdict=verdict, reasons=reasons or [], metrics=metrics,
-                     page_count=page_count, raw=body)
+                     page_count=page_count, raw=body, pages=pages)
 
 
 async def check_pdf(pdf_bytes: bytes, filename: str = "file.pdf") -> QCResult:
@@ -136,6 +149,7 @@ if __name__ == "__main__":
     }
     r1 = _parse(sample_single)
     assert r1.verdict == "warn" and r1.reasons[0]["code"] == "CLIPPED_EDGE" and r1.page_count == 1
+    assert r1.pages == [{"page": 1, "verdict": "warn", "reasons": r1.reasons}]
 
     sample_multi = {
         "source": "pdf", "verdict": "fail", "page_count": 3,
@@ -148,5 +162,6 @@ if __name__ == "__main__":
     r2 = _parse(sample_multi)
     assert r2.verdict == "fail" and r2.page_count == 3
     assert {x["code"] for x in r2.reasons} == {"BLURRY", "GLARE"}
+    assert [p["verdict"] for p in r2.pages] == ["pass", "fail", "warn"]
 
     print("qc_client PURE smoke: OK")

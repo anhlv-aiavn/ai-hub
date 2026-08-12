@@ -464,7 +464,8 @@ async def process_qc_item(mongo: AsyncMongo, item: dict) -> str:
             return "error"
         qc_doc = {
             "verdict": qc_res.verdict, "reasons": qc_res.reasons, "metrics": qc_res.metrics,
-            "page_count": qc_res.page_count, "checked_at": datetime.now(timezone.utc),
+            "page_count": qc_res.page_count, "pages": qc_res.pages,
+            "checked_at": datetime.now(timezone.utc),
         }
         await _bump_daily(mongo, config_id, scanned=1, **{qc_res.verdict: 1})
 
