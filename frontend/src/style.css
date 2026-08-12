@@ -1536,6 +1536,11 @@ label.file-row { width: 100%; }
    trình duyệt, giữ đúng kiểu chữ dense-table như trước, chỉ đổi màu khi hover. */
 a.fr-name { color: var(--text); text-decoration: none; cursor: pointer; }
 a.fr-name:hover { color: var(--brand); text-decoration: underline; }
+/* Số phát hành (QcClassification.jsx) giờ là nút COPY, không phải link mở
+   file — reset kiểu <button> mặc định, giữ đúng hình thức .fr-name cũ. */
+button.fr-name.qc-sph-copy { background: none; border: none; padding: 0; font: inherit;
+  color: var(--text); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+button.fr-name.qc-sph-copy:hover { color: var(--brand); }
 /* Cột "Lý do / lỗi" có thể dài (nhiều mã lý do QC nối bằng dấu phẩy, hoặc
    thông báo lỗi dài) — cắt bớt + "..." thay vì tràn ra ngoài ô, xem đầy đủ
    qua title (hover). */
@@ -1567,9 +1572,15 @@ a.fr-name:hover { color: var(--brand); text-decoration: underline; }
 .modal-card.qc-compare-modal .modal-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .qc-compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; height: 100%; min-height: 0; }
 .qc-compare-pane { display: flex; flex-direction: column; gap: 6px; min-height: 0; max-width: 100%; }
-.qc-compare-pane-head { font-size: 12px; font-weight: 600; color: var(--text-2); }
+.qc-compare-pane-head { font-size: 12px; font-weight: 600; color: var(--text-2);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .qc-compare-pane iframe { flex: 1; min-height: 0; width: 100%; max-width: 100%;
   border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+.qc-json-actions { display: flex; gap: 6px; font-weight: 400; }
+/* JSON bên phải modal "Kết quả" (QcClassification.jsx) — LẤP ĐẦY chiều cao
+   pane (khác .qc-json-view gốc dùng max-height:65vh cho modal 1 cột), khớp
+   chiều cao với iframe PDF bên trái trong cùng .qc-compare-grid. */
+.qc-json-view-pane { flex: 1; min-height: 0; max-height: none; }
 @media (max-width: 900px) {
   .modal-card.qc-compare-modal { inset: 8px; }
   .qc-compare-grid { grid-template-columns: 1fr; height: auto; }

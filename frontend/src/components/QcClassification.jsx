@@ -106,6 +106,13 @@ export default function QcClassification() {
     } catch (e) { toastErr(e.message || e); }
   }
 
+  function copySoPhatHanh(soPhatHanh) {
+    if (!soPhatHanh) return;
+    navigator.clipboard.writeText(soPhatHanh)
+      .then(() => toastOk("Đã copy Số phát hành"))
+      .catch(() => toastErr("Không copy được (trình duyệt chặn clipboard)"));
+  }
+
   function copyJson() {
     if (!jsonModal) return;
     navigator.clipboard.writeText(JSON.stringify(jsonModal.data, null, 2))
@@ -134,7 +141,8 @@ export default function QcClassification() {
       <p className="muted small" style={{ padding: "0 16px" }}>
         Sau khi OCR xong (pipeline "QC Sync"), hệ thống tự "làm mịn dữ liệu" (chuẩn hoá thành
         payload) và phân loại cấu trúc hồ sơ (số chủ/số thửa/đa mục đích/chung-riêng) — miễn phí,
-        không gọi API ngoài nào. Bấm "Xem JSON" để copy/tải payload đã chuẩn hoá. Các bản ghi đã xử
+        không gọi API ngoài nào. Bấm "Kết quả" để xem file đã cắt kèm payload JSON, copy/tải khi cần.
+        Bấm trực tiếp vào Số phát hành để copy. Các bản ghi đã xử
         lý TỪ TRƯỚC khi có tính năng này chưa có sẵn kết quả — bấm "Phân loại các bản ghi cũ" để
         chạy bù (chỉ tính toán lại, không chạy lại QC/OCR).
       </p>
@@ -167,13 +175,14 @@ export default function QcClassification() {
         {rows.map((r, idx) => {
           const cls = r.classification || {};
           const key = `${r.item_id}:${r.cut_index}`;
+          const soPhatHanh = r.so_phat_hanh || r.name || "";
           return (
             <div className="file-row qc-cls-row" key={key}>
               <span className="fr-meta">{(page - 1) * PAGE_SIZE + idx + 1}</span>
-              <a className="fr-name" href={qcSyncCutPdfUrl(r.item_id, r.cut_index)} target="_blank"
-                rel="noopener noreferrer" title={`Xem file đã cắt: ${r.name || ""}`}>
-                {r.so_phat_hanh || r.name || "—"}
-              </a>
+              <button type="button" className="fr-name qc-sph-copy" title="Bấm để copy Số phát hành"
+                onClick={() => copySoPhatHanh(soPhatHanh)}>
+                {soPhatHanh || "—"} {soPhatHanh && <Icon name="copy" size={11} />}
+              </button>
               <span className="fr-meta qc-cls-loai-cell" title={r.loai_giay || ""}>{r.loai_giay || "—"}</span>
               <span className="fr-meta qc-reason-cell" title={(cls.NhanCauTruc || []).join(", ")}>
                 {(cls.NhanCauTruc || []).join(", ") || "—"}
@@ -184,7 +193,7 @@ export default function QcClassification() {
               <span className="fr-meta">{cls.CoSuDungChungVaRieng ? "Có" : "Không"}</span>
               <span className="s3-actions">
                 <button className="ghost xs" onClick={() => openJson(r)}>
-                  <Icon name="fileText" size={12} /> Xem JSON
+                  <Icon name="fileText" size={12} /> Kết quả
                 </button>
                 <button className="ghost xs" disabled={busyKey === key} onClick={() => reclassify(r)}>
                   <Icon name="refresh" size={12} /> Phân loại lại
@@ -200,12 +209,24 @@ export default function QcClassification() {
       </div>
 
       {jsonModal && (
-        <Modal title={`Payload đã làm mịn — ${jsonModal.soGcn || ""}`} onClose={() => setJsonModal(null)} wide>
-          <div className="row" style={{ gap: 8, marginBottom: 8 }}>
-            <button className="ghost sm" onClick={copyJson}><Icon name="copy" size={13} /> Copy JSON</button>
-            <button className="ghost sm" onClick={downloadJson}><Icon name="download" size={13} /> Tải JSON</button>
+        <Modal title={`Kết quả — ${jsonModal.soGcn || ""}`} onClose={() => setJsonModal(null)} wide
+          className="qc-compare-modal">
+          <div className="qc-compare-grid">
+            <div className="qc-compare-pane">
+              <div className="qc-compare-pane-head">File đã cắt</div>
+              <iframe title="PDF đã cắt" src={qcSyncCutPdfUrl(jsonModal.itemId, jsonModal.cutIndex)} />
+            </div>
+            <div className="qc-compare-pane">
+              <div className="qc-compare-pane-head">
+                JSON
+                <span className="qc-json-actions">
+                  <button className="ghost xs" onClick={copyJson}><Icon name="copy" size={12} /> Copy</button>
+                  <button className="ghost xs" onClick={downloadJson}><Icon name="download" size={12} /> Tải</button>
+                </span>
+              </div>
+              <pre className="qc-json-view qc-json-view-pane">{JSON.stringify(jsonModal.data, null, 2)}</pre>
+            </div>
           </div>
-          <pre className="qc-json-view">{JSON.stringify(jsonModal.data, null, 2)}</pre>
         </Modal>
       )}
     </div>

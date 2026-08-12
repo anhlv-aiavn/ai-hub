@@ -288,83 +288,9 @@ export default function ExportView({ user }) {
     <div className="panel export-view">
       <div className="et-toolbar">
         <h2>Tổng quan</h2>
-        <div className="et-filters">
-          <select value={batchId} onChange={(e) => setBatchId(e.target.value)}>
-            <option value="">Tất cả đợt</option>
-            {batches.map((b) => <option key={b.batch_id} value={b.batch_id}>{b.name} · {b.file_count} hồ sơ</option>)}
-          </select>
-          <button className="ghost sm" onClick={() => refresh()}><Icon name="refresh" size={14} /> Làm mới</button>
-        </div>
       </div>
 
       <QcSyncStats />
-
-      <div className="export-sec">
-        <div className="export-head">
-          <h3>Xuất dữ liệu <span className="muted">(CSV · mỗi thửa một dòng)</span></h3>
-          <div className="et-filters">
-            <select value={review} onChange={(e) => setReview(e.target.value)}>
-              {Object.entries(REVIEW).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </select>
-            <span className="muted ev-count">{fmt(rowsTotal)} hồ sơ</span>
-            <div className="ev-export-btns">
-              <button className="primary sm" onClick={csv}><Icon name="download" size={14} /> Tải CSV</button>
-              {canExportJob && (
-                <button className="ghost sm"
-                  disabled={!canStartExportJob || (job && job.status !== "done" && job.status !== "error")}
-                  onClick={startExportJob}
-                  title={canStartExportJob
-                    ? "Không giới hạn số dòng — chạy nền, không cap 5000 dòng như Tải CSV"
-                    : "Hãy chọn 1 đợt cụ thể để xuất nền"}>
-                  <Icon name="upload" size={14} /> Xuất nền
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {job && (
-          <div className="export-job-status">
-            {job.status === "queued" && <>Đang chờ worker…</>}
-            {job.status === "processing" && <>Đang xuất… {job.row_count ? `(${job.row_count} dòng)` : ""}</>}
-            {job.status === "error" && <span className="error" title={job.error}>Lỗi xuất: {friendlyError(job.error)}</span>}
-            {job.status === "done" && (
-              <>
-                <Icon name="checkCircle" size={14} />
-                Xong · {job.row_count} dòng
-                <button className="ghost xs" onClick={() => downloadExportJob(job.job_id)}>
-                  <Icon name="download" size={12} /> Tải xuống
-                </button>
-              </>
-            )}
-          </div>
-        )}
-
-        <div className="et-scroll">
-          <table className="et-grid flat-grid">
-            <thead>
-              <tr><th className="et-stt">STT</th>{cols.map((c) => <th key={c}>{c}</th>)}</tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={i}>
-                  <td className="et-stt">{sttForRow[i] == null ? "" : sttForRow[i]}</td>
-                  {cols.map((c) => (
-                    <td key={c} title={FILE_COLS.has(c) ? "" : (r[c] == null ? "" : String(r[c]))}>{cell(c, r)}</td>
-                  ))}
-                </tr>
-              ))}
-              {!rows.length && (
-                <tr><td colSpan={(cols.length || 1) + 1} className="muted center">
-                  {loading ? "Đang tải…" : "Chưa có dòng nào khớp bộ lọc."}
-                </td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <Pager page={rowsPage} totalPages={rowsTotalPages} total={rowsTotal} unit="hồ sơ" onChange={goToRowsPage} />
-      </div>
 
       {preview && (
         <div className="modal-overlay">
