@@ -4,6 +4,7 @@ Xử lý thật (liệt kê, QC, OCR, crop) chạy trong worker — xem
 `app/worker/qc_pipeline.py`. Chi tiết luồng: `docs/algorithm.md §9`."""
 
 import io
+import mimetypes
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -21,7 +22,7 @@ from app.land_normalizer.classification.structural import classify_structural
 from app.land_normalizer.pipeline import build_payload
 from app.land_normalizer.registry import build_default_registry
 from app.land_normalizer_adapter import first_entry, raw_record_from_cut
-from app.storage import SourceObjectMissing, SourceObjectUnavailable
+from app.storage import DestinationNotConfigured, SourceObjectMissing, SourceObjectUnavailable
 from app.worker.qc_pipeline import _classify_cuts
 
 _REGISTRY = build_default_registry()
@@ -462,6 +463,31 @@ async def get_cut_pdf(item_id: str, cut_index: int, admin: dict = Depends(requir
     filename = cut.get("name") or cut["s3_key"].rsplit("/", 1)[-1] or "cut.pdf"
     return StreamingResponse(
         io.BytesIO(buf.getvalue()), media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.get("/file")
+async def get_file(path: str, admin: dict = Depends(require_admin)):
+    """Lấy trực tiếp 1 object bất kỳ theo `path` (key đầy đủ) trong bucket QC
+    đích (`purpose="qc"`, vd `ai-hub-qc`) — dùng khi cần link xem/tải file
+    không đi qua item/cut cụ thể (vd tra cứu path lấy từ log/DB). Cùng cơ chế
+    đọc với `get_cut_pdf` (`storage.get_pdf(..., dest_purpose="qc")`), chỉ
+    khác input là path thô thay vì item_id+cut_index — Content-Type suy ra
+    từ đuôi file (`mimetypes`) vì object không chỉ là PDF (cut ảnh .jpg...)."""
+    try:
+        buf = await storage.get_pdf(path, dest_purpose="qc")
+    except SourceObjectMissing as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except SourceObjectUnavailable as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    except DestinationNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    await log_action(admin["username"], AuditAction.QC_SYNC_ITEM_VIEW_CUT, path, {"s3_key": path})
+    filename = path.rsplit("/", 1)[-1] or "file"
+    media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    return StreamingResponse(
+        io.BytesIO(buf.getvalue()), media_type=media_type,
         headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
 
