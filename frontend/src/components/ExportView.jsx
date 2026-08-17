@@ -301,6 +301,21 @@ export default function ExportView({ user }) {
         <SegBar title="Hậu kiểm" segs={REVIEW_SEGS} data={s.by_review || {}} />
       </div>
 
+      <div className="seg-row">
+        <div className="seg-block">
+          <div className="seg-head">
+            <span className="seg-title">Hồ sơ khớp kho nguồn (chưa tính trùng)</span>
+            <span className="seg-total">{fmt(s.smap_docs)}</span>
+          </div>
+        </div>
+        <div className="seg-block">
+          <div className="seg-head">
+            <span className="seg-title">Nhóm tên khớp kho nguồn (đã tính trùng)</span>
+            <span className="seg-total">{fmt(s.smap_groups)}</span>
+          </div>
+        </div>
+      </div>
+
       {canViewReviewerTable && (
         <ReviewerTable rows={s.by_reviewer || []} days={reviewerDays} onDaysChange={setReviewerDays}
           rangeFrom={reviewerFrom} rangeTo={reviewerTo} onRangeChange={onReviewerRangeChange} />

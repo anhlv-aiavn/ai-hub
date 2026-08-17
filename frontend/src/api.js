@@ -339,6 +339,16 @@ export function cutPageImageUrl(gcnId, ci, n, w = 1100) {
   return `/v1/gcn/${gcnId}/cut/${ci}/page/${n}?${p.toString()}`;
 }
 
+// File khớp ở kho nguồn ngoài (s3_key_mapping) — preview theo chỉ số trong mảng.
+export async function getSmapPageInfo(gcnId, si) {
+  return handle(await fetch(`/v1/gcn/${gcnId}/smap/${si}/pageinfo`, { headers: headers() }));
+}
+export function smapPageImageUrl(gcnId, si, n, w = 1100) {
+  const p = new URLSearchParams({ w: String(w) });
+  if (auth.token) p.set("token", auth.token);
+  return `/v1/gcn/${gcnId}/smap/${si}/page/${n}?${p.toString()}`;
+}
+
 // Thống kê tổng hợp (KPI + breakdown + cảnh báo) cho bảng Thống kê.
 export async function getStats({ batchId, reviewerDays, reviewerFrom, reviewerTo } = {}) {
   const p = new URLSearchParams();

@@ -241,3 +241,13 @@ def page_count(pdf_bytes: bytes) -> int:
         return len(pdf)
     finally:
         pdf.close()
+
+
+async def get_pdf_page_count(key: str, source_connection_id: str | None = None) -> int:
+    """Đếm số trang của 1 PDF theo key (đọc + đếm) — dùng cho các file KHÔNG có
+    `page_count` lưu sẵn trên document (vd `s3_key_mapping`, khác `cuts` vốn đã
+    lưu sẵn page_count lúc cắt)."""
+    buf = await get_pdf(key, source_connection_id)
+    data = buf.getvalue()
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_RENDER_POOL, page_count, data)

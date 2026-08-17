@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import Icon from "./Icon.jsx";
-import { pageImageUrl, getPageInfo, cutPageImageUrl, getCutPageInfo } from "../api.js";
+import {
+  pageImageUrl, getPageInfo, cutPageImageUrl, getCutPageInfo, smapPageImageUrl, getSmapPageInfo,
+} from "../api.js";
 
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 4;
@@ -8,30 +10,38 @@ const ZOOM_STEP = 0.25;
 const clampZoom = (z) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, +z.toFixed(2)));
 
 // Ảnh trang PDF render ở server (1 <img>/trang, lazy-load). Trang 1-indexed;
-// backend page index 0-indexed → n = p-1. cutIndex != null → xem FILE CẮT.
-export default function GcnPdf({ gcnId, cutIndex = null, page = 1, onPageChange }) {
+// backend page index 0-indexed → n = p-1. Đúng 1 trong 2: cutIndex != null → xem
+// FILE CẮT; smapIndex != null → xem file khớp ở kho nguồn ngoài (s3_key_mapping).
+export default function GcnPdf({ gcnId, cutIndex = null, smapIndex = null, page = 1, onPageChange }) {
   const [numPages, setNumPages] = useState(0);
   const [err, setErr] = useState("");
   const [zoom, setZoom] = useState(1);
   const wrapRef = useRef(null);
   const isCut = cutIndex !== null && cutIndex !== undefined;
-  const imgUrl = (n, w) => (isCut ? cutPageImageUrl(gcnId, cutIndex, n, w) : pageImageUrl(gcnId, n, w));
+  const isSmap = smapIndex !== null && smapIndex !== undefined;
+  const imgUrl = (n, w) => (
+    isSmap ? smapPageImageUrl(gcnId, smapIndex, n, w)
+      : isCut ? cutPageImageUrl(gcnId, cutIndex, n, w)
+        : pageImageUrl(gcnId, n, w)
+  );
 
   useEffect(() => {
     if (!gcnId) return;
     let live = true;
     setErr("");
-    const info = isCut ? getCutPageInfo(gcnId, cutIndex) : getPageInfo(gcnId);
+    const info = isSmap ? getSmapPageInfo(gcnId, smapIndex)
+      : isCut ? getCutPageInfo(gcnId, cutIndex)
+        : getPageInfo(gcnId);
     info
       .then((d) => { if (live) setNumPages(d.pages || 0); })
       .catch((e) => { if (live) setErr(String(e.message || e)); });
     return () => { live = false; };
-  }, [gcnId, cutIndex]);
+  }, [gcnId, cutIndex, smapIndex]);
 
   const cur = Math.min(Math.max(1, page || 1), numPages || 1);
 
   // Reset zoom khi đổi trang/tài liệu, để không giữ mức phóng to cũ nhầm sang ảnh khác.
-  useEffect(() => { setZoom(1); }, [cur, gcnId, cutIndex]);
+  useEffect(() => { setZoom(1); }, [cur, gcnId, cutIndex, smapIndex]);
 
   // Giữ Ctrl + cuộn chuột để zoom tại chỗ. Gắn bằng addEventListener (không qua
   // props onWheel của React) vì React đăng ký wheel listener ở chế độ passive,

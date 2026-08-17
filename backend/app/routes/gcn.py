@@ -370,6 +370,18 @@ async def stats(batch_id: str | None = None,
             "missing_sph": [{"$match": {"status": "done", "group_key": None}}, {"$count": "n"}],
             "unreviewed_done": [
                 {"$match": {"status": "done", "review.status": "unreviewed"}}, {"$count": "n"}],
+            # s3_key_mapping (xem app/scripts/mapping_du_lieu_cu.py): "smap_docs" đếm
+            # theo TỪNG hồ sơ ("chưa tính trùng"); "smap_groups" gộp theo matched_name
+            # ("đã tính trùng") — cùng 2 cách đếm với báo cáo của script mapping.
+            "smap_docs": [
+                {"$match": {"s3_key_mapping": {"$exists": True, "$ne": []}}},
+                {"$count": "n"},
+            ],
+            "smap_groups": [
+                {"$match": {"s3_key_mapping": {"$exists": True, "$ne": []}}},
+                {"$group": {"_id": {"$arrayElemAt": ["$s3_key_mapping.matched_name", 0]}}},
+                {"$count": "n"},
+            ],
             # Theo người hậu kiểm (§ thống kê cho quản lý) — reviewer chỉ được server
             # gán khi có hành động Duyệt/Không duyệt (xem put_review), nên số liệu ở
             # đây phản ánh trạng thái HIỆN TẠI của từng hồ sơ là do ai đặt gần nhất.
@@ -400,6 +412,8 @@ async def stats(batch_id: str | None = None,
         "by_reviewer": by_reviewer,
         "missing_sph": _one(f.get("missing_sph")),
         "unreviewed_done": _one(f.get("unreviewed_done")),
+        "smap_docs": _one(f.get("smap_docs")),
+        "smap_groups": _one(f.get("smap_groups")),
     }
 
 
@@ -591,6 +605,42 @@ async def cut_page(gcn_id: str, ci: int, n: int, w: int = 1100, user: dict = Dep
         raise HTTPException(status_code=502, detail=str(e)) from e
     return Response(content=png, media_type="image/png",
                     headers={"Cache-Control": "public, max-age=86400"})
+
+
+def _find_smap(doc: dict, si: int) -> dict:
+    """`si` = vị trí trong mảng `s3_key_mapping` (không phải field 'index' như
+    cuts — s3_key_mapping là mảng phẳng, xem app/scripts/mapping_du_lieu_cu.py)."""
+    smap = doc.get("s3_key_mapping") or []
+    if not (0 <= si < len(smap)):
+        raise HTTPException(status_code=404, detail="Không tìm thấy file khớp")
+    return smap[si]
+
+
+@router.get("/{gcn_id}/smap/{si}/pageinfo")
+async def smap_pageinfo(gcn_id: str, si: int, user: dict = Depends(current_user)):
+    doc = await _authz_gcn(gcn_id, user, {"s3_key_mapping": 1})
+    m = _find_smap(doc, si)
+    try:
+        pages = await storage.get_pdf_page_count(m["filepath"], m.get("source_connection_id"))
+    except DestinationNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except SourceObjectUnavailable as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    return {"pages": pages}
+
+
+@router.get("/{gcn_id}/smap/{si}/page/{n}")
+async def smap_page(gcn_id: str, si: int, n: int, w: int = 1100, user: dict = Depends(current_user)):
+    doc = await _authz_gcn(gcn_id, user, {"s3_key_mapping": 1})
+    m = _find_smap(doc, si)
+    try:
+        png = await storage.render_page(m["filepath"], n, w, m.get("source_connection_id"))
+    except DestinationNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except SourceObjectUnavailable as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    return Response(content=png, media_type="image/png",
+                    headers={"Cache-Control": "private, max-age=86400"})
 
 
 def _sph_at(ext: list, ri: int) -> str | None:
@@ -868,6 +918,7 @@ def _expand(doc: dict) -> list[dict]:
         "created_at": doc.get("created_at"),
         "dup_suspect": bool(doc.get("dup_suspect")),
         "dup_candidates": doc.get("dup_candidates") or [],
+        "s3_key_mapping": doc.get("s3_key_mapping") or [],
     }
     gcn_rows = doc.get("gcn_rows") or []
     if not gcn_rows:

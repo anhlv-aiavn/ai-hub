@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import Icon from "./Icon.jsx";
 import Pager from "./Pager.jsx";
 import ConfirmDialog from "./ConfirmDialog.jsx";
+import Modal from "./Modal.jsx";
+import GcnPdf from "./GcnPdf.jsx";
 import { listGcn, listBatches, getStats, deleteGcn } from "../api.js";
 import { subscribeEvents } from "../events.js";
 import { toastOk, toastErr } from "../toast.js";
@@ -131,6 +133,69 @@ function DupFlag({ current, candidates, onOpen }) {
   );
 }
 
+// Badge "+N" cho các file khớp NGOÀI file đầu tiên (đã hiện sẵn dạng link trong
+// dòng hồ sơ cha) — bấm ra popover liệt kê TOÀN BỘ (kể cả file đầu) để chọn xem.
+// Cùng cơ chế portal-ra-body với DupFlag (tránh bị hàng dưới che, xem ghi chú ở đó).
+function SmapFlag({ items, onView }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null);
+  const btnRef = useRef(null);
+  const popRef = useRef(null);
+
+  function openPop() {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const left = Math.min(r.left, window.innerWidth - DUP_POP_WIDTH - 10);
+    setPos({ top: r.bottom + 6, left: Math.max(8, left) });
+    setOpen(true);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e) {
+      if (btnRef.current?.contains(e.target) || popRef.current?.contains(e.target)) return;
+      setOpen(false);
+    }
+    function onScroll(e) {
+      if (popRef.current?.contains(e.target)) return;
+      setOpen(false);
+    }
+    function onResize() { setOpen(false); }
+    document.addEventListener("mousedown", onDoc, true);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
+    return () => {
+      document.removeEventListener("mousedown", onDoc, true);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [open]);
+
+  return (
+    <span className="dup-flag-wrap">
+      <button type="button" ref={btnRef} className="smap-more"
+        onClick={(e) => { e.stopPropagation(); open ? setOpen(false) : openPop(); }}>
+        +{items.length - 1}
+      </button>
+      {open && pos && createPortal(
+        <div className="dup-pop" ref={popRef} style={{ top: pos.top, left: pos.left }}
+          onClick={(e) => e.stopPropagation()}>
+          <div className="dup-pop-title">File khớp ở kho nguồn ({items.length}):</div>
+          {items.map((m, i) => (
+            <button type="button" key={i} className="dup-pop-item"
+              onClick={() => { setOpen(false); onView(i); }}>
+              <span className="dpi-name">
+                <Icon name="fileText" size={12} /> {m.display_name || m.filepath}
+              </span>
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </span>
+  );
+}
+
 export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initialStatus = "" }) {
   // Viewer bị server giới hạn CHỈ thấy hồ sơ chưa hậu kiểm + hồ sơ CHÍNH họ đã
   // hậu kiểm (xem `_viewer_own_or` ở backend) — lọc theo tài khoản khác vô nghĩa
@@ -143,6 +208,7 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
   const [rows, setRows] = useState([]);
   const [pendingDelete, setPendingDelete] = useState(null); // {gcn_id, name} đang chờ xác nhận xóa
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [smapPreview, setSmapPreview] = useState(null); // {gcnId, smapIndex, title, page} đang xem file khớp
   const [status, setStatus] = useState(() => initialStatus || loadFilters().status || "");
   const [review, setReview] = useState(() => loadFilters().review || "");
   const [reviewer, setReviewer] = useState(() => loadFilters().reviewer || "");
@@ -212,6 +278,9 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
 
   function goToPage(p) { setPage(p); refresh(p); }
   function runSearch() { setPage(1); refresh(1); }
+  function openSmapPreview(gcnId, smapIndex, title) {
+    setSmapPreview({ gcnId, smapIndex, title, page: 1 });
+  }
 
   async function confirmDeleteGcn() {
     if (!pendingDelete) return;
@@ -325,6 +394,21 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
                           <Icon name="clock" size={12} /> Đang hậu kiểm: {f.locked_by}
                         </span>
                       )}
+                      {f.s3_key_mapping?.length > 0 && (
+                        <span className="gh-smap">
+                          <button type="button" className="link-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openSmapPreview(f.gcn_id, 0, f.s3_key_mapping[0].display_name);
+                            }}>
+                            <Icon name="fileText" size={12} className="ico" /> {f.s3_key_mapping[0].display_name}
+                          </button>
+                          {f.s3_key_mapping.length > 1 && (
+                            <SmapFlag items={f.s3_key_mapping}
+                              onView={(i) => openSmapPreview(f.gcn_id, i, f.s3_key_mapping[i].display_name)} />
+                          )}
+                        </span>
+                      )}
                       {canDelete && (
                         <button type="button" className="icon-btn gh-del" title="Xóa hồ sơ này"
                           onClick={(e) => {
@@ -398,6 +482,14 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
           onConfirm={confirmDeleteGcn}
           onCancel={() => setPendingDelete(null)}
         />
+      )}
+
+      {smapPreview && (
+        <Modal title={`File khớp ở kho nguồn · ${smapPreview.title}`}
+          onClose={() => setSmapPreview(null)} wide>
+          <GcnPdf gcnId={smapPreview.gcnId} smapIndex={smapPreview.smapIndex} page={smapPreview.page}
+            onPageChange={(p) => setSmapPreview((s) => (s ? { ...s, page: p } : s))} />
+        </Modal>
       )}
     </div>
   );

@@ -1393,6 +1393,12 @@ label.file-row { width: 100%; }
 .gh-del { width: 24px; height: 24px; margin-left: 8px; vertical-align: -6px; color: var(--text-3); }
 .gh-del:hover { background: #fdf3f2; color: var(--err); }
 
+/* File khớp ở kho nguồn ngoài (s3_key_mapping) — dòng hồ sơ cha, ExtractTable.jsx */
+.gh-smap { margin-left: 10px; display: inline-flex; align-items: center; gap: 4px; }
+.smap-more { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; padding: 1px 8px;
+  background: rgba(96,165,250,.16); color: var(--info); border-radius: 999px; font-size: 11px; font-weight: 600;
+  border: 0; cursor: pointer; font-family: inherit; }
+
 /* Chủ cuối (bảng trích xuất + đối soát) */
 .cc-tag { color: var(--brand); font-weight: 700; }
 .cc-warn { display: inline-flex; align-items: center; gap: 3px; color: var(--warn); font-weight: 600; }

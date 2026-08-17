@@ -5,3 +5,8 @@ __pycache__/
 node_modules/
 dist/
 .DS_Store
+
+# Cache liệt kê kho MinIO nguồn (app/scripts/quet_minio_ra_cache.py) — dữ liệu
+# runtime, mount vào container qua docker-compose.yml, không commit nội dung.
+/cache_minio_index/*
+!/cache_minio_index/.gitkeep

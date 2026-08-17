@@ -73,7 +73,14 @@ services:
     # tmp/ của repo mount READ-ONLY vào /work: sửa prompt thử nghiệm bằng VS Code
     # trên máy serve là container thấy ngay, khỏi cp/build. CHỈ service api —
     # worker (luồng sản xuất) vẫn chạy đúng code trong image.
-    volumes: ["./tmp:/work:ro"]
+    #
+    # cache_minio_index/ mount READ-WRITE vào đúng đường dẫn mặc định của
+    # app/scripts/quet_minio_ra_cache.py + mapping_du_lieu_cu.py — để cache
+    # liệt kê kho MinIO nguồn sống sót qua rebuild/restart container, và để
+    # copy file cache mới vào thẳng đây (không cần docker cp).
+    volumes:
+      - "./tmp:/work:ro"
+      - "./cache_minio_index:/app/app/scripts/cache_minio_index"
 
   worker:
     build: ./backend
