@@ -960,6 +960,12 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .et-grid td { padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
 .group-head td { background: var(--accent-50); color: var(--brand); font-weight: 600; font-size: 12.5px; }
 .group-head .ico { vertical-align: -2px; margin-right: 5px; }
+/* Tên hồ sơ ở dòng cha — bấm mở xem PDF gốc (giống cách file khớp kho nguồn
+   đã mở), giữ nguyên màu/cỡ chữ kế thừa từ .group-head td, chỉ thêm con trỏ +
+   gạch chân khi hover để báo hiệu bấm được. */
+.gh-name { background: none; border: none; padding: 0; margin: 0; font: inherit; color: inherit;
+  cursor: pointer; display: inline-flex; align-items: center; text-align: left; }
+.gh-name:hover { text-decoration: underline; }
 .et-row { cursor: pointer; }
 .et-row:hover td { background: var(--surface-2); }
 .et-name { font-weight: 600; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

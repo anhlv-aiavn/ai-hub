@@ -208,7 +208,7 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
   const [rows, setRows] = useState([]);
   const [pendingDelete, setPendingDelete] = useState(null); // {gcn_id, name} đang chờ xác nhận xóa
   const [deleteBusy, setDeleteBusy] = useState(false);
-  const [smapPreview, setSmapPreview] = useState(null); // {gcnId, smapIndex, title, page} đang xem file khớp
+  const [filePreview, setFilePreview] = useState(null); // {gcnId, smapIndex, title, page} — smapIndex=null → xem file gốc
   const [status, setStatus] = useState(() => initialStatus || loadFilters().status || "");
   const [review, setReview] = useState(() => loadFilters().review || "");
   const [reviewer, setReviewer] = useState(() => loadFilters().reviewer || "");
@@ -279,7 +279,10 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
   function goToPage(p) { setPage(p); refresh(p); }
   function runSearch() { setPage(1); refresh(1); }
   function openSmapPreview(gcnId, smapIndex, title) {
-    setSmapPreview({ gcnId, smapIndex, title, page: 1 });
+    setFilePreview({ gcnId, smapIndex, title, page: 1 });
+  }
+  function openGcnPreview(gcnId, title) {
+    setFilePreview({ gcnId, smapIndex: null, title, page: 1 });
   }
 
   async function confirmDeleteGcn() {
@@ -380,7 +383,13 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
                   <tr className="group-head">
                     <td className="et-stt">{sttOffset + gi + 1}</td>
                     <td colSpan={10}>
-                      <Icon name="layers" size={13} /> {f.display_name || f.filename}
+                      <button type="button" className="gh-name"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openGcnPreview(f.gcn_id, f.display_name || f.filename);
+                        }}>
+                        <Icon name="layers" size={13} className="ico" /> {f.display_name || f.filename}
+                      </button>
                       <span className="gh-count">{multi ? `${items.length} giấy chứng nhận` : "1 giấy chứng nhận"}</span>
                       {f.dup_suspect && (
                         <DupFlag
@@ -484,11 +493,11 @@ export default function ExtractTable({ user, batchId, onPickBatch, onOpen, initi
         />
       )}
 
-      {smapPreview && (
-        <Modal title={`File khớp ở kho nguồn · ${smapPreview.title}`}
-          onClose={() => setSmapPreview(null)} wide>
-          <GcnPdf gcnId={smapPreview.gcnId} smapIndex={smapPreview.smapIndex} page={smapPreview.page}
-            onPageChange={(p) => setSmapPreview((s) => (s ? { ...s, page: p } : s))} />
+      {filePreview && (
+        <Modal title={`${filePreview.smapIndex != null ? "File khớp ở kho nguồn" : "File gốc"} · ${filePreview.title}`}
+          onClose={() => setFilePreview(null)} wide>
+          <GcnPdf gcnId={filePreview.gcnId} smapIndex={filePreview.smapIndex} page={filePreview.page}
+            onPageChange={(p) => setFilePreview((s) => (s ? { ...s, page: p } : s))} />
         </Modal>
       )}
     </div>
