@@ -247,6 +247,17 @@ def _sampling() -> dict:
     }
 
 
+# Nhiệt độ cho LƯỢT HAI khi lượt đầu trả về không phải JSON. 0 = tắt hẳn lượt hai.
+#
+# Vì sao phải đổi nhiệt độ chứ không gọi lại y nguyên: lượt đầu chạy temperature=0
+# nên vòng lặp là TẤT ĐỊNH — gọi lại cùng tham số thì lặp y hệt, chỉ tốn thêm 30
+# giây. Nhiễu nhỏ là đủ để model rẽ sang nhánh khác. Đánh đổi: bản ghi cứu được
+# bằng lượt hai không còn tái lập được từng chữ, nhưng có dữ liệu đọc được vẫn
+# hơn mất trắng cả hồ sơ.
+def _nhiet_luot_hai() -> float:
+    return float(os.getenv("BIEU_MAU_RETRY_TEMPERATURE", "0.3"))
+
+
 def _classify_ho_so(prompt_sys: str, prompt_user: str):
     """Phân loại một trang: thuộc biểu mẫu hay là tài liệu đính kèm."""
     async def _fn(image_b64: str) -> str:
@@ -268,6 +279,10 @@ def _extract_ho_so(prompt_sys: str, prompt_user: str, key: str):
             return {}
         d = await chat_json(system_prompt=prompt_sys, user_text=prompt_user,
                             images_b64=images_b64, **_sampling())
+        if isinstance(d, dict) and "raw" in d and (nhiet := _nhiet_luot_hai()) > 0:
+            tham_so = {**_sampling(), "temperature": nhiet}
+            d = await chat_json(system_prompt=prompt_sys, user_text=prompt_user,
+                                images_b64=images_b64, **tham_so)
         if not isinstance(d, dict):
             return {key: {}}
         than = d.get(key)
@@ -285,8 +300,8 @@ def _extract_ho_so(prompt_sys: str, prompt_user: str, key: str):
             raw = d.get("raw")
             n = len(raw) if isinstance(raw, str) else 0
             raise ValueError(
-                f"model không trả JSON hợp lệ ({n} ký tự) — thường do sinh lặp vòng "
-                f"rồi bị cắt ở BIEU_MAU_MAX_TOKENS")
+                f"model không trả JSON hợp lệ ({n} ký tự) kể cả sau lượt hai — thường "
+                f"do sinh lặp vòng rồi bị cắt ở BIEU_MAU_MAX_TOKENS")
         # Model bỏ luôn khóa bọc ngoài, trả thẳng nội dung → bọc lại cho đồng nhất
         # thay vì bắt cả tầng dưới phòng thủ hai dạng.
         return {key: dict(d)}
@@ -640,15 +655,42 @@ def _smoke() -> None:
         for k in ("BIEU_MAU_REPETITION_PENALTY", "BIEU_MAU_MAX_TOKENS"):
             os.environ.pop(k, None)
 
+        # Lượt hai: lượt đầu lặp vòng ở temperature=0 thì gọi lại y nguyên cũng
+        # lặp y hệt, nên lượt hai BẮT BUỘC phải đổi nhiệt độ mới có nghĩa.
+        goi = []
+        async def _hong_roi_duoc(**k):
+            goi.append(k.get("temperature"))
+            if len(goi) == 1:
+                return {"raw": "JSON hỏng vì bị cắt giữa chừng"}
+            return {"Phiếu thu thập": {"Ngày lập": "10/08/2026"}}
+        chat_json = _hong_roi_duoc
+        assert asyncio.run(fn(["img"])) == {"Phiếu thu thập": {"Ngày lập": "10/08/2026"}}, \
+            "KILL [38] JSON hỏng → thử lại lượt hai, cứu được thì dùng"
+        assert goi == [0.0, 0.3], f"KILL [38a] lượt hai phải đổi nhiệt độ, không gọi lại y nguyên: {goi}"
+
         async def _hong(**k):
             return {"raw": "JSON hỏng vì bị cắt giữa chừng"}
         chat_json = _hong
         try:
             asyncio.run(fn(["img"]))
         except ValueError as e:
-            assert "MAX_TOKENS" in str(e), f"KILL [38] lỗi phải chỉ ra chỗ chỉnh: {e}"
+            assert "MAX_TOKENS" in str(e) and "lượt hai" in str(e), \
+                f"KILL [38b] hỏng cả hai lượt → nêu rõ đã thử lại: {e}"
         else:
-            raise AssertionError("KILL [38] JSON hỏng phải NÉM LỖI, không trả thân rỗng")
+            raise AssertionError("KILL [38c] hỏng cả hai lượt phải NÉM LỖI, không trả thân rỗng")
+
+        os.environ["BIEU_MAU_RETRY_TEMPERATURE"] = "0"
+        dem = []
+        async def _dem(**k):
+            dem.append(1)
+            return {"raw": "hỏng"}
+        chat_json = _dem
+        try:
+            asyncio.run(fn(["img"]))
+        except ValueError:
+            pass
+        assert len(dem) == 1, f"KILL [38d] đặt 0 phải TẮT hẳn lượt hai: gọi {len(dem)} lần"
+        os.environ.pop("BIEU_MAU_RETRY_TEMPERATURE", None)
         assert asyncio.run(fn([])) == {}, "KILL [39] không ảnh → {}"
 
         # classify: nhãn lạ / lỗi → GIỮ trang (vứt nhầm là mất dữ liệu im lặng)
@@ -665,7 +707,7 @@ def _smoke() -> None:
     finally:
         chat_json = that
 
-    print("doc_types PURE: 52 KILL ✓")
+    print("doc_types PURE: 56 KILL ✓")
 
 
 if __name__ == "__main__":

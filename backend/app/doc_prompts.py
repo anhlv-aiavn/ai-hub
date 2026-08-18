@@ -102,9 +102,11 @@ Phụ lục (chỉ điền nếu ảnh có trang tương ứng, không có thì 
   lấp vào. Lỗi đã gặp thật: cột (4) bỏ trống, model dồn cả hàng sang trái nên số
   căn cước rơi vào 'Loại giấy tờ', ngày cấp rơi vào 'Số giấy tờ' — sai toàn bộ hàng
   mà nhìn qua vẫn thấy "có dữ liệu".
-  Kiểm chéo trước khi trả: 'Loại giấy tờ' chỉ được là CHỮ (CCCD, CMND, Hộ chiếu,
-  Giấy khai sinh…); 'Số giấy tờ' chỉ được là DÃY SỐ; 'Ngày cấp' chỉ được là NGÀY.
-  Nếu thấy dãy số nằm ở 'Loại giấy tờ' thì bạn đã lệch cột — đọc lại.
+  'Loại giấy tờ' là trường CHỌN, chỉ được nhận ĐÚNG MỘT trong các giá trị:
+  "CCCD", "CMND", "Hộ chiếu", "Giấy khai sinh", "Quyết định thành lập", "" (nếu ô
+  trống). TUYỆT ĐỐI không đặt chữ số vào trường này — kể cả khi cột (5) cũng có
+  đúng con số đó. Số căn cước chỉ được xuất hiện ở 'Số giấy tờ', đúng MỘT lần.
+  'Ngày cấp' chỉ được là NGÀY. Thấy dãy số ở 'Loại giấy tờ' nghĩa là đã đọc lệch.
   Bỏ qua dòng trống/bị gạch chéo.
 - Mẫu 15b 'Danh sách thửa': mỗi dòng một thửa.
 - Mẫu 15c 'Danh sách tài sản': mỗi dòng một tài sản.
