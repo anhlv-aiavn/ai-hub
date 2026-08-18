@@ -397,11 +397,16 @@ def bao_cao(docs: list[dict], ma_loai: str, args, kills_dau: list[str] = None) -
               + (f"  ⚠ sai dạng: {', '.join(sai_dang)}" if sai_dang else ""))
 
         if args.json:
-            os.makedirs(args.json, exist_ok=True)
-            with open(os.path.join(args.json, f"{ma_loai}-{os.path.splitext(ten)[0]}.json"),
-                      "w", encoding="utf-8") as f:
-                json.dump({"summary": doc.get("summary"), "timings": tm,
-                           "extractions": recs}, f, ensure_ascii=False, indent=2)
+            noi_dung = {"summary": doc.get("summary"), "timings": tm, "extractions": recs}
+            if args.json == "-":
+                # In thẳng ra màn hình để soi ngay một tệp, khỏi ghi rồi cat lại.
+                print(f"\n  ── JSON {ten} " + "─" * 40)
+                print(json.dumps(noi_dung, ensure_ascii=False, indent=2))
+            else:
+                os.makedirs(args.json, exist_ok=True)
+                with open(os.path.join(args.json, f"{ma_loai}-{os.path.splitext(ten)[0]}.json"),
+                          "w", encoding="utf-8") as f:
+                    json.dump(noi_dung, f, ensure_ascii=False, indent=2)
 
     print("\n  cột trang = số trang đưa vào VLM / tổng số trang (-N = số trang trùng đã loại)")
     if n_ok:
@@ -665,7 +670,9 @@ def main() -> int:
                         "— chạy cả ba loại một lượt.")
     p.add_argument("--so-luong", type=int, help="Chỉ lấy N tệp đầu mỗi loại (khuyến nghị 5 khi thử).")
     p.add_argument("--timeout", type=int, default=1800, help="Giây chờ tối đa mỗi lô (%(default)s).")
-    p.add_argument("--json", metavar="THƯ_MỤC", help="Lưu kết quả JSON từng tệp để soi tay.")
+    p.add_argument("--json", metavar="THƯ_MỤC", help=(
+        "Lưu kết quả JSON từng tệp để soi tay. Dùng '-' để in thẳng ra màn hình "
+        "thay vì ghi file (tiện khi chỉ chạy một tệp)."))
     p.add_argument("--xoa", action="store_true", help="Xoá lô sau khi kiểm tra xong.")
     p.add_argument("--bo-qua-ssl", action="store_true", help="Bỏ kiểm chứng chỉ HTTPS.")
     p.add_argument("--truc-tiep", action="store_true",
