@@ -178,6 +178,12 @@ Smoke tách **2 tầng kết luận**: `KILL` = bất biến kỹ thuật vỡ (
 - `docker compose exec` dùng env của container **đang chạy** — sửa `.env` phải `docker compose up -d` mới nạp.
 - **`api` dùng `build: ./backend`, code NẰM TRONG IMAGE.** `git pull` + `docker compose restart api` **KHÔNG** nạp code mới — phải `docker compose build api && docker compose up -d api`. Chỉ `./tmp` và `./cache_minio_index` là volume. Đã một lần đo lại sau khi sửa mà thực chất vẫn chạy code cũ, rồi suýt kết luận nhầm là bản sửa phản tác dụng (40% → 20%, thật ra chỉ là VLM chạy khác giữa hai lượt).
 - Collection user tên **`user`** (số ít), DB `aihub`.
+- **KHÔNG viết giá trị thật vào ví dụ trong prompt.** Một ví dụ minh hoạ từng ghi hẳn số CCCD
+  `033064004050`; model chép luôn con số đó ra cho hồ sơ khác, qua sạch mọi luật định dạng.
+  `doc_prompts._smoke()` giờ KILL nếu prompt còn dãy 9/12 chữ số — giữ nguyên khi thêm loại giấy mới.
+- **Luật "nghi ngờ thì giữ" của prompt phân loại mạnh hơn ta tưởng.** Trang viết tay toàn bộ
+  (giấy xác nhận, cam kết, biên bản họp họ) từng bị xếp `bieu_mau` chỉ vì danh sách `dinh_kem`
+  không nêu đích danh. Thêm loại đính kèm mới thì phải nêu tên, đừng trông vào suy luận.
 - **Ba bug "output nói dối" đã sửa trong phiên này** — cùng một loại lỗi, tốn ~1 giờ truy sai hướng:
   - `_friendly_vlm_error` dò chuỗi con `"connect"` → nuốt luôn `"No connected db"` của litellm proxy thành "lỗi mạng".
   - `probe_vlm` in kết luận về reasoning kể cả khi **cả 3 mode đều lỗi**, bảng trống trơn.
