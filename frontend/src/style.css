@@ -999,6 +999,10 @@ button.primary.block, .primary.block { width: 100%; justify-content: center; dis
 .badge.st-no_gcn { background: #fef3c7; color: #92400e; }
 .badge.st-no_file { background: #fef3c7; color: #92400e; }
 .badge.st-skip { background: #e5e7eb; color: #4b5563; }
+/* Tạm dừng: badge PHỤ đứng cạnh badge trạng thái (lô vẫn 'processing',
+   chỉ là worker không nhận thêm việc) — nên dùng tông trung tính có viền
+   để không tranh chấp với badge chính. */
+.badge.st-paused { background: #ede9fe; color: #5b21b6; margin-left: 5px; }
 .badge.rv-unreviewed { background: var(--surface-3); color: var(--text-3); }
 .badge.rv-needs_review { background: #fee2e2; color: #991b1b; }
 .badge.rv-reviewed { background: #d1fae5; color: #065f46; }

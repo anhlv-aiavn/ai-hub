@@ -286,6 +286,15 @@ export async function deleteBatch(id) {
   return handle(await fetch(`/v1/batches/${id}`, { method: "DELETE", headers: headers() }));
 }
 
+// Tạm dừng / chạy tiếp 1 lô. Chỉ bật-tắt một cờ ở doc lô; worker ngừng NHẬN VIỆC
+// MỚI của lô đó trong vài giây. Hồ sơ đang chạy dở vẫn chạy nốt.
+export async function pauseBatch(id) {
+  return handle(await fetch(`/v1/batches/${id}/pause`, { method: "POST", headers: headers() }));
+}
+export async function resumeBatch(id) {
+  return handle(await fetch(`/v1/batches/${id}/resume`, { method: "POST", headers: headers() }));
+}
+
 // ── Gán user ↔ lô (admin) — đối xứng với updateUser({assignedBatchIds}) ────
 export async function getBatchUsers(batchId) {
   return handle(await fetch(`/v1/batches/${encodeURIComponent(batchId)}/users`, { headers: headers() }));

@@ -3,11 +3,16 @@ import Icon from "./Icon.jsx";
 import ConfirmDialog from "./ConfirmDialog.jsx";
 import {
   listBatches, deleteBatch, listUsers, getBatchUsers, assignBatchUser, unassignBatchUser,
+  pauseBatch, resumeBatch,
 } from "../api.js";
 import { toastOk, toastErr } from "../toast.js";
 import { STATUS_LABEL } from "./ExtractTable.jsx";
 
 const UNSAFE_STATUS = new Set(["processing", "importing"]);
+// Chỉ lô còn việc mới tạm dừng được. Lô đã xong/lỗi thì nút vô nghĩa, ẩn đi cho
+// khỏi rối — trừ khi nó ĐANG tạm dừng, lúc đó luôn phải cho bấm Chạy tiếp,
+// nếu không một lô lỡ dừng sẽ mắc kẹt không có lối ra trên UI.
+const CO_THE_DUNG = new Set(["queued", "processing", "importing"]);
 
 function fmtDate(v) {
   if (!v) return "";
@@ -48,6 +53,7 @@ export default function BatchManager() {
   const [assignBusy, setAssignBusy] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(null); // lô đang chờ xác nhận xóa
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [pauseBusy, setPauseBusy] = useState(null); // batch_id đang gọi pause/resume
 
   async function refresh() {
     setLoading(true);
@@ -63,6 +69,21 @@ export default function BatchManager() {
     try { setAssigned((await getBatchUsers(batchId)).users || []); }
     catch (e) { toastErr(e.message || e); }
   }
+  async function toggleTamDung(b) {
+    if (pauseBusy) return;
+    setPauseBusy(b.batch_id);
+    try {
+      const r = b.paused ? await resumeBatch(b.batch_id) : await pauseBatch(b.batch_id);
+      // Cập nhật tại chỗ thay vì refresh cả bảng: bảng có thể dài, refresh làm
+      // nhảy vị trí cuộn và đóng panel gán user đang mở.
+      setBatches((prev) => prev.map((x) =>
+        x.batch_id === b.batch_id ? { ...x, paused: r.paused } : x));
+      toastOk(r.paused
+        ? "Đã tạm dừng — hồ sơ đang chạy dở vẫn chạy nốt"
+        : "Đã cho chạy tiếp từ đúng chỗ đã dừng");
+    } catch (e) { toastErr(e.message || e); } finally { setPauseBusy(null); }
+  }
+
   function toggleExpand(b) {
     if (expanded === b.batch_id) { setExpanded(null); return; }
     setExpanded(b.batch_id);
@@ -99,7 +120,9 @@ export default function BatchManager() {
   return (
     <div className="panel batch-manager">
       <h2>Quản lý lô</h2>
-      <p className="muted">Xóa vĩnh viễn 1 lô (không phục hồi được) và gán/bỏ gán tài khoản được truy cập từng lô.</p>
+      <p className="muted">Tạm dừng/chạy tiếp một lô, xóa vĩnh viễn 1 lô (không phục hồi được),
+        và gán/bỏ gán tài khoản được truy cập từng lô. Tạm dừng chỉ ngăn worker
+        nhận việc MỚI — hồ sơ đang xử lý dở vẫn chạy cho xong.</p>
 
       <div className="tbl-dense bm-tbl">
         <div className="file-row bm-row bm-head">
@@ -115,9 +138,22 @@ export default function BatchManager() {
                 <span className="fr-name" title={b.name}>{b.name}</span>
                 <span className="fr-meta">{fmtDate(b.created_at)}</span>
                 <span>{b.file_count || 0}</span>
-                <span><span className={`badge st-${b.status}`}>{STATUS_LABEL[b.status] || b.status}</span></span>
+                <span>
+                  <span className={`badge st-${b.status}`}>{STATUS_LABEL[b.status] || b.status}</span>
+                  {b.paused && <span className="badge st-paused" title="Worker không nhận thêm việc mới của lô này">Tạm dừng</span>}
+                </span>
                 <ProgressMini counts={b.counts} />
                 <span className="bm-actions">
+                  {(CO_THE_DUNG.has(b.status) || b.paused) && (
+                    <button type="button" className="ghost xs" disabled={pauseBusy === b.batch_id}
+                      title={b.paused
+                        ? "Cho worker nhận việc trở lại, tiếp từ đúng chỗ đã dừng"
+                        : "Worker ngừng nhận việc mới của lô này (hồ sơ đang chạy dở vẫn chạy nốt)"}
+                      onClick={() => toggleTamDung(b)}>
+                      <Icon name={b.paused ? "play" : "pause"} size={13} />
+                      {b.paused ? " Chạy tiếp" : " Tạm dừng"}
+                    </button>
+                  )}
                   <button type="button" className="ghost xs" onClick={() => toggleExpand(b)}>
                     <Icon name={isOpen ? "chevronDown" : "chevronRight"} size={13} /> User
                   </button>

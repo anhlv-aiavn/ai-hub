@@ -20,6 +20,8 @@ const ACTIONS = [
   ["gcn.view", "Xem hồ sơ"],
   ["gcn.download", "Tải hồ sơ"],
   ["batch.delete", "Xóa lô"],
+  ["batch.pause", "Tạm dừng lô"],
+  ["batch.resume", "Cho lô chạy tiếp"],
   ["export.create", "Tải xuất nền"],
 ];
 

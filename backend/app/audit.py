@@ -18,6 +18,8 @@ class AuditAction(str, Enum):
     GCN_UPLOAD = "gcn.upload"
     GCN_IMPORT_MINIO = "gcn.import_minio"
     BATCH_DELETE = "batch.delete"
+    BATCH_PAUSE = "batch.pause"
+    BATCH_RESUME = "batch.resume"
     GCN_EDIT = "gcn.edit"
     GCN_ROWS_DELETE = "gcn.rows_delete"
     GCN_DELETE = "gcn.delete"

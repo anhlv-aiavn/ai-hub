@@ -64,6 +64,13 @@ async def ensure_indexes() -> None:
     )
     await batches().create_index("created_at")
     await batches().create_index("branch")
+    # Worker hỏi "lô nào đang tạm dừng" mỗi WORKER_FAIRNESS_REFRESH_SECONDS, nhân
+    # với số worker. Partial index chỉ chứa lô ĐANG dừng (thường là 0) nên gần như
+    # không tốn gì, mà khỏi quét cả collection ở nhịp đều đặn như vậy.
+    await batches().create_index(
+        "paused", background=True, name="batch_paused",
+        partialFilterExpression={"paused": True},
+    )
     await users().create_index("username", unique=True)
     await users().create_index("assigned_batch_ids")
     await audit_log().create_index([("at", -1)])

@@ -21,14 +21,20 @@ log = logging.getLogger(__name__)
 CHUNK_SIZE = 500
 
 
-async def claim_import_job(mongo: AsyncMongo, proc_ttl: int) -> dict | None:
-    """Atomic claim 1 job: queued, hoặc processing đã treo quá proc_ttl."""
+async def claim_import_job(mongo: AsyncMongo, proc_ttl: int,
+                           tam_dung: frozenset = frozenset()) -> dict | None:
+    """Atomic claim 1 job: queued, hoặc processing đã treo quá proc_ttl.
+
+    Lô đang tạm dừng thì không nhận job nạp mới: tạm dừng mà vẫn tiếp tục bơm
+    thêm hồ sơ vào hàng đợi của chính lô đó thì người dùng bấm nút xong vẫn thấy
+    số liệu nhảy, không hiểu là đã dừng hay chưa. Job đang chạy dở vẫn chạy nốt."""
     now = datetime.now(timezone.utc)
     stale = now - timedelta(seconds=proc_ttl)
+    loc = {"batch_id": {"$nin": sorted(tam_dung)}} if tam_dung else {}
     return await mongo.db[config.COLL_IMPORT_JOB].find_one_and_update(
         {"$or": [
-            {"status": "queued"},
-            {"status": "processing", "started_at": {"$lt": stale}},
+            {"status": "queued", **loc},
+            {"status": "processing", "started_at": {"$lt": stale}, **loc},
         ]},
         {"$set": {"status": "processing", "started_at": now}},
         return_document=ReturnDocument.AFTER,

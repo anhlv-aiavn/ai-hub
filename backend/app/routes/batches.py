@@ -165,6 +165,7 @@ async def list_batches(
             "batch_id": b["_id"], "name": b.get("name"), "branch": b.get("branch"),
             "status": b.get("status"), "file_count": b.get("file_count", 0),
             "created_at": b.get("created_at"), "counts": counts,
+            "paused": bool(b.get("paused")),
         })
     return {"batches": out}
 
@@ -179,7 +180,47 @@ async def get_batch(batch_id: str, user: dict = Depends(current_user)):
         "batch_id": b["_id"], "name": b.get("name"), "status": b.get("status"),
         "file_count": b.get("file_count", 0), "created_at": b.get("created_at"),
         "counts": await _status_counts(b),
+        "paused": bool(b.get("paused")),
     }
+
+
+async def _dat_tam_dung(batch_id: str, dung: bool, user: dict) -> dict:
+    """Bật/tắt cờ `paused` của lô.
+
+    Chỉ ghi MỘT field ở doc lô — không đụng trạng thái từng hồ sơ. Worker đọc cờ
+    này ở chỗ nhận việc (xem worker/main.py `_dieu_kien_claim`), nên tạm dừng là
+    O(1) dù lô có vài triệu hồ sơ, và hàng đợi giữ nguyên y hệt lúc dừng.
+
+    Nhận thêm cả lô đã `done`: bấm tạm dừng một lô vừa xong thì không có tác dụng
+    gì, nhưng chặn lại sẽ gây khó chịu vô cớ khi vài hồ sơ lỗi được cho chạy lại.
+    """
+    b = await batches().find_one({"_id": batch_id}, {"name": 1, "paused": 1})
+    if not b:
+        raise HTTPException(status_code=404, detail="Không tìm thấy lô")
+    if bool(b.get("paused")) == dung:
+        # Không phải lỗi: hai người cùng bấm, hoặc bấm hai lần vì tưởng chưa ăn.
+        # Trả về trạng thái hiện tại để UI đồng bộ lại, khỏi bắt người dùng đoán.
+        return {"batch_id": batch_id, "paused": dung, "changed": False}
+    await batches().update_one({"_id": batch_id}, {"$set": {"paused": dung}})
+    await log_action(user["username"],
+                     AuditAction.BATCH_PAUSE if dung else AuditAction.BATCH_RESUME,
+                     batch_id, {"name": b.get("name")})
+    return {"batch_id": batch_id, "paused": dung, "changed": True}
+
+
+@router.post("/{batch_id}/pause")
+async def pause_batch(batch_id: str, user: dict = Depends(require_operator)):
+    """Ngừng nhận việc MỚI của lô. Hồ sơ đang chạy dở vẫn chạy nốt — không cắt
+    ngang được một call VLM đang bay, và cắt giữa chừng thì mất luôn công đã tốn.
+    Worker nhận cờ trong vòng vài giây (WORKER_FAIRNESS_REFRESH_SECONDS)."""
+    return await _dat_tam_dung(batch_id, True, user)
+
+
+@router.post("/{batch_id}/resume")
+async def resume_batch(batch_id: str, user: dict = Depends(require_operator)):
+    """Chạy tiếp từ đúng chỗ đã dừng — hàng đợi không hề bị đụng tới nên không
+    có hồ sơ nào bị bỏ sót hay chạy lại."""
+    return await _dat_tam_dung(batch_id, False, user)
 
 
 @router.delete("/{batch_id}")
@@ -192,7 +233,9 @@ async def delete_batch(batch_id: str, admin: dict = Depends(require_admin)):
     if not b:
         raise HTTPException(status_code=404, detail="Không tìm thấy lô")
     if b.get("status") in ("processing", "importing"):
-        raise HTTPException(status_code=409, detail="Lô đang xử lý, chờ xong rồi xóa")
+        raise HTTPException(status_code=409, detail=(
+            "Lô đang tạm dừng — bấm Chạy tiếp cho xong rồi mới xóa được"
+            if b.get("paused") else "Lô đang xử lý, chờ xong rồi xóa"))
 
     n_gcn = await gcns().count_documents({"batch_id": batch_id})
     try:
