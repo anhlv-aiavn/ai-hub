@@ -254,8 +254,24 @@ def _sampling() -> dict:
 # giây. Nhiễu nhỏ là đủ để model rẽ sang nhánh khác. Đánh đổi: bản ghi cứu được
 # bằng lượt hai không còn tái lập được từng chữ, nhưng có dữ liệu đọc được vẫn
 # hơn mất trắng cả hồ sơ.
-def _nhiet_luot_hai() -> float:
-    return float(os.getenv("BIEU_MAU_RETRY_TEMPERATURE", "0.3"))
+def _luot_hai() -> dict:
+    """Tham số LƯỢT HAI, chỉ chạy khi lượt đầu trả về không phải JSON.
+
+    Phạt lặp mạnh là con dao hai lưỡi: đo trên 90 hồ sơ thì repetition_penalty
+    1.25 phá được vòng lặp của 1319332 (5 giây, 11/11) nhưng làm hỏng chữ số ở
+    hồ sơ khác — số căn cước cùng xã dùng chung tiền tố, model né token vừa sinh
+    nên đổi chữ số, thậm chí xuất ra "001..." thay cho dãy số. Đặt ở lượt hai thì
+    được cái lợi mà không phải trả cái giá: chỉ 1 hồ sơ đã hỏng sẵn phải chịu,
+    89 hồ sơ còn lại không đụng tới.
+
+    Nhiệt độ cũng phải khác 0: lượt đầu tất định nên gọi lại y nguyên sẽ lặp y
+    hệt. Riêng 1319332 thì nhiệt độ 0.3 KHÔNG đủ (vẫn lặp, 27666 ký tự) — nên
+    lượt hai đổi cả hai thứ cùng lúc. Đặt nhiệt độ = 0 là tắt hẳn lượt hai.
+    """
+    return {
+        "temperature": float(os.getenv("BIEU_MAU_RETRY_TEMPERATURE", "0.3")),
+        "repetition_penalty": float(os.getenv("BIEU_MAU_RETRY_REPETITION_PENALTY", "1.25")),
+    }
 
 
 def _classify_ho_so(prompt_sys: str, prompt_user: str):
@@ -279,10 +295,9 @@ def _extract_ho_so(prompt_sys: str, prompt_user: str, key: str):
             return {}
         d = await chat_json(system_prompt=prompt_sys, user_text=prompt_user,
                             images_b64=images_b64, **_sampling())
-        if isinstance(d, dict) and "raw" in d and (nhiet := _nhiet_luot_hai()) > 0:
-            tham_so = {**_sampling(), "temperature": nhiet}
+        if isinstance(d, dict) and "raw" in d and _luot_hai()["temperature"] > 0:
             d = await chat_json(system_prompt=prompt_sys, user_text=prompt_user,
-                                images_b64=images_b64, **tham_so)
+                                images_b64=images_b64, **{**_sampling(), **_luot_hai()})
         if not isinstance(d, dict):
             return {key: {}}
         than = d.get(key)
@@ -659,14 +674,18 @@ def _smoke() -> None:
         # lặp y hệt, nên lượt hai BẮT BUỘC phải đổi nhiệt độ mới có nghĩa.
         goi = []
         async def _hong_roi_duoc(**k):
-            goi.append(k.get("temperature"))
+            goi.append((k.get("temperature"), k.get("repetition_penalty")))
             if len(goi) == 1:
                 return {"raw": "JSON hỏng vì bị cắt giữa chừng"}
             return {"Phiếu thu thập": {"Ngày lập": "10/08/2026"}}
         chat_json = _hong_roi_duoc
         assert asyncio.run(fn(["img"])) == {"Phiếu thu thập": {"Ngày lập": "10/08/2026"}}, \
             "KILL [38] JSON hỏng → thử lại lượt hai, cứu được thì dùng"
-        assert goi == [0.0, 0.3], f"KILL [38a] lượt hai phải đổi nhiệt độ, không gọi lại y nguyên: {goi}"
+        assert goi == [(0.0, 1.0), (0.3, 1.25)], \
+            f"KILL [38a] lượt hai phải đổi CẢ nhiệt độ LẪN phạt lặp: {goi}"
+        # Phạt lặp mạnh chỉ được ở lượt hai — áp cho lượt đầu là hỏng chữ số cả lô.
+        assert _sampling()["repetition_penalty"] == 1.0, \
+            "KILL [38a2] lượt ĐẦU phải giữ phạt lặp trung tính"
 
         async def _hong(**k):
             return {"raw": "JSON hỏng vì bị cắt giữa chừng"}

@@ -74,7 +74,12 @@ services:
       # GPU hàng phút và làm đứng cả lô. 0 = không đặt trần (để server quyết).
       BIEU_MAU_TEMPERATURE: ${BIEU_MAU_TEMPERATURE:-0}
       BIEU_MAU_REPETITION_PENALTY: ${BIEU_MAU_REPETITION_PENALTY:-1.0}
-      BIEU_MAU_MAX_TOKENS: ${BIEU_MAU_MAX_TOKENS:-0}
+      BIEU_MAU_MAX_TOKENS: ${BIEU_MAU_MAX_TOKENS:-7000}
+      # Lượt hai khi lượt đầu không trả JSON (lặp vòng). Phạt lặp mạnh chỉ đặt Ở
+      # ĐÂY: đo trên 90 hồ sơ, 1.25 phá được vòng lặp nhưng nếu áp cho lượt đầu
+      # thì làm hỏng chữ số căn cước ở hồ sơ khác. Nhiệt độ 0 = tắt lượt hai.
+      BIEU_MAU_RETRY_TEMPERATURE: ${BIEU_MAU_RETRY_TEMPERATURE:-0.3}
+      BIEU_MAU_RETRY_REPETITION_PENALTY: ${BIEU_MAU_RETRY_REPETITION_PENALTY:-1.25}
     ports: ["18002:8000"]
     # tmp/ của repo mount READ-ONLY vào /work: sửa prompt thử nghiệm bằng VS Code
     # trên máy serve là container thấy ngay, khỏi cp/build. CHỈ service api —
