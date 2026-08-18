@@ -136,9 +136,29 @@ Smoke tách **2 tầng kết luận**: `KILL` = bất biến kỹ thuật vỡ (
 
 ---
 
+## 7b. Kết quả đo — `ddk` + `kqdk`, mỗi loại 5 file (2026-08-18)
+
+**Cấu trúc: sạch cả ba loại, 0 KILL / 15 hồ sơ.** Dự đoán "sẽ lộ lỗi cấu trúc" ở phụ lục 15a/15c và checkbox mục "Đề nghị" **không xảy ra** — gom trang một-hồ-sơ và bộ lọc `dinh_kem` chạy đúng trên cả đơn nhiều trang.
+
+| loại | trang vào/tổng | giây/file | độ điền |
+|---|---|---|---|
+| `ddk` | 4/6 · 4/6 · 4/8 · 4/6 · 4/7 | 12–17 | 15/15 (4 file), 10/15 (1 file) |
+| `kqdk` | 2/4 · 3/5 · 2/4 · 2/4 · 2/4 | 11–24 | 13/13 cả 5 |
+
+`kqdk` là loại **sạch nhất** cho tới giờ: 100% điền và 100% đúng định dạng trên cả 3 trường có luật.
+
+**Đã sửa từ lượt chạy này** (commit `906ab39`): bảng báo `Giấy tờ nhân thân` chỉ 40% đúng định dạng — **lỗi code, không phải lỗi model**. `_normalize_bieu_mau` bắt theo tên `"Số giấy tờ"`, nhưng Mẫu 15 mục 1b in là `"Giấy tờ nhân thân"`, nên CCCD trên `ddk` không hề được chuẩn hoá. Nay gom vào `_TEN_SO_GIAY_TO`, có KILL [17a] ghim lại. **Chạy lại `ddk` để xác nhận lên 100%.**
+
+**Còn phải soi**:
+- `1134303.pdf` (`ddk`) lệch hẳn phần còn lại: 10/15 trường, thiếu trọn cụm Thửa đất (Địa chỉ/Diện tích/Mục đích/Nguồn gốc) và chạy 12s trong khi các file kia 16–17s. Nghi trang chứa mục 2 bị bộ lọc xếp nhầm `dinh_kem` → mở `--json` xem `page_indices` trước khi động vào prompt.
+- `1319369.pdf` (`pcctt`) `Số giấy tờ` sai định dạng: trường này CÓ được chuẩn hoá, nên số chữ số không phải 9/12 → hoặc model đọc sót/thừa chữ số, hoặc giấy ghi vậy thật. Phải đối chiếu ảnh.
+- Chưa có con số độ chính xác **nội dung** cho `ddk`/`kqdk` — mới chỉ biết cấu trúc và định dạng đúng.
+
+---
+
 ## 8. Việc tiếp theo, theo thứ tự
 
-1. **Chạy `--bo-ba` cho `ddk` + `kqdk`** (CHƯA chạy lần nào). Khó hơn hẳn: nhiều trang, bảng phụ lục 15a/15c, checkbox mục "Đề nghị", `ddk` phải ghép mặt sau nằm lạc cuối file. Dự đoán lộ **lỗi cấu trúc (KILL)** — loại này sửa dứt điểm được, khác với lỗi đọc chữ tay.
+1. **Chạy lại `--bo-ba`** sau commit `906ab39` để xác nhận `Giấy tờ nhân thân` lên 100% đúng định dạng, rồi mở `--json` soi hai ca nêu ở §7b (`1134303` thiếu cụm Thửa đất, `1319369` sai số chữ số CCCD).
 2. **Định lượng độ chính xác**: ~20 hồ sơ, đối chiếu JSON ↔ ảnh gốc, đếm tỷ lệ trường sai. Con số này mới quyết được pipeline dùng được chưa. Đã đề xuất công cụ xuất HTML đặt ảnh trang cạnh JSON — **khách chưa trả lời**, hỏi lại trước khi làm.
 3. **Nếu cần tăng độ chính xác**: lượt hai chỉ hỏi lại một trường (đúng bài `SPH_LUOT_HAI` của pipeline GCN — ít trường thì model soi kỹ hơn), ưu tiên "Nguồn gốc sử dụng" và các ô chữ số. **Chỉ làm sau khi có số liệu ở bước 2.**
 4. **Sửa MinIO đích 502** rồi chạy E2E qua API thật (bỏ `--truc-tiep`) để phủ nốt: upload, hàng đợi Mongo, counter lô, cắt trang, SSE.
