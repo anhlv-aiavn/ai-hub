@@ -45,6 +45,8 @@ _CHUNG = """- Return JSON ONLY. No explanation, no markdown.
   "204.6", KHÔNG phải "204.16". Đọc kỹ phần sau dấu phẩy: diện tích thửa đất
   thường chỉ có MỘT chữ số thập phân.
 - Số CC/CCCD là 9 hoặc 12 chữ số — không nhầm với số điện thoại, số thửa, mã vạch.
+  Ô số giấy tờ chỉ ghi DÃY SỐ, không kèm chữ. Giấy viết "CCCD số 033064004050 cấp
+  ngày 22/11/2021" thì trả "033064004050" — bỏ cả chữ "CCCD số" lẫn phần ngày cấp.
 - Các ảnh đưa vào có thể là những trang KHÔNG liền nhau của cùng một hồ sơ (mặt
   sau của tờ khai có thể nằm ở ảnh cuối). Hãy ghép chúng thành MỘT hồ sơ duy nhất."""
 

@@ -72,6 +72,11 @@ _SO_RE = re.compile(r"-?\d+(?:[.,]\d+)?")
 # Số CC/CCCD hay bị chấm phân nhóm: "001085.015.315".
 _CHI_SO_RE = re.compile(r"[^\d]")
 
+# Một cụm chữ số liền mạch, cho phép dấu chấm phân nhóm ("001085.015.315") nhưng
+# KHÔNG cho khoảng trắng — nhờ vậy "033064004050 22112021" tách thành hai cụm
+# thay vì dính làm một chuỗi 20 số rồi trượt hết mọi luật.
+_CUM_SO_RE = re.compile(r"\d[\d.]*\d")
+
 
 def _chuan_ngay(v: str) -> str:
     """Về dd/mm/yyyy. Nhận cả dạng số (10/8/2026) lẫn dạng chữ của biểu mẫu
@@ -97,9 +102,21 @@ def _chuan_ngay(v: str) -> str:
 def _chuan_so_giay_to(v: str) -> str:
     """Bỏ dấu phân nhóm khỏi CMND/CCCD ("001085.015.315" → "001085015315"), CHỈ
     khi phần số còn lại đúng 9 hoặc 12 chữ số. Không khớp → giữ nguyên văn, để
-    người hậu kiểm thấy đúng thứ model đọc được."""
+    người hậu kiểm thấy đúng thứ model đọc được.
+
+    Ô "Giấy tờ nhân thân" của Mẫu 15 là một dòng kẻ trống nên người dân hay viết
+    cả câu: "CCCD số 033064004050 cấp ngày 22/11/2021". Gặp vậy thì nhặt lấy cụm
+    9/12 số trong câu. Ngày cấp bị bỏ là CÓ CHỦ Ý: schema không có ô cho nó, và
+    với người sử dụng chung thì Mẫu 15a đã có cột "Ngày cấp" riêng.
+
+    Chỉ nhặt khi tìm được ĐÚNG một cụm hợp lệ — hai cụm trở lên thì không đoán
+    được cụm nào là của người đứng đơn, giữ nguyên văn cho người hậu kiểm."""
     so = _CHI_SO_RE.sub("", v)
-    return so if len(so) in (9, 12) else v
+    if len(so) in (9, 12):
+        return so
+    hop_le = {c for m in _CUM_SO_RE.finditer(v)
+              if len(c := _CHI_SO_RE.sub("", m.group(0))) in (9, 12)}
+    return hop_le.pop() if len(hop_le) == 1 else v
 
 
 def _chuan_dien_tich(v: str) -> str:
@@ -488,6 +505,15 @@ def _smoke() -> None:
     assert _chuan_so_giay_to("001085.015.315") == "001085015315", "KILL [16e] bỏ chấm CCCD"
     assert _chuan_so_giay_to("019084001782") == "019084001782", "KILL [16f] đã sạch thì giữ"
     assert _chuan_so_giay_to("12345") == "12345", "KILL [16g] không đủ 9/12 số → giữ nguyên"
+    # Ô Mẫu 15 mục 1b là dòng kẻ trống → người dân viết cả câu (gặp thật ở 1134303).
+    assert _chuan_so_giay_to("CCCD số 033064004050 cấp ngày 22/11/2021") == "033064004050", \
+        "KILL [16h] nhặt CCCD ra khỏi câu"
+    assert _chuan_so_giay_to("CMND 019084001 do CA Hà Nội cấp") == "019084001", \
+        "KILL [16i] nhặt CMND 9 số ra khỏi câu"
+    assert _chuan_so_giay_to("033064004050 và 001085015315") == "033064004050 và 001085015315", \
+        "KILL [16j] hai cụm hợp lệ → không đoán, giữ nguyên văn"
+    assert _chuan_so_giay_to("MST 0100109106 của công ty") == "MST 0100109106 của công ty", \
+        "KILL [16k] pháp nhân 10 số không phải CCCD → giữ nguyên"
 
     KHOA = "2026/Don DK/1054768"
     s = DDK.summarize(recs, KHOA)
@@ -574,7 +600,7 @@ def _smoke() -> None:
     finally:
         chat_json = that
 
-    print("doc_types PURE: 43 KILL ✓")
+    print("doc_types PURE: 47 KILL ✓")
 
 
 if __name__ == "__main__":
