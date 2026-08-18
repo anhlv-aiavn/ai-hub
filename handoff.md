@@ -160,6 +160,35 @@ Smoke tách **2 tầng kết luận**: `KILL` = bất biến kỹ thuật vỡ (
 
 ---
 
+## 7c. Chốt trên TOÀN BỘ 90 hồ sơ (2026-08-18, lượt v4)
+
+**90/90 `done`, 0 KILL, 23 ô sai định dạng / 634 ô có luật kiểm (~96%).**
+
+| loại | đúng định dạng | ghi chú |
+|---|---|---|
+| kqdk | 98.6% | chín nhất, dùng được |
+| pcctt | 95.2% | |
+| ddk | 94.9% | |
+
+**23 ô còn lại đều CÙNG MỘT loại lỗi: đọc sai chữ số căn cước viết tay.** Không còn lỗi cấu trúc, lệch cột, bịa giá trị hay mất hồ sơ.
+
+**Tham số đã chốt (mặc định trong docker-compose, khỏi truyền `-e`)**
+
+```
+BIEU_MAU_TEMPERATURE=0     BIEU_MAU_REPETITION_PENALTY=1.0    BIEU_MAU_MAX_TOKENS=7000
+BIEU_MAU_RETRY_TEMPERATURE=0.3            BIEU_MAU_RETRY_REPETITION_PENALTY=1.25
+```
+
+Vì sao phạt lặp nằm ở LƯỢT HAI chứ không lượt đầu — đo hẳn hai lượt 90 hồ sơ:
+- `1.25` ở lượt đầu phá được vòng lặp của `1319332` nhưng **làm hỏng chữ số ở hồ sơ khác**: `1134303` `03017001916`→`03017001416`, `1369840` `02111464012180`→`02211460021280`, và `1376128` xuất hẳn `"001..."` thay cho dãy số. Căn cước cùng xã chung tiền tố (`001`, `036`) nên phạt lặp đẩy model ra khỏi chính chữ số đúng — **sai mà vẫn đúng định dạng, không bảng nào báo động**.
+- `1.0` + hai bản vá prompt: 29 ô hỏng → 23. ddk 91.8%→94.9%, pcctt 94.1%→95.2%.
+
+**NHIỄU GIỮA HAI LẦN CHẠY GIỐNG HỆT NHAU LÀ ±3 Ô** (v3→v4: hết `1073765`/`1369309`/`1329445`, thêm `570998`/`1327861`). Mọi cải thiện nhỏ hơn ngần đó **không đo được** với mẫu 90 — đừng chỉnh prompt rồi tuyên bố tiến bộ vì 23 xuống 21.
+
+**Chưa kiểm chứng**: cơ chế lượt hai chưa từng chạy thật. `1319332` ở v4 xong trong 6 giây, tức lượt một thành công luôn (nếu lặp thì phải ~36s). Vòng lặp là ngẫu nhiên. Lưới an toàn còn đó nhưng chưa có bằng chứng nó cứu được.
+
+---
+
 ## 8. Việc tiếp theo, theo thứ tự
 
 1. **`docker compose build api && docker compose up -d api`** rồi chạy lại `--bo-ba` để xác nhận `Giấy tờ nhân thân` lên 100% đúng định dạng, rồi mở `--json` soi hai ca nêu ở §7b (`1134303` thiếu cụm Thửa đất, `1319369` sai số chữ số CCCD).
