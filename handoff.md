@@ -147,7 +147,7 @@ Smoke tách **2 tầng kết luận**: `KILL` = bất biến kỹ thuật vỡ (
 
 `kqdk` là loại **sạch nhất** cho tới giờ: 100% điền và 100% đúng định dạng trên cả 3 trường có luật.
 
-**Đã sửa từ lượt chạy này** (commit `906ab39`): bảng báo `Giấy tờ nhân thân` chỉ 40% đúng định dạng — **lỗi code, không phải lỗi model**. `_normalize_bieu_mau` bắt theo tên `"Số giấy tờ"`, nhưng Mẫu 15 mục 1b in là `"Giấy tờ nhân thân"`, nên CCCD trên `ddk` không hề được chuẩn hoá. Nay gom vào `_TEN_SO_GIAY_TO`, có KILL [17a] ghim lại. **Chạy lại `ddk` để xác nhận lên 100%.**
+**Đã sửa từ lượt chạy này** (commit `906ab39`): bảng báo `Giấy tờ nhân thân` chỉ 40% đúng định dạng — **lỗi code, không phải lỗi model**. `_normalize_bieu_mau` bắt theo tên `"Số giấy tờ"`, nhưng Mẫu 15 mục 1b in là `"Giấy tờ nhân thân"`, nên CCCD trên `ddk` không hề được chuẩn hoá. Nay gom vào `_TEN_SO_GIAY_TO`, có KILL [17a] ghim lại. **CHƯA xác nhận được trên máy thật**: lượt đo lại chỉ `restart` chứ không `build`, nên vẫn là code cũ (xem §9). Phải build lại rồi chạy `ddk` lần nữa.
 
 **Còn phải soi**:
 - `1134303.pdf` (`ddk`) lệch hẳn phần còn lại: 10/15 trường, thiếu trọn cụm Thửa đất (Địa chỉ/Diện tích/Mục đích/Nguồn gốc) và chạy 12s trong khi các file kia 16–17s. Nghi trang chứa mục 2 bị bộ lọc xếp nhầm `dinh_kem` → mở `--json` xem `page_indices` trước khi động vào prompt.
@@ -158,7 +158,7 @@ Smoke tách **2 tầng kết luận**: `KILL` = bất biến kỹ thuật vỡ (
 
 ## 8. Việc tiếp theo, theo thứ tự
 
-1. **Chạy lại `--bo-ba`** sau commit `906ab39` để xác nhận `Giấy tờ nhân thân` lên 100% đúng định dạng, rồi mở `--json` soi hai ca nêu ở §7b (`1134303` thiếu cụm Thửa đất, `1319369` sai số chữ số CCCD).
+1. **`docker compose build api && docker compose up -d api`** rồi chạy lại `--bo-ba` để xác nhận `Giấy tờ nhân thân` lên 100% đúng định dạng, rồi mở `--json` soi hai ca nêu ở §7b (`1134303` thiếu cụm Thửa đất, `1319369` sai số chữ số CCCD).
 2. **Định lượng độ chính xác**: ~20 hồ sơ, đối chiếu JSON ↔ ảnh gốc, đếm tỷ lệ trường sai. Con số này mới quyết được pipeline dùng được chưa. Đã đề xuất công cụ xuất HTML đặt ảnh trang cạnh JSON — **khách chưa trả lời**, hỏi lại trước khi làm.
 3. **Nếu cần tăng độ chính xác**: lượt hai chỉ hỏi lại một trường (đúng bài `SPH_LUOT_HAI` của pipeline GCN — ít trường thì model soi kỹ hơn), ưu tiên "Nguồn gốc sử dụng" và các ô chữ số. **Chỉ làm sau khi có số liệu ở bước 2.**
 4. **Sửa MinIO đích 502** rồi chạy E2E qua API thật (bỏ `--truc-tiep`) để phủ nốt: upload, hàng đợi Mongo, counter lô, cắt trang, SSE.
@@ -172,6 +172,7 @@ Smoke tách **2 tầng kết luận**: `KILL` = bất biến kỹ thuật vỡ (
 - `docker compose exec` + heredoc → **phải có `-T`**.
 - Trong container API là cổng **8000**, không phải 18002; đường dẫn mẫu là **`/work/…`**, không phải `tmp/…`.
 - `docker compose exec` dùng env của container **đang chạy** — sửa `.env` phải `docker compose up -d` mới nạp.
+- **`api` dùng `build: ./backend`, code NẰM TRONG IMAGE.** `git pull` + `docker compose restart api` **KHÔNG** nạp code mới — phải `docker compose build api && docker compose up -d api`. Chỉ `./tmp` và `./cache_minio_index` là volume. Đã một lần đo lại sau khi sửa mà thực chất vẫn chạy code cũ, rồi suýt kết luận nhầm là bản sửa phản tác dụng (40% → 20%, thật ra chỉ là VLM chạy khác giữa hai lượt).
 - Collection user tên **`user`** (số ít), DB `aihub`.
 - **Ba bug "output nói dối" đã sửa trong phiên này** — cùng một loại lỗi, tốn ~1 giờ truy sai hướng:
   - `_friendly_vlm_error` dò chuỗi con `"connect"` → nuốt luôn `"No connected db"` của litellm proxy thành "lỗi mạng".
