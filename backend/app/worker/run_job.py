@@ -64,15 +64,32 @@ def _vlm_sem() -> asyncio.Semaphore:
     return _VLM_SEM
 
 
+# Dấu hiệu lỗi MẠNG thật. Trước đây chỉ dò mỗi chuỗi con "connect" — quá rộng:
+# litellm proxy trả 400 {"message":"No connected db."} cũng dính, và lỗi cấu hình
+# proxy bị dán nhãn "không kết nối được" → người vận hành đi soi dây mạng trong khi
+# thủ phạm nằm ở proxy. Thông báo thân thiện chỉ đáng giá khi nó ĐÚNG; sai thì tệ
+# hơn hẳn việc để nguyên văn lỗi kỹ thuật.
+_DAU_HIEU_MANG = (
+    "connection error", "connection refused", "connection reset", "connection aborted",
+    "cannot connect", "failed to connect", "connection timed out", "read timed out",
+    "name or service not known", "temporary failure in name resolution",
+    "no route to host", "network is unreachable",
+)
+
+
 def _friendly_vlm_error(e: Exception) -> str:
     """Dịch lỗi gọi VLM (litellm) thành thông báo tiếng Việt cho người dùng cuối
     thay vì để lộ nguyên văn traceback kỹ thuật (vd "litellm.InternalServerError:
     InternalServerError: OpenAIException - Connection error."). Traceback thật đã
-    được ghi bởi `log.exception` ở nơi gọi — hàm này chỉ đổi message LƯU VÀO DOC."""
+    được ghi bởi `log.exception` ở nơi gọi — hàm này chỉ đổi message LƯU VÀO DOC.
+
+    Không khớp nhóm nào → GIỮ NGUYÊN VĂN. Đoán bừa một thông báo đẹp cho lỗi lạ là
+    cách chắc chắn nhất để lần sau mất nửa buổi truy sai hướng."""
     low = str(e).lower()
     # Kiểm tra message trước isinstance: server vLLM tự host thường trả lỗi kết nối
     # dưới dạng litellm.InternalServerError (không phải APIConnectionError chuẩn).
-    if "connection error" in low or "connect" in low:
+    if any(x in low for x in _DAU_HIEU_MANG) or isinstance(
+            e, (litellm.APIConnectionError, litellm.Timeout)):
         return "Không kết nối được tới hệ thống nhận diện (VLM). Vui lòng thử lại sau ít phút."
     if isinstance(e, litellm.RateLimitError):
         return "Hệ thống nhận diện đang quá tải, vui lòng thử lại sau."
@@ -81,7 +98,9 @@ def _friendly_vlm_error(e: Exception) -> str:
     if isinstance(e, (litellm.ContentPolicyViolationError, litellm.ContextWindowExceededError)):
         return "Không xử lý được nội dung tệp (bị hệ thống nhận diện từ chối hoặc vượt giới hạn)."
     if isinstance(e, litellm.APIError):
-        return "Hệ thống nhận diện gặp sự cố nội bộ, vui lòng thử lại sau."
+        # Kèm nguyên văn: nhóm này gom mọi lỗi phía server (kể cả lỗi CẤU HÌNH của
+        # litellm proxy như "No connected db.") — nuốt mất là không lần ra nổi.
+        return f"Hệ thống nhận diện gặp sự cố nội bộ, vui lòng thử lại sau. [{e}]"
     return str(e)
 
 
@@ -539,3 +558,39 @@ async def _rollup(mongo: AsyncMongo, batch_id, branch=None, counts: dict | None 
                       "status": status, "pending": pending, "counts": counts})
         if pending == 0:
             _last_batch_sse.pop(batch_id, None)  # lô xong — dọn cache, tránh rò rỉ dict
+
+
+# ── PURE smoke (`docker compose exec worker python -m app.worker.run_job`) ──
+
+def _smoke() -> None:
+    """Chỉ soi _friendly_vlm_error — phần còn lại của file cần Mongo/S3/VLM nên
+    thuộc tầng E2E (app/scripts/smoke_e2e_doc_types.py)."""
+
+    class _GiaAPIError(litellm.APIError):
+        def __init__(self, msg):
+            self.message = msg
+            Exception.__init__(self, msg)
+
+        def __str__(self):
+            return self.message
+
+    m = _friendly_vlm_error(Exception("litellm.APIConnectionError: Connection error."))
+    assert "Không kết nối được" in m, f"KILL [1] lỗi mạng thật: {m}"
+    m = _friendly_vlm_error(Exception("[Errno 111] Connection refused"))
+    assert "Không kết nối được" in m, f"KILL [2] connection refused: {m}"
+
+    # Ca đã cắn thật (2026-08-18): litellm proxy thiếu DB trả 400 "No connected db."
+    # Chuỗi con "connect" khiến nó bị dán nhãn lỗi mạng → truy sai hướng nửa buổi.
+    m = _friendly_vlm_error(_GiaAPIError('{"error":{"message":"No connected db.",'
+                                         '"type":"no_db_connection"}}'))
+    assert "Không kết nối được" not in m, f"KILL [3] 'No connected db' KHÔNG phải lỗi mạng: {m}"
+    assert "No connected db" in m, f"KILL [4] phải giữ nguyên văn để còn lần ra: {m}"
+
+    m = _friendly_vlm_error(Exception("Chuyện lạ chưa từng gặp"))
+    assert m == "Chuyện lạ chưa từng gặp", f"KILL [5] lỗi lạ giữ nguyên văn: {m}"
+
+    print("run_job PURE: 5 KILL ✓")
+
+
+if __name__ == "__main__":
+    _smoke()
