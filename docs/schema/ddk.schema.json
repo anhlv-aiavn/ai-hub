@@ -1,0 +1,368 @@
+{
+  "type": "object",
+  "properties": {
+    "Đơn đăng ký": {
+      "type": "object",
+      "properties": {
+        "Thông tin đơn": {
+          "type": "object",
+          "properties": {
+            "Kính gửi": {
+              "type": "string"
+            },
+            "Địa danh": {
+              "type": "string"
+            },
+            "Ngày ký": {
+              "type": "string",
+              "description": "Chuẩn hoá về \"dd/mm/yyyy\" khi đọc được (nhận cả dạng \"ngày 10 tháng 8 năm 2026\"). Ô bỏ trống trên giấy → \"\". Không nhận dạng được → GIỮ NGUYÊN VĂN chữ trên giấy, KHÔNG phải chuỗi rỗng."
+            },
+            "Người kê khai": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Kính gửi",
+            "Địa danh",
+            "Ngày ký",
+            "Người kê khai"
+          ],
+          "additionalProperties": false
+        },
+        "Người sử dụng đất": {
+          "type": "object",
+          "properties": {
+            "Họ và tên": {
+              "type": "string"
+            },
+            "Giấy tờ nhân thân": {
+              "type": "string",
+              "description": "Chuẩn hoá về dãy số trần 9 (CMND) hoặc 12 (CCCD) chữ số, bỏ dấu phân nhóm; nhặt được cả khi người viết ghi thêm chữ quanh số. Không ra đúng 9/12 số → GIỮ NGUYÊN VĂN. Giá trị không đúng 9/12 số là tín hiệu cần hậu kiểm, KHÔNG được tự sửa cho đủ."
+            },
+            "Địa chỉ": {
+              "type": "string"
+            },
+            "Điện thoại": {
+              "type": "string"
+            },
+            "Hộp thư điện tử": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Họ và tên",
+            "Giấy tờ nhân thân",
+            "Địa chỉ",
+            "Điện thoại",
+            "Hộp thư điện tử"
+          ],
+          "additionalProperties": false
+        },
+        "Thửa đất": {
+          "type": "object",
+          "properties": {
+            "Thửa đất số": {
+              "type": "string"
+            },
+            "Tờ bản đồ số": {
+              "type": "string"
+            },
+            "Địa chỉ": {
+              "type": "string"
+            },
+            "Diện tích": {
+              "type": "string",
+              "description": "Chuẩn hoá về số thập phân dấu chấm, bỏ đơn vị (\"120,5 m²\" → \"120.5\"). Không parse được → giữ nguyên văn."
+            },
+            "Sử dụng chung": {
+              "type": "string"
+            },
+            "Sử dụng riêng": {
+              "type": "string"
+            },
+            "Mục đích sử dụng": {
+              "type": "string"
+            },
+            "Từ thời điểm": {
+              "type": "string"
+            },
+            "Thời hạn đề nghị": {
+              "type": "string"
+            },
+            "Nguồn gốc sử dụng": {
+              "type": "string"
+            },
+            "Quyền với thửa liền kề": {
+              "type": "object",
+              "properties": {
+                "Thửa số": {
+                  "type": "string"
+                },
+                "Tờ bản đồ số": {
+                  "type": "string"
+                },
+                "Của": {
+                  "type": "string"
+                },
+                "Nội dung": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "Thửa số",
+                "Tờ bản đồ số",
+                "Của",
+                "Nội dung"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "Thửa đất số",
+            "Tờ bản đồ số",
+            "Địa chỉ",
+            "Diện tích",
+            "Sử dụng chung",
+            "Sử dụng riêng",
+            "Mục đích sử dụng",
+            "Từ thời điểm",
+            "Thời hạn đề nghị",
+            "Nguồn gốc sử dụng",
+            "Quyền với thửa liền kề"
+          ],
+          "additionalProperties": false
+        },
+        "Nhà ở, công trình xây dựng": {
+          "type": "object",
+          "properties": {
+            "Loại": {
+              "type": "string"
+            },
+            "Diện tích xây dựng": {
+              "type": "string",
+              "description": "Chuẩn hoá về số thập phân dấu chấm, bỏ đơn vị (\"120,5 m²\" → \"120.5\"). Không parse được → giữ nguyên văn."
+            },
+            "Diện tích sàn": {
+              "type": "string",
+              "description": "Chuẩn hoá về số thập phân dấu chấm, bỏ đơn vị (\"120,5 m²\" → \"120.5\"). Không parse được → giữ nguyên văn."
+            },
+            "Sở hữu chung": {
+              "type": "string"
+            },
+            "Sở hữu riêng": {
+              "type": "string"
+            },
+            "Số tầng": {
+              "type": "string"
+            },
+            "Số tầng nổi": {
+              "type": "string"
+            },
+            "Số tầng hầm": {
+              "type": "string"
+            },
+            "Nguồn gốc": {
+              "type": "string"
+            },
+            "Năm hoàn thành xây dựng": {
+              "type": "string"
+            },
+            "Thời hạn sở hữu đến": {
+              "type": "string"
+            },
+            "Cam kết đủ điều kiện tồn tại": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Loại",
+            "Diện tích xây dựng",
+            "Diện tích sàn",
+            "Sở hữu chung",
+            "Sở hữu riêng",
+            "Số tầng",
+            "Số tầng nổi",
+            "Số tầng hầm",
+            "Nguồn gốc",
+            "Năm hoàn thành xây dựng",
+            "Thời hạn sở hữu đến",
+            "Cam kết đủ điều kiện tồn tại"
+          ],
+          "additionalProperties": false
+        },
+        "Đề nghị": {
+          "type": "object",
+          "properties": {
+            "Đăng ký đất đai, tài sản": {
+              "type": "string"
+            },
+            "Cấp Giấy chứng nhận": {
+              "type": "string"
+            },
+            "Ghi nợ tiền sử dụng đất": {
+              "type": "string"
+            },
+            "Đề nghị khác": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Đăng ký đất đai, tài sản",
+            "Cấp Giấy chứng nhận",
+            "Ghi nợ tiền sử dụng đất",
+            "Đề nghị khác"
+          ],
+          "additionalProperties": false
+        },
+        "Giấy tờ nộp kèm": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "Người sử dụng chung": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "Tên": {
+                "type": "string"
+              },
+              "Năm sinh": {
+                "type": "string"
+              },
+              "Loại giấy tờ": {
+                "type": "string"
+              },
+              "Số giấy tờ": {
+                "type": "string",
+                "description": "Chuẩn hoá về dãy số trần 9 (CMND) hoặc 12 (CCCD) chữ số, bỏ dấu phân nhóm; nhặt được cả khi người viết ghi thêm chữ quanh số. Không ra đúng 9/12 số → GIỮ NGUYÊN VĂN. Giá trị không đúng 9/12 số là tín hiệu cần hậu kiểm, KHÔNG được tự sửa cho đủ."
+              },
+              "Ngày cấp": {
+                "type": "string",
+                "description": "Chuẩn hoá về \"dd/mm/yyyy\" khi đọc được (nhận cả dạng \"ngày 10 tháng 8 năm 2026\"). Ô bỏ trống trên giấy → \"\". Không nhận dạng được → GIỮ NGUYÊN VĂN chữ trên giấy, KHÔNG phải chuỗi rỗng."
+              },
+              "Cơ quan cấp": {
+                "type": "string"
+              },
+              "Địa chỉ": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "Tên",
+              "Năm sinh",
+              "Loại giấy tờ",
+              "Số giấy tờ",
+              "Ngày cấp",
+              "Cơ quan cấp",
+              "Địa chỉ"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "Danh sách thửa": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "Thửa đất số": {
+                "type": "string"
+              },
+              "Tờ bản đồ số": {
+                "type": "string"
+              },
+              "Địa chỉ": {
+                "type": "string"
+              },
+              "Diện tích": {
+                "type": "string",
+                "description": "Chuẩn hoá về số thập phân dấu chấm, bỏ đơn vị (\"120,5 m²\" → \"120.5\"). Không parse được → giữ nguyên văn."
+              },
+              "Mục đích sử dụng": {
+                "type": "string"
+              },
+              "Thời hạn sử dụng": {
+                "type": "string"
+              },
+              "Nguồn gốc sử dụng": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "Thửa đất số",
+              "Tờ bản đồ số",
+              "Địa chỉ",
+              "Diện tích",
+              "Mục đích sử dụng",
+              "Thời hạn sử dụng",
+              "Nguồn gốc sử dụng"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "Danh sách tài sản": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "Loại": {
+                "type": "string"
+              },
+              "Diện tích xây dựng": {
+                "type": "string",
+                "description": "Chuẩn hoá về số thập phân dấu chấm, bỏ đơn vị (\"120,5 m²\" → \"120.5\"). Không parse được → giữ nguyên văn."
+              },
+              "Diện tích sàn": {
+                "type": "string",
+                "description": "Chuẩn hoá về số thập phân dấu chấm, bỏ đơn vị (\"120,5 m²\" → \"120.5\"). Không parse được → giữ nguyên văn."
+              },
+              "Hình thức sở hữu": {
+                "type": "string"
+              },
+              "Số tầng": {
+                "type": "string"
+              },
+              "Nguồn gốc": {
+                "type": "string"
+              },
+              "Thời hạn sở hữu": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "Loại",
+              "Diện tích xây dựng",
+              "Diện tích sàn",
+              "Hình thức sở hữu",
+              "Số tầng",
+              "Nguồn gốc",
+              "Thời hạn sở hữu"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "Thông tin đơn",
+        "Người sử dụng đất",
+        "Thửa đất",
+        "Nhà ở, công trình xây dựng",
+        "Đề nghị",
+        "Giấy tờ nộp kèm",
+        "Người sử dụng chung",
+        "Danh sách thửa",
+        "Danh sách tài sản"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "Đơn đăng ký"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-hub.tumiki.org/schema/ddk.schema.json",
+  "title": "Đơn đăng ký (ddk)",
+  "description": "Cấu trúc `result` của một bản ghi trích xuất, loại giấy `ddk` — Đơn đăng ký. Sinh tự động từ prompt đang chạy bằng app/scripts/xuat_schema.py; đừng sửa tay."
+}

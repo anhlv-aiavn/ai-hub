@@ -1,0 +1,46 @@
+{
+  "Giấy xác nhận": {
+    "Thông tin văn bản": {
+      "Cơ quan cấp": "",
+      "Số văn bản": "",
+      "Địa danh": "",
+      "Ngày ký": "",
+      "Người ký": "",
+      "Chức danh": "",
+      "Số vào sổ ĐKĐĐ": ""
+    },
+    "Người sử dụng đất": [
+      {
+        "Họ và tên": "",
+        "Loại giấy tờ": "",
+        "Số giấy tờ": "",
+        "Ngày cấp": "",
+        "Nơi cấp": "",
+        "Địa chỉ thường trú": ""
+      }
+    ],
+    "Thửa đất": {
+      "Thửa đất số": "",
+      "Tờ bản đồ số": "",
+      "Địa chỉ": "",
+      "Diện tích": "",
+      "Sử dụng riêng": "",
+      "Sử dụng chung": "",
+      "Mục đích sử dụng": "",
+      "Từ thời điểm": "",
+      "Thời hạn đề nghị": "",
+      "Nguồn gốc sử dụng": ""
+    },
+    "Xác nhận của UBND": {
+      "Nguồn gốc kê khai": "",
+      "Nguồn gốc sử dụng đất": "",
+      "Thời điểm sử dụng đất vào mục đích": "",
+      "Thời điểm tạo lập tài sản": "",
+      "Tình trạng tranh chấp": "",
+      "Sự phù hợp với quy hoạch": "",
+      "Nội dung khác": ""
+    },
+    "Giấy tờ đã nộp": [],
+    "Ghi chú": []
+  }
+}

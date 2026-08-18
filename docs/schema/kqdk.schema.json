@@ -1,0 +1,198 @@
+{
+  "type": "object",
+  "properties": {
+    "Giấy xác nhận": {
+      "type": "object",
+      "properties": {
+        "Thông tin văn bản": {
+          "type": "object",
+          "properties": {
+            "Cơ quan cấp": {
+              "type": "string"
+            },
+            "Số văn bản": {
+              "type": "string"
+            },
+            "Địa danh": {
+              "type": "string"
+            },
+            "Ngày ký": {
+              "type": "string",
+              "description": "Chuẩn hoá về \"dd/mm/yyyy\" khi đọc được (nhận cả dạng \"ngày 10 tháng 8 năm 2026\"). Ô bỏ trống trên giấy → \"\". Không nhận dạng được → GIỮ NGUYÊN VĂN chữ trên giấy, KHÔNG phải chuỗi rỗng."
+            },
+            "Người ký": {
+              "type": "string"
+            },
+            "Chức danh": {
+              "type": "string"
+            },
+            "Số vào sổ ĐKĐĐ": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Cơ quan cấp",
+            "Số văn bản",
+            "Địa danh",
+            "Ngày ký",
+            "Người ký",
+            "Chức danh",
+            "Số vào sổ ĐKĐĐ"
+          ],
+          "additionalProperties": false
+        },
+        "Người sử dụng đất": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "Họ và tên": {
+                "type": "string"
+              },
+              "Loại giấy tờ": {
+                "type": "string"
+              },
+              "Số giấy tờ": {
+                "type": "string",
+                "description": "Chuẩn hoá về dãy số trần 9 (CMND) hoặc 12 (CCCD) chữ số, bỏ dấu phân nhóm; nhặt được cả khi người viết ghi thêm chữ quanh số. Không ra đúng 9/12 số → GIỮ NGUYÊN VĂN. Giá trị không đúng 9/12 số là tín hiệu cần hậu kiểm, KHÔNG được tự sửa cho đủ."
+              },
+              "Ngày cấp": {
+                "type": "string",
+                "description": "Chuẩn hoá về \"dd/mm/yyyy\" khi đọc được (nhận cả dạng \"ngày 10 tháng 8 năm 2026\"). Ô bỏ trống trên giấy → \"\". Không nhận dạng được → GIỮ NGUYÊN VĂN chữ trên giấy, KHÔNG phải chuỗi rỗng."
+              },
+              "Nơi cấp": {
+                "type": "string"
+              },
+              "Địa chỉ thường trú": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "Họ và tên",
+              "Loại giấy tờ",
+              "Số giấy tờ",
+              "Ngày cấp",
+              "Nơi cấp",
+              "Địa chỉ thường trú"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "Thửa đất": {
+          "type": "object",
+          "properties": {
+            "Thửa đất số": {
+              "type": "string"
+            },
+            "Tờ bản đồ số": {
+              "type": "string"
+            },
+            "Địa chỉ": {
+              "type": "string"
+            },
+            "Diện tích": {
+              "type": "string",
+              "description": "Chuẩn hoá về số thập phân dấu chấm, bỏ đơn vị (\"120,5 m²\" → \"120.5\"). Không parse được → giữ nguyên văn."
+            },
+            "Sử dụng riêng": {
+              "type": "string"
+            },
+            "Sử dụng chung": {
+              "type": "string"
+            },
+            "Mục đích sử dụng": {
+              "type": "string"
+            },
+            "Từ thời điểm": {
+              "type": "string"
+            },
+            "Thời hạn đề nghị": {
+              "type": "string"
+            },
+            "Nguồn gốc sử dụng": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Thửa đất số",
+            "Tờ bản đồ số",
+            "Địa chỉ",
+            "Diện tích",
+            "Sử dụng riêng",
+            "Sử dụng chung",
+            "Mục đích sử dụng",
+            "Từ thời điểm",
+            "Thời hạn đề nghị",
+            "Nguồn gốc sử dụng"
+          ],
+          "additionalProperties": false
+        },
+        "Xác nhận của UBND": {
+          "type": "object",
+          "properties": {
+            "Nguồn gốc kê khai": {
+              "type": "string"
+            },
+            "Nguồn gốc sử dụng đất": {
+              "type": "string"
+            },
+            "Thời điểm sử dụng đất vào mục đích": {
+              "type": "string"
+            },
+            "Thời điểm tạo lập tài sản": {
+              "type": "string"
+            },
+            "Tình trạng tranh chấp": {
+              "type": "string"
+            },
+            "Sự phù hợp với quy hoạch": {
+              "type": "string"
+            },
+            "Nội dung khác": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Nguồn gốc kê khai",
+            "Nguồn gốc sử dụng đất",
+            "Thời điểm sử dụng đất vào mục đích",
+            "Thời điểm tạo lập tài sản",
+            "Tình trạng tranh chấp",
+            "Sự phù hợp với quy hoạch",
+            "Nội dung khác"
+          ],
+          "additionalProperties": false
+        },
+        "Giấy tờ đã nộp": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "Ghi chú": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "Thông tin văn bản",
+        "Người sử dụng đất",
+        "Thửa đất",
+        "Xác nhận của UBND",
+        "Giấy tờ đã nộp",
+        "Ghi chú"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "Giấy xác nhận"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-hub.tumiki.org/schema/kqdk.schema.json",
+  "title": "Giấy xác nhận đăng ký (kqdk)",
+  "description": "Cấu trúc `result` của một bản ghi trích xuất, loại giấy `kqdk` — Giấy xác nhận đăng ký. Sinh tự động từ prompt đang chạy bằng app/scripts/xuat_schema.py; đừng sửa tay."
+}

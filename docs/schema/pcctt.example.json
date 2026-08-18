@@ -1,0 +1,24 @@
+{
+  "Phiếu thu thập": {
+    "Người sử dụng đất": {
+      "Họ và tên người đại diện": "",
+      "Loại giấy tờ": "",
+      "Số giấy tờ": "",
+      "Ngày cấp": "",
+      "Nơi cấp": "",
+      "Địa chỉ": ""
+    },
+    "Thửa đất": {
+      "Thửa đất số": "",
+      "Tờ bản đồ số": "",
+      "Địa chỉ": "",
+      "Diện tích": "",
+      "Mục đích sử dụng": "",
+      "Nguồn gốc sử dụng": ""
+    },
+    "Giấy tờ nộp kèm": [],
+    "Địa danh": "",
+    "Ngày lập": "",
+    "Người cung cấp thông tin": ""
+  }
+}

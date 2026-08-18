@@ -1,0 +1,67 @@
+{
+  "Đăng ký": [
+    {
+      "Giấy chứng nhận": {
+        "Số phát hành": "",
+        "Mã vạch": "",
+        "Số vào sổ": "",
+        "Ngày cấp": ""
+      },
+      "Chủ sử dụng": [
+        {
+          "Loại đối tượng": "",
+          "Tên chủ": "",
+          "Năm sinh": "",
+          "Giới tính": "",
+          "Loại giấy tờ": "",
+          "Số giấy tờ": "",
+          "Ngày cấp định danh": "",
+          "Nơi cấp": "",
+          "Địa chỉ": ""
+        }
+      ],
+      "Thửa đất": [
+        {
+          "Số thứ tự thửa": "",
+          "Số hiệu tờ bản đồ": "",
+          "Diện tích": "",
+          "Địa chỉ": "",
+          "Mục đích sử dụng": [
+            {
+              "Loại mục đích": "",
+              "Diện tích": "",
+              "Sử dụng chung": "",
+              "Thời hạn sử dụng": "",
+              "Ngày hết hạn sử dụng": "",
+              "Nguồn gốc chi tiết": "",
+              "Mã MĐSD": "",
+              "MĐSD chuẩn": ""
+            }
+          ]
+        }
+      ],
+      "Thông tin nhà ở": [
+        {
+          "Loại tài sản gắn liền với đất": "",
+          "Khu nhà chung cư, nhà hỗn hợp": "",
+          "Địa chỉ": "",
+          "Nhà chung cư": "",
+          "Số căn hộ": "",
+          "Diện tích xây dựng": "",
+          "Diện tích sàn": "",
+          "Hình thức sở hữu": "",
+          "Thời hạn sở hữu": "",
+          "Cấp hạng": "",
+          "Kết cấu": "",
+          "Số tầng": ""
+        }
+      ],
+      "Biến động": [
+        {
+          "Thời gian": "",
+          "Nội dung biến động": ""
+        }
+      ]
+    }
+  ]
+}

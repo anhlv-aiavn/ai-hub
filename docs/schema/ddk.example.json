@@ -1,0 +1,89 @@
+{
+  "Đơn đăng ký": {
+    "Thông tin đơn": {
+      "Kính gửi": "",
+      "Địa danh": "",
+      "Ngày ký": "",
+      "Người kê khai": ""
+    },
+    "Người sử dụng đất": {
+      "Họ và tên": "",
+      "Giấy tờ nhân thân": "",
+      "Địa chỉ": "",
+      "Điện thoại": "",
+      "Hộp thư điện tử": ""
+    },
+    "Thửa đất": {
+      "Thửa đất số": "",
+      "Tờ bản đồ số": "",
+      "Địa chỉ": "",
+      "Diện tích": "",
+      "Sử dụng chung": "",
+      "Sử dụng riêng": "",
+      "Mục đích sử dụng": "",
+      "Từ thời điểm": "",
+      "Thời hạn đề nghị": "",
+      "Nguồn gốc sử dụng": "",
+      "Quyền với thửa liền kề": {
+        "Thửa số": "",
+        "Tờ bản đồ số": "",
+        "Của": "",
+        "Nội dung": ""
+      }
+    },
+    "Nhà ở, công trình xây dựng": {
+      "Loại": "",
+      "Diện tích xây dựng": "",
+      "Diện tích sàn": "",
+      "Sở hữu chung": "",
+      "Sở hữu riêng": "",
+      "Số tầng": "",
+      "Số tầng nổi": "",
+      "Số tầng hầm": "",
+      "Nguồn gốc": "",
+      "Năm hoàn thành xây dựng": "",
+      "Thời hạn sở hữu đến": "",
+      "Cam kết đủ điều kiện tồn tại": ""
+    },
+    "Đề nghị": {
+      "Đăng ký đất đai, tài sản": "",
+      "Cấp Giấy chứng nhận": "",
+      "Ghi nợ tiền sử dụng đất": "",
+      "Đề nghị khác": ""
+    },
+    "Giấy tờ nộp kèm": [],
+    "Người sử dụng chung": [
+      {
+        "Tên": "",
+        "Năm sinh": "",
+        "Loại giấy tờ": "",
+        "Số giấy tờ": "",
+        "Ngày cấp": "",
+        "Cơ quan cấp": "",
+        "Địa chỉ": ""
+      }
+    ],
+    "Danh sách thửa": [
+      {
+        "Thửa đất số": "",
+        "Tờ bản đồ số": "",
+        "Địa chỉ": "",
+        "Diện tích": "",
+        "Mục đích sử dụng": "",
+        "Thời hạn sử dụng": "",
+        "Nguồn gốc sử dụng": ""
+      }
+    ],
+    "Danh sách tài sản": [
+      {
+        "Loại": "",
+        "Diện tích xây dựng": "",
+        "Diện tích sàn": "",
+        "Hình thức sở hữu": "",
+        "Số tầng": "",
+        "Nguồn gốc": "",
+        "Thời hạn sở hữu": ""
+      }
+    ]
+  }
+}

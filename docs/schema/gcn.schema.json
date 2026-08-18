@@ -1,0 +1,261 @@
+{
+  "type": "object",
+  "properties": {
+    "Đăng ký": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "Giấy chứng nhận": {
+            "type": "object",
+            "properties": {
+              "Số phát hành": {
+                "type": "string"
+              },
+              "Mã vạch": {
+                "type": "string"
+              },
+              "Số vào sổ": {
+                "type": "string"
+              },
+              "Ngày cấp": {
+                "type": "string",
+                "description": "Chuẩn hoá về \"dd/mm/yyyy\" khi đọc được (nhận cả dạng \"ngày 10 tháng 8 năm 2026\"). Ô bỏ trống trên giấy → \"\". Không nhận dạng được → GIỮ NGUYÊN VĂN chữ trên giấy, KHÔNG phải chuỗi rỗng."
+              }
+            },
+            "required": [
+              "Số phát hành",
+              "Mã vạch",
+              "Số vào sổ",
+              "Ngày cấp"
+            ],
+            "additionalProperties": false
+          },
+          "Chủ sử dụng": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "Loại đối tượng": {
+                  "type": "string"
+                },
+                "Tên chủ": {
+                  "type": "string"
+                },
+                "Năm sinh": {
+                  "type": "string"
+                },
+                "Giới tính": {
+                  "type": "string"
+                },
+                "Loại giấy tờ": {
+                  "type": "string"
+                },
+                "Số giấy tờ": {
+                  "type": "string",
+                  "description": "Chuẩn hoá về dãy số trần 9 (CMND) hoặc 12 (CCCD) chữ số, bỏ dấu phân nhóm; nhặt được cả khi người viết ghi thêm chữ quanh số. Không ra đúng 9/12 số → GIỮ NGUYÊN VĂN. Giá trị không đúng 9/12 số là tín hiệu cần hậu kiểm, KHÔNG được tự sửa cho đủ."
+                },
+                "Ngày cấp định danh": {
+                  "type": "string",
+                  "description": "Chuẩn hoá về \"dd/mm/yyyy\" khi đọc được (nhận cả dạng \"ngày 10 tháng 8 năm 2026\"). Ô bỏ trống trên giấy → \"\". Không nhận dạng được → GIỮ NGUYÊN VĂN chữ trên giấy, KHÔNG phải chuỗi rỗng."
+                },
+                "Nơi cấp": {
+                  "type": "string"
+                },
+                "Địa chỉ": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "Loại đối tượng",
+                "Tên chủ",
+                "Năm sinh",
+                "Giới tính",
+                "Loại giấy tờ",
+                "Số giấy tờ",
+                "Ngày cấp định danh",
+                "Nơi cấp",
+                "Địa chỉ"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "Thửa đất": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "Số thứ tự thửa": {
+                  "type": "string"
+                },
+                "Số hiệu tờ bản đồ": {
+                  "type": "string"
+                },
+                "Diện tích": {
+                  "type": "string",
+                  "description": "Chuẩn hoá về số thập phân dấu chấm, bỏ đơn vị (\"120,5 m²\" → \"120.5\"). Không parse được → giữ nguyên văn."
+                },
+                "Địa chỉ": {
+                  "type": "string"
+                },
+                "Mục đích sử dụng": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "Loại mục đích": {
+                        "type": "string"
+                      },
+                      "Diện tích": {
+                        "type": "string",
+                        "description": "Chuẩn hoá về số thập phân dấu chấm, bỏ đơn vị (\"120,5 m²\" → \"120.5\"). Không parse được → giữ nguyên văn."
+                      },
+                      "Sử dụng chung": {
+                        "type": "string"
+                      },
+                      "Thời hạn sử dụng": {
+                        "type": "string"
+                      },
+                      "Ngày hết hạn sử dụng": {
+                        "type": "string",
+                        "description": "Chuẩn hoá về \"dd/mm/yyyy\" khi đọc được (nhận cả dạng \"ngày 10 tháng 8 năm 2026\"). Ô bỏ trống trên giấy → \"\". Không nhận dạng được → GIỮ NGUYÊN VĂN chữ trên giấy, KHÔNG phải chuỗi rỗng."
+                      },
+                      "Nguồn gốc chi tiết": {
+                        "type": "string"
+                      },
+                      "Mã MĐSD": {
+                        "type": [
+                          "integer",
+                          "string"
+                        ],
+                        "description": "Mã số danh mục. Không map được → \"\"."
+                      },
+                      "MĐSD chuẩn": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "Loại mục đích",
+                      "Diện tích",
+                      "Sử dụng chung",
+                      "Thời hạn sử dụng",
+                      "Ngày hết hạn sử dụng",
+                      "Nguồn gốc chi tiết",
+                      "Mã MĐSD",
+                      "MĐSD chuẩn"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "Số thứ tự thửa",
+                "Số hiệu tờ bản đồ",
+                "Diện tích",
+                "Địa chỉ",
+                "Mục đích sử dụng"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "Thông tin nhà ở": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "Loại tài sản gắn liền với đất": {
+                  "type": "string"
+                },
+                "Khu nhà chung cư, nhà hỗn hợp": {
+                  "type": "string"
+                },
+                "Địa chỉ": {
+                  "type": "string"
+                },
+                "Nhà chung cư": {
+                  "type": "string"
+                },
+                "Số căn hộ": {
+                  "type": "string"
+                },
+                "Diện tích xây dựng": {
+                  "type": "string",
+                  "description": "Chuẩn hoá về số thập phân dấu chấm, bỏ đơn vị (\"120,5 m²\" → \"120.5\"). Không parse được → giữ nguyên văn."
+                },
+                "Diện tích sàn": {
+                  "type": "string",
+                  "description": "Chuẩn hoá về số thập phân dấu chấm, bỏ đơn vị (\"120,5 m²\" → \"120.5\"). Không parse được → giữ nguyên văn."
+                },
+                "Hình thức sở hữu": {
+                  "type": "string"
+                },
+                "Thời hạn sở hữu": {
+                  "type": "string"
+                },
+                "Cấp hạng": {
+                  "type": "string"
+                },
+                "Kết cấu": {
+                  "type": "string"
+                },
+                "Số tầng": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "Loại tài sản gắn liền với đất",
+                "Khu nhà chung cư, nhà hỗn hợp",
+                "Địa chỉ",
+                "Nhà chung cư",
+                "Số căn hộ",
+                "Diện tích xây dựng",
+                "Diện tích sàn",
+                "Hình thức sở hữu",
+                "Thời hạn sở hữu",
+                "Cấp hạng",
+                "Kết cấu",
+                "Số tầng"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "Biến động": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "Thời gian": {
+                  "type": "string"
+                },
+                "Nội dung biến động": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "Thời gian",
+                "Nội dung biến động"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "Giấy chứng nhận",
+          "Chủ sử dụng",
+          "Thửa đất",
+          "Thông tin nhà ở",
+          "Biến động"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "Đăng ký"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-hub.tumiki.org/schema/gcn.schema.json",
+  "title": "Giấy chứng nhận (gcn)",
+  "description": "Cấu trúc `result` của một bản ghi trích xuất, loại giấy `gcn` — Giấy chứng nhận. Sinh tự động từ prompt đang chạy bằng app/scripts/xuat_schema.py; đừng sửa tay."
+}
