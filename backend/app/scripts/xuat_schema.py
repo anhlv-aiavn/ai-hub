@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import re
+import zipfile
 from typing import Any
 
 from app import doc_prompts, doc_types
@@ -250,7 +251,33 @@ def xuat(thu_muc: str) -> list[str]:
     with open(d, "w", encoding="utf-8") as f:
         f.write(_readme())
     ra.append(d)
+    ra.append(dong_zip(thu_muc))
     return ra
+
+
+# Ngày giờ CỐ ĐỊNH trong zip: zip lưu mtime từng file nên chạy lại cùng nội dung
+# vẫn ra bytes khác → git báo thay đổi giả, và không biết zip có khớp thư mục
+# hay không. Cố định thì zip là hàm thuần của nội dung.
+_NGAY_ZIP = (2026, 1, 1, 0, 0, 0)
+
+
+def dong_zip(thu_muc: str) -> str:
+    """Đóng gói thư mục schema thành <thu_muc>.zip — đây là thứ THẬT SỰ gửi cho
+    đối tác. Sinh cùng lúc với schema để không bao giờ lệch: đã một lần zip còn
+    giữ ba trường đã bỏ, mà nhìn thư mục thì thấy đúng."""
+    dich = os.path.join(os.path.dirname(os.path.abspath(thu_muc)), "schema.zip")
+    ten_goc = os.path.basename(os.path.abspath(thu_muc))
+    with zipfile.ZipFile(dich, "w", zipfile.ZIP_DEFLATED) as z:
+        for ten in sorted(os.listdir(thu_muc)):
+            if ten.startswith(".") or ten.endswith(".zip"):
+                continue
+            with open(os.path.join(thu_muc, ten), "rb") as f:
+                noi_dung = f.read()
+            info = zipfile.ZipInfo(f"{ten_goc}/{ten}", date_time=_NGAY_ZIP)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            z.writestr(info, noi_dung)
+    return dich
 
 
 def _smoke() -> None:
@@ -301,6 +328,26 @@ def _smoke() -> None:
     assert md["properties"][KEY_MA]["type"] == ["integer", "string"], \
         "KILL [19] Mã MĐSD là số, nhưng không map được thì mdsdd trả rỗng"
 
+    # zip phải là hàm THUẦN của nội dung: chạy hai lần ra bytes y hệt, nếu không
+    # thì mỗi lần sinh lại git báo thay đổi giả và không ai biết zip có còn khớp
+    # thư mục hay không.
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        d = os.path.join(tmp, "schema")
+        os.makedirs(d)
+        with open(os.path.join(d, "a.json"), "w", encoding="utf-8") as f:
+            f.write("{}")
+        z1 = open(dong_zip(d), "rb").read()
+        z2 = open(dong_zip(d), "rb").read()
+        assert z1 == z2, "KILL [20] zip phải tất định (đóng băng mtime)"
+        import zipfile as _z
+        with _z.ZipFile(os.path.join(tmp, "schema.zip")) as zf:
+            assert zf.namelist() == ["schema/a.json"], \
+                f"KILL [21] zip giữ đúng 1 cấp thư mục, không kèm rác: {zf.namelist()}"
+        # Chạy lại lần nữa không được nhét chính file zip vào trong zip.
+        assert "schema.zip" not in " ".join(_z.ZipFile(dong_zip(d)).namelist()), \
+            "KILL [22] không tự đóng gói chính nó"
+
     # Khoá bọc ngoài phải khớp thứ worker thật đi tìm khi đọc kết quả ra.
     assert list(khung_tu_prompt(_prompt("pcctt")))[0] == "Phiếu thu thập", \
         "KILL [15] khoá bọc ngoài pcctt lệch với doc_types"
@@ -308,7 +355,7 @@ def _smoke() -> None:
         "KILL [16] khoá bọc ngoài ddk lệch với doc_types"
     assert list(khung_tu_prompt(_prompt("kqdk")))[0] == "Giấy xác nhận", \
         "KILL [17] khoá bọc ngoài kqdk lệch với doc_types"
-    print("xuat_schema PURE: 19 KILL ✓")
+    print("xuat_schema PURE: 22 KILL ✓")
 
 
 if __name__ == "__main__":

@@ -219,3 +219,29 @@ Vì sao phạt lặp nằm ở LƯỢT HAI chứ không lượt đầu — đo h
   - smoke nhả 30 dòng traceback cho lỗi sai mật khẩu.
   → Nguyên tắc rút ra: **thông báo/kết luận sai còn tệ hơn không có**. Thấy loại này thì sửa, kèm KILL cho chính nó.
 - **`100% độ điền` không có nghĩa là đúng** — nó chỉ đếm ô khác rỗng. Lần đầu chạy pcctt ra 100% trong khi 3/4 trường kiểm được của `1319332` đều sai. Luôn mở `--json` đối chiếu ảnh.
+
+---
+
+## 10. Sau khi merge vào `anhlv` (2026-08-19)
+
+Nhánh `doc-types-ddk-kqdk-pcctt` đã fast-forward vào `anhlv` và push (`0978466`).
+
+**Thay đổi theo yêu cầu khách, sau khi đã đo 90 hồ sơ:**
+- `pcctt`: bỏ `Người sử dụng đất.Loại giấy tờ`.
+- `ddk`: bỏ `Thông tin đơn.Địa danh` và `Thông tin đơn.Người kê khai`. Cột `Loại giấy tờ` của bảng Mẫu 15a GIỮ NGUYÊN — trường khác, và vừa sửa xong lỗi lệch cột ở đó.
+- `kqdk`: tạm tắt bằng cờ `bat=False`, KHÔNG gỡ khỏi registry (gỡ thì `get()` rơi về GCN và đọc sai toàn bộ hồ sơ cũ). Đọc vẫn được: `hop_le(ma, tao_moi=False)`.
+- `_chuan_ngay`: ô ngày bỏ trống → `"07/2026"` thay vì `""`. **Bên nhận sẽ gặp cả hai độ dài 10 và 7 ký tự.**
+
+**Tính năng mới: tạm dừng / chạy tiếp lô.** Cờ `paused` ở doc lô, chặn ở chỗ worker nhận việc. CÓ BỐN đường nhận việc phải chừa (round-robin, claim không giới hạn, **reclaim doc treo**, **claim import_job**) — thiếu một là lô vẫn chạy mà log trông bình thường. `_dieu_kien_claim` là hàm thuần, 7 KILL. Hồ sơ đang chạy dở không bị huỷ; worker nhận cờ sau ≤3s.
+
+**Công cụ đã có** (đều `--tu-kiem` chạy không cần hạ tầng):
+| lệnh | dùng để |
+|---|---|
+| `app.scripts.smoke_e2e_doc_types --truc-tiep --loai X <pdf> --json -` | chạy 1 tệp, in JSON ra màn hình |
+| `app.scripts.soi_ket_qua <thư mục json>` | dò dấu hiệu bịa trên cả lô |
+| `app.scripts.doi_chieu --loai X <pdf> --ra a.html` | ảnh trang cạnh trường đã bóc |
+| `app.scripts.xuat_schema --ra docs/schema` | sinh schema + `docs/schema.zip` cho đối tác |
+
+**CHƯA LÀM — mapping ddk/pcctt vào bảng phẳng GCN.** `flatten_doc` đọc cứng `result["Đăng ký"]`, nên `ddk`/`pcctt` xuất CSV ra **một hàng với toàn bộ 23 cột dữ liệu rỗng** (không phải 0 hàng) — trông y như "bóc không được gì". Ảnh hưởng cả `/v1/gcn/rows`, `export.csv` và `export_job`. Mapping được phần lõi (Chủ sử dụng, Thửa đất, Mục đích sử dụng — và `mdsdd.py` gán được `Mã MĐSD` luôn); KHÔNG mapping được `Số phát hành`/`Số vào sổ`/`Mã vạch`/`Ngày cấp`/`Biến động` vì giấy chứng nhận chưa tồn tại. **Ba bẫy nếu map theo tên trường**: `Ngày cấp` của pcctt là ngày cấp CCCD (không phải ngày cấp sổ); `Ngày lập` là ngày điền phiếu; `Sở hữu chung` của ddk là DIỆN TÍCH (`"52"`) còn của GCN là CHỮ (`"Chung"`). Chờ khách chốt: cột `Ngày cấp` cho ddk/pcctt để trống hay lấy ngày trên tờ giấy.
+
+**Nợ kỹ thuật còn lại**: MinIO đích 502 nên đường API thật chưa chạy trọn lần nào; `/v1/dryrun` cứng GCN (không nhận `doc_type`); mật khẩu admin còn `admin123`; master key litellm đã lộ qua chat.

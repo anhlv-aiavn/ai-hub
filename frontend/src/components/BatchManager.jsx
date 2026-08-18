@@ -158,7 +158,9 @@ export default function BatchManager() {
                     <Icon name={isOpen ? "chevronDown" : "chevronRight"} size={13} /> User
                   </button>
                   <button type="button" className="ghost xs danger" disabled={unsafe}
-                    title={unsafe ? "Lô đang xử lý — chờ xong rồi xóa" : undefined}
+                    title={!unsafe ? undefined
+                      : b.paused ? "Lô đang tạm dừng — bấm Chạy tiếp cho xong rồi mới xóa được"
+                        : "Lô đang xử lý — chờ xong rồi xóa"}
                     onClick={() => setPendingDelete(b)}>
                     <Icon name="trash" size={13} /> Xóa
                   </button>
