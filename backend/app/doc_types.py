@@ -55,6 +55,11 @@ _ROLES_HO_SO = ("bieu_mau", "dinh_kem")
 _DETECT_MIN_GCN = int(os.getenv("DETECT_MIN_PAGES", "5"))
 _DETECT_MIN_HO_SO = int(os.getenv("DETECT_MIN_PAGES_HO_SO", "1"))
 
+# Cùng một thứ — SỐ CCCD/CMND — nhưng mỗi biểu mẫu in một tên khác: pcctt/kqdk
+# ghi "Số giấy tờ", ddk (Mẫu 15 mục 1b) ghi "Giấy tờ nhân thân". Gom vào một chỗ
+# vì đã có lần chuẩn hoá bắt mỗi tên đầu, khiến ddk lọt lưới hoàn toàn.
+_TEN_SO_GIAY_TO = ("Số giấy tờ", "Giấy tờ nhân thân")
+
 
 # ── Chuẩn hoá nhẹ cho biểu mẫu ──────────────────────────────────────────────
 
@@ -118,7 +123,7 @@ def _normalize_bieu_mau(node: Any) -> Any:
                     v = _chuan_ngay(v.strip())
                 elif "Diện tích" in k:
                     v = _chuan_dien_tich(v.strip())
-                elif "Số giấy tờ" in k:
+                elif any(t in k for t in _TEN_SO_GIAY_TO):
                     v = _chuan_so_giay_to(v.strip())
             out[k] = _normalize_bieu_mau(v)
         return out
@@ -459,7 +464,8 @@ def _smoke() -> None:
     # ── ddk: Mẫu 15 + phụ lục 15a/15b ───────────────────────────────────────
     recs = [{"page_indices": [0, 5], "result": {"Đơn đăng ký": {
         "Thông tin đơn": {"Ngày ký": "31.7.2026"},
-        "Người sử dụng đất": {"Họ và tên": "HOÀNG THĂNG LONG"},
+        "Người sử dụng đất": {"Họ và tên": "HOÀNG THĂNG LONG",
+                              "Giấy tờ nhân thân": "CCCD số 001 085 015 315"},
         "Thửa đất": {"Thửa đất số": "39", "Tờ bản đồ số": "393", "Diện tích": "74,375 m²"},
         "Người sử dụng chung": [{"Tên": "HOÀNG THĂNG LONG"}, {"Tên": "NGUYỄN THỊ HUYỀN"}],
         "Danh sách thửa": [{"Thửa đất số": "40", "Tờ bản đồ số": "393"}],
@@ -468,6 +474,10 @@ def _smoke() -> None:
     than = recs[0]["result"]["Đơn đăng ký"]
     assert than["Thông tin đơn"]["Ngày ký"] == "31/07/2026", f"KILL [16] ngày: {than}"
     assert than["Thửa đất"]["Diện tích"] == "74.375", f"KILL [17] diện tích: {than}"
+    # ddk gọi số CCCD là "Giấy tờ nhân thân" chứ không phải "Số giấy tờ" — đã có
+    # lần chuẩn hoá chỉ bắt tên sau, ddk lọt lưới 100%, smoke E2E báo 40% đúng dạng.
+    assert than["Người sử dụng đất"]["Giấy tờ nhân thân"] == "001085015315", \
+        f"KILL [17a] tên trường CCCD riêng của ddk vẫn phải qua chuẩn hoá: {than}"
 
     # Ngày dạng chữ trên biểu mẫu + ô ngày bỏ trống (gặp thật ở pcctt 1218602).
     assert _chuan_ngay("Trung Giã, ngày 10 tháng 8 năm 2026") == "10/08/2026", "KILL [16a] ngày chữ"
@@ -564,7 +574,7 @@ def _smoke() -> None:
     finally:
         chat_json = that
 
-    print("doc_types PURE: 42 KILL ✓")
+    print("doc_types PURE: 43 KILL ✓")
 
 
 if __name__ == "__main__":
