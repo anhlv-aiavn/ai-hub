@@ -26,7 +26,9 @@ import sys
 from collections import defaultdict
 from typing import Any
 
-_RE_NGAY = re.compile(r"^\d{2}/\d{2}/\d{4}$")
+# dd/mm/yyyy, HOẶC mm/yyyy khi người dân bỏ trống mỗi ô ngày — dạng thứ hai
+# là dữ liệu thật trên giấy, không phải lỗi bóc tách (xem _chuan_ngay).
+_RE_NGAY = re.compile(r"^\d{2}/\d{2}/\d{4}$|^\d{2}/\d{4}$")
 _RE_SO_GIAY_TO = re.compile(r"^\d{9}$|^\d{12}$")
 _RE_SO = re.compile(r"^\d+(?:\.\d+)?$")
 # Dãy 9/12 số đứng riêng, ở BẤT KỲ đâu trong giá trị — dùng để truy số căn cước
@@ -243,6 +245,8 @@ def _smoke() -> None:
 
     assert dung_dang("x.Ngày ký", "03/08/2021") is True, "KILL [3]"
     assert dung_dang("x.Ngày ký", "3/8/2021") is False, "KILL [4] thiếu số 0"
+    assert dung_dang("x.Ngày lập", "07/2026") is True, "KILL [4a] mm/yyyy hợp lệ"
+    assert dung_dang("x.Ngày lập", "7/2026") is False, "KILL [4b] tháng phải 2 chữ số"
     assert dung_dang("x.Ngày ký", "") is None, "KILL [5] ô trống không tính"
     assert dung_dang("x.Giấy tờ nhân thân", "033064004030") is True, "KILL [6]"
     assert dung_dang("a.b[].Số giấy tờ", "03017001916") is False, "KILL [7] 11 số"
@@ -302,7 +306,7 @@ def _smoke() -> None:
 
     kq2 = phan_tich([hs[0]])
     assert not kq2["cccd_lap"], "KILL [20] một hồ sơ thì không thể gọi là lặp"
-    print("soi_ket_qua PURE: 29 KILL ✓")
+    print("soi_ket_qua PURE: 31 KILL ✓")
 
 
 if __name__ == "__main__":

@@ -31,10 +31,6 @@ async def browse_folder(source_id: str, prefix: str = "", token: str | None = No
     conn = await s3_connections().find_one({"_id": source_id, "role": "source"})
     if not conn:
         raise HTTPException(status_code=404, detail="Không tìm thấy nguồn")
-    try:
-        dt = doc_types.hop_le(body.doc_type)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
     client = build_client(conn)
     folders, files, next_token = await async_list_folder(client, conn["bucket"], prefix, token)
     # Đánh dấu file đã từng import (BẤT KỂ lô nào — chỉ để hiển thị badge, không
@@ -96,10 +92,6 @@ async def folder_progress(source_id: str, prefix: str = ""):
     conn = await s3_connections().find_one({"_id": source_id, "role": "source"})
     if not conn:
         raise HTTPException(status_code=404, detail="Không tìm thấy nguồn")
-    try:
-        dt = doc_types.hop_le(body.doc_type)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
 
     cache_id = f"{source_id}::{prefix}"
     cached = await browse_progress_cache().find_one({"_id": cache_id})

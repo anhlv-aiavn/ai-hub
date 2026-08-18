@@ -31,8 +31,10 @@ _MO_KHOI = re.compile(r"^\{", re.M)
 # description để bên nhận biết giá trị họ thấy đã qua xử lý, và xử lý thế nào.
 _GHI_CHU_CHUAN_HOA = {
     "ngay": 'Chuẩn hoá về "dd/mm/yyyy" khi đọc được (nhận cả dạng "ngày 10 tháng 8 '
-            'năm 2026"). Ô bỏ trống trên giấy → "". Không nhận dạng được → GIỮ NGUYÊN '
-            "VĂN chữ trên giấy, KHÔNG phải chuỗi rỗng.",
+            'năm 2026"). Người dân bỏ trống mỗi ô NGÀY mà vẫn ghi tháng/năm → trả '
+            '"mm/yyyy" (10 ký tự rút còn 7) — BÊN NHẬN PHẢI XỬ LÝ ĐƯỢC CẢ HAI ĐỘ DÀI. '
+            'Ô trống hoàn toàn → "". Không nhận dạng được → giữ nguyên văn chữ trên giấy.',
+
     "dien_tich": 'Chuẩn hoá về số thập phân dấu chấm, bỏ đơn vị ("120,5 m²" → "120.5"). '
                  "Không parse được → giữ nguyên văn.",
     "so_giay_to": "Chuẩn hoá về dãy số trần 9 (CMND) hoặc 12 (CCCD) chữ số, bỏ dấu phân "

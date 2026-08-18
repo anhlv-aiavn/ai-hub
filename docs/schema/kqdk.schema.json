@@ -18,7 +18,7 @@
             },
             "Ngày ký": {
               "type": "string",
-              "description": "Chuẩn hoá về \"dd/mm/yyyy\" khi đọc được (nhận cả dạng \"ngày 10 tháng 8 năm 2026\"). Ô bỏ trống trên giấy → \"\". Không nhận dạng được → GIỮ NGUYÊN VĂN chữ trên giấy, KHÔNG phải chuỗi rỗng."
+              "description": "Chuẩn hoá về \"dd/mm/yyyy\" khi đọc được (nhận cả dạng \"ngày 10 tháng 8 năm 2026\"). Người dân bỏ trống mỗi ô NGÀY mà vẫn ghi tháng/năm → trả \"mm/yyyy\" (10 ký tự rút còn 7) — BÊN NHẬN PHẢI XỬ LÝ ĐƯỢC CẢ HAI ĐỘ DÀI. Ô trống hoàn toàn → \"\". Không nhận dạng được → giữ nguyên văn chữ trên giấy."
             },
             "Người ký": {
               "type": "string"
@@ -58,7 +58,7 @@
               },
               "Ngày cấp": {
                 "type": "string",
-                "description": "Chuẩn hoá về \"dd/mm/yyyy\" khi đọc được (nhận cả dạng \"ngày 10 tháng 8 năm 2026\"). Ô bỏ trống trên giấy → \"\". Không nhận dạng được → GIỮ NGUYÊN VĂN chữ trên giấy, KHÔNG phải chuỗi rỗng."
+                "description": "Chuẩn hoá về \"dd/mm/yyyy\" khi đọc được (nhận cả dạng \"ngày 10 tháng 8 năm 2026\"). Người dân bỏ trống mỗi ô NGÀY mà vẫn ghi tháng/năm → trả \"mm/yyyy\" (10 ký tự rút còn 7) — BÊN NHẬN PHẢI XỬ LÝ ĐƯỢC CẢ HAI ĐỘ DÀI. Ô trống hoàn toàn → \"\". Không nhận dạng được → giữ nguyên văn chữ trên giấy."
               },
               "Nơi cấp": {
                 "type": "string"

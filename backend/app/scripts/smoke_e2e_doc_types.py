@@ -132,7 +132,9 @@ LOAI_CHON = tuple(m for m in LOAI if m not in TAM_TAT)
 # cho số CCCD. Đo thêm ĐỊNH DẠNG biến những ca đó thành con số nhìn thấy được.
 # Không bắt được lỗi BỊA NỘI DUNG (giá trị đúng dạng nhưng sai sự thật) — chỗ đó
 # chỉ có đối chiếu tay hoặc lượt hai bằng model.
-_RE_NGAY = re.compile(r"^\d{2}/\d{2}/\d{4}$")
+# dd/mm/yyyy, HOẶC mm/yyyy khi người dân bỏ trống mỗi ô ngày — dạng thứ hai
+# là dữ liệu thật trên giấy, không phải lỗi bóc tách (xem _chuan_ngay).
+_RE_NGAY = re.compile(r"^\d{2}/\d{2}/\d{4}$|^\d{2}/\d{4}$")
 _RE_SO_GIAY_TO = re.compile(r"^\d{9}$|^\d{12}$")
 _RE_SO = re.compile(r"^\d+(?:\.\d+)?$")
 
@@ -646,6 +648,8 @@ def _tu_kiem() -> None:
     assert dung_dang("x.Ngày lập", "Trung Giã, ngày .... tháng 7 năm 2026") is False, \
         "KILL [30] cả câu KHÔNG phải ngày hợp lệ"
     assert dung_dang("x.Ngày lập", "20 tháng 8 năm 2026") is False, "KILL [31] chưa chuẩn hoá"
+    assert dung_dang("x.Ngày lập", "07/2026") is True, \
+        "KILL [31a] bỏ trống mỗi ngày → mm/yyyy là hợp lệ, không phải lỗi bóc tách"
     assert dung_dang("x.Số giấy tờ", "001085.015.315") is False, "KILL [32] CCCD còn dấu chấm"
     assert dung_dang("x.Số giấy tờ", "001085015315") is True, "KILL [33] CCCD 12 số"
     assert dung_dang("x.Số giấy tờ", "019084001") is True, "KILL [34] CMND 9 số"
@@ -656,7 +660,7 @@ def _tu_kiem() -> None:
     assert dang["Người sử dụng đất.Số giấy tờ"] is True, "KILL [39] map định dạng theo trường"
     assert "Người sử dụng đất.Địa chỉ" not in dang, "KILL [40] trường không luật không vào map"
 
-    print("smoke_e2e_doc_types tự kiểm: 40 KILL ✓")
+    print("smoke_e2e_doc_types tự kiểm: 41 KILL ✓")
 
 
 def main() -> int:

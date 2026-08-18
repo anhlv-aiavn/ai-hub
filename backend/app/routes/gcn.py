@@ -103,7 +103,8 @@ async def list_gcn(
         flt["review.reviewer"] = reviewer
     if doc_type:
         try:
-            dt_loc = doc_types.hop_le(doc_type)
+            # tao_moi=False: loại đã tắt vẫn phải LỌC được, xem doc_types.hop_le.
+            dt_loc = doc_types.hop_le(doc_type, tao_moi=False)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         # Doc tạo TRƯỚC khi có field `doc_type` không có key này — chúng đều là

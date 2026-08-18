@@ -82,10 +82,13 @@ def _chuan_ngay(v: str) -> str:
     """Về dd/mm/yyyy. Nhận cả dạng số (10/8/2026) lẫn dạng chữ của biểu mẫu
     ("Trung Giã, ngày 10 tháng 8 năm 2026").
 
-    Ngày bị bỏ trống trên giấy → trả "" chứ KHÔNG giữ nguyên câu. Một ô ngày
-    không dùng được thì phải hiện ra là trống để hậu kiểm biết mà điền; giữ lại
-    nguyên văn "ngày .... tháng 7 năm 2026" chỉ làm cột thống kê báo 'đã điền'
-    trong khi thực tế không có dữ liệu."""
+    Người dân hay bỏ trống mỗi Ô NGÀY mà vẫn điền tháng/năm ("ngày .... tháng 7
+    năm 2026"). Trả "07/2026" — mất ngày chứ không mất cả tháng lẫn năm, vì
+    tháng/năm là thông tin thật có trên giấy và dùng được cho tra cứu.
+
+    Vẫn KHÔNG giữ nguyên văn cả câu: chuỗi "Trung Giã, ngày .... tháng 7 năm
+    2026" làm cột thống kê báo 'đã điền' trong khi bên nhận không parse được gì.
+    Không đọc ra nổi tháng/năm thì mới trả nguyên văn cho người hậu kiểm nhìn."""
     m = _DATE_RE.search(v)
     if m:
         d, mo, y = m.groups()
@@ -95,7 +98,7 @@ def _chuan_ngay(v: str) -> str:
         return v
     d, mo, y = m.groups()
     if not d:
-        return ""
+        return f"{int(mo):02d}/{y}"
     return f"{int(d):02d}/{int(mo):02d}/{y}"
 
 
@@ -500,11 +503,17 @@ def get(ma: str | None) -> LoaiGiay:
     return DOC_TYPES.get((ma or "").strip().lower() or MAC_DINH, GCN)
 
 
-def hop_le(ma: str | None) -> str:
-    """Validate cho tầng API. Rỗng → mặc định; lạ → ValueError."""
+def hop_le(ma: str | None, tao_moi: bool = True) -> str:
+    """Validate cho tầng API. Rỗng → mặc định; lạ → ValueError.
+
+    tao_moi=False cho đường ĐỌC (lọc, thống kê, xuất). Loại đang tắt vẫn phải
+    đọc được: tắt là ngừng nhận hồ sơ MỚI, không phải giấu dữ liệu đã bóc. Chặn
+    cả đường đọc thì `GET /v1/gcn?doc_type=kqdk` trả 400 và người dùng mất luôn
+    lối vào những hồ sơ họ đã xử lý."""
     v = (ma or "").strip().lower() or MAC_DINH
-    if v in DOC_TYPES and not DOC_TYPES[v].bat:
-        raise ValueError(f"doc_type {v!r} đang tạm tắt. Chọn một trong: {', '.join(MA_HOP_LE)}")
+    if tao_moi and v in DOC_TYPES and not DOC_TYPES[v].bat:
+        raise ValueError(f"doc_type {v!r} đang tạm tắt, không nhận hồ sơ mới. "
+                         f"Chọn một trong: {', '.join(MA_HOP_LE)}")
     if v not in DOC_TYPES:
         raise ValueError(
             f"doc_type không hợp lệ: {ma!r}. Chọn một trong: {', '.join(MA_HOP_LE)}")
@@ -531,7 +540,15 @@ def _smoke() -> None:
     except ValueError as e:
         assert "tạm tắt" in str(e), f"KILL [4c] báo rõ là tắt, khác với mã sai: {e}"
     else:
-        raise AssertionError("KILL [4d] API phải từ chối loại đang tắt")
+        raise AssertionError("KILL [4d] API phải từ chối loại đang tắt khi TẠO MỚI")
+    assert hop_le("kqdk", tao_moi=False) == "kqdk", \
+        "KILL [4d2] đường ĐỌC vẫn phải cho lọc loại đã tắt — tắt là ngừng nhận mới, không giấu dữ liệu cũ"
+    try:
+        hop_le("xyz", tao_moi=False)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("KILL [4d3] mã LẠ thì đường đọc vẫn phải từ chối")
     assert all(DOC_TYPES[m].bat for m in MA_HOP_LE), "KILL [4e] danh sách chọn chỉ gồm loại bật"
     try:
         hop_le("xyz")
@@ -580,8 +597,8 @@ def _smoke() -> None:
     # Ngày dạng chữ trên biểu mẫu + ô ngày bỏ trống (gặp thật ở pcctt 1218602).
     assert _chuan_ngay("Trung Giã, ngày 10 tháng 8 năm 2026") == "10/08/2026", "KILL [16a] ngày chữ"
     assert _chuan_ngay("30 tháng 7 năm 2026") == "30/07/2026", "KILL [16b] thiếu chữ 'ngày'"
-    assert _chuan_ngay("Trung Giã, ngày .... tháng 7 năm 2026") == "", \
-        "KILL [16c] ô ngày bỏ trống → rỗng, KHÔNG giữ nguyên câu"
+    assert _chuan_ngay("Trung Giã, ngày .... tháng 7 năm 2026") == "07/2026", \
+        "KILL [16c] bỏ trống mỗi ngày → giữ tháng/năm, KHÔNG nuốt cả câu"
     assert _chuan_ngay("bạ nhạ") == "bạ nhạ", "KILL [16d] không nhận ra → giữ nguyên văn"
     assert _chuan_so_giay_to("001085.015.315") == "001085015315", "KILL [16e] bỏ chấm CCCD"
     assert _chuan_so_giay_to("019084001782") == "019084001782", "KILL [16f] đã sạch thì giữ"
@@ -748,7 +765,7 @@ def _smoke() -> None:
     finally:
         chat_json = that
 
-    print("doc_types PURE: 61 KILL ✓")
+    print("doc_types PURE: 63 KILL ✓")
 
 
 if __name__ == "__main__":
