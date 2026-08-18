@@ -7,8 +7,19 @@ import MinioBrowser from "./MinioBrowser.jsx";
 // Số hóa: thả NHIỀU PDF ("Từ máy tính") hoặc duyệt kho MinIO nguồn có sẵn
 // ("Từ kho S3") → 1 đợt → mỗi PDF chạy detect+extract. Người tạo lô tự động
 // được gán quyền truy cập lô vừa tạo (xem POST /v1/batches ở backend).
+// Loại giấy quyết định prompt + schema bóc tách ở backend (xem app/doc_types.py).
+// Chọn sai loại thì VLM vẫn trả JSON nhưng theo cấu trúc của loại khác → bảng
+// trích xuất trống, nên để mặc định GCN và hiện rõ đang chọn gì.
+const LOAI_GIAY = [
+  { ma: "gcn", nhan: "Giấy chứng nhận" },
+  { ma: "ddk", nhan: "Đơn đăng ký" },
+  { ma: "kqdk", nhan: "Giấy xác nhận đăng ký" },
+  { ma: "pcctt", nhan: "Phiếu thu thập thông tin" },
+];
+
 export default function CreateBatch({ user, onCreated }) {
   const [source, setSource] = useState("upload"); // "upload" | "minio"
+  const [docType, setDocType] = useState("gcn");
   const [files, setFiles] = useState([]);
   const [drag, setDrag] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -59,6 +70,7 @@ export default function CreateBatch({ user, onCreated }) {
     try {
       const b = await createBatch({
         files,
+        docType,
         onProgress: (p, meta) => {
           setPct(p);
           if (meta?.count) setStep(`Tệp ${meta.index}/${meta.count}${meta.name ? ` · ${meta.name}` : ""}`);
@@ -76,8 +88,8 @@ export default function CreateBatch({ user, onCreated }) {
   return (
     <div className="panel create-batch">
       <h2>Số hóa hồ sơ mới</h2>
-      <p className="muted">Tải lên Giấy chứng nhận (PDF). Hệ thống tự nhận diện, trích xuất
-        và gom trang bổ sung theo Số phát hành.</p>
+      <p className="muted">Tải lên PDF rồi chọn loại giấy tờ. Hệ thống tự nhận diện, trích
+        xuất và gom trang theo khóa của từng loại (Giấy chứng nhận gom theo Số phát hành).</p>
 
       {!destConfigured && (
         <div className="admin-warn">
@@ -89,6 +101,14 @@ export default function CreateBatch({ user, onCreated }) {
           </div>
         </div>
       )}
+
+      <div className="cb-doctype">
+        <label className="muted small" htmlFor="cb-doctype">Loại giấy tờ</label>
+        <select id="cb-doctype" className="text-input" value={docType}
+          onChange={(e) => setDocType(e.target.value)} disabled={busy}>
+          {LOAI_GIAY.map((l) => <option key={l.ma} value={l.ma}>{l.nhan}</option>)}
+        </select>
+      </div>
 
       <div className="seg-toggle cb-source-toggle">
         <button type="button" className={source === "upload" ? "active" : ""} onClick={() => setSource("upload")}>
@@ -109,7 +129,7 @@ export default function CreateBatch({ user, onCreated }) {
           )}
           {!minioSources.length && <p className="muted small">Chưa có nguồn MinIO nào — thêm ở "Cấu hình hệ thống" (admin).</p>}
           {minioSourceId && (
-            <MinioBrowser sourceId={minioSourceId} onImported={onMinioImported} />
+            <MinioBrowser sourceId={minioSourceId} docType={docType} onImported={onMinioImported} />
           )}
         </div>
       )}

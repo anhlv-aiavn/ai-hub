@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from pymongo.errors import DuplicateKeyError
 
-from app import config
+from app import config, doc_types
 from app.audit import AuditAction, log_action
 from app.batch_counters import bump, init_counts
 from app.db import batches, browse_progress_cache, gcns, import_jobs, s3_connections, users
@@ -31,6 +31,10 @@ async def browse_folder(source_id: str, prefix: str = "", token: str | None = No
     conn = await s3_connections().find_one({"_id": source_id, "role": "source"})
     if not conn:
         raise HTTPException(status_code=404, detail="Không tìm thấy nguồn")
+    try:
+        dt = doc_types.hop_le(body.doc_type)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     client = build_client(conn)
     folders, files, next_token = await async_list_folder(client, conn["bucket"], prefix, token)
     # Đánh dấu file đã từng import (BẤT KỂ lô nào — chỉ để hiển thị badge, không
@@ -92,6 +96,10 @@ async def folder_progress(source_id: str, prefix: str = ""):
     conn = await s3_connections().find_one({"_id": source_id, "role": "source"})
     if not conn:
         raise HTTPException(status_code=404, detail="Không tìm thấy nguồn")
+    try:
+        dt = doc_types.hop_le(body.doc_type)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     cache_id = f"{source_id}::{prefix}"
     cached = await browse_progress_cache().find_one({"_id": cache_id})
@@ -124,12 +132,16 @@ class ImportIn(BaseModel):
     keys: list[str] | None = None
     batch_id: str | None = None
     name: str | None = None
+    # Loại giấy cho toàn bộ file import lần này: "gcn" (mặc định) | "ddk" | "pcctt".
+    doc_type: str | None = None
 
 
-def _gcn_doc(batch_id: str, source_id: str, key: str, meta: dict, now) -> dict:
+def _gcn_doc(batch_id: str, source_id: str, key: str, meta: dict, now,
+             doc_type: str = "gcn") -> dict:
     return {
         "_id": str(uuid.uuid4()), "batch_id": batch_id,
         "filename": key.rsplit("/", 1)[-1], "s3_key": key,
+        "doc_type": doc_type,
         "status": "queued", "page_count": 0, "extractions": [],
         "extracted_so_phat_hanhs": [], "group_key": None, "summary": {},
         "review": {"display_name": None, "overrides": {}, "status": "unreviewed",
@@ -142,6 +154,7 @@ def _gcn_doc(batch_id: str, source_id: str, key: str, meta: dict, now) -> dict:
 
 async def _sync_import_files(
     batch_id: str, source_id: str, items: list[tuple[str, dict]],
+    doc_type: str = "gcn",
 ) -> tuple[int, int, int]:
     """Chèn/đối chiếu ĐỒNG BỘ 1 danh sách (key, meta). Dùng chung cho `keys` (chọn
     lẻ, meta lấy qua head_object) và file lẻ ở cấp gốc khi sharding (§5 — meta đã
@@ -167,7 +180,7 @@ async def _sync_import_files(
             else:
                 skipped += 1
             continue
-        doc = _gcn_doc(batch_id, source_id, key, meta, now)
+        doc = _gcn_doc(batch_id, source_id, key, meta, now, doc_type)
         try:
             await gcns().insert_one(doc)
             created += 1
@@ -240,6 +253,10 @@ async def import_from_minio(source_id: str, body: ImportIn, user: dict = Depends
     conn = await s3_connections().find_one({"_id": source_id, "role": "source"})
     if not conn:
         raise HTTPException(status_code=404, detail="Không tìm thấy nguồn")
+    try:
+        dt = doc_types.hop_le(body.doc_type)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     if body.keys:
         batch_id = await _ensure_batch(body.batch_id, body.name, "processing", user)
@@ -251,7 +268,8 @@ async def import_from_minio(source_id: str, body: ImportIn, user: dict = Depends
         # HEAD that bai truoc day cung chi tra ve {} (rong) nen khong mat kha
         # nang phat hien loi nao ca, chi bot 1 vong goi S3 khong can thiet.
         items = [(key, {}) for key in body.keys]
-        created, skipped, requeued = await _sync_import_files(batch_id, source_id, items)
+        created, skipped, requeued = await _sync_import_files(
+            batch_id, source_id, items, dt)
         await log_action(user["username"], AuditAction.GCN_IMPORT_MINIO, batch_id, {
             "source_connection_id": source_id, "keys": body.keys,
             "created": created, "skipped": skipped, "requeued": requeued,
@@ -280,7 +298,7 @@ async def import_from_minio(source_id: str, body: ImportIn, user: dict = Depends
         job_id = str(uuid.uuid4())
         await import_jobs().insert_one({
             "_id": job_id, "batch_id": batch_id, "source_connection_id": source_id,
-            "prefix": sub_prefix, "status": "queued",
+            "prefix": sub_prefix, "doc_type": dt, "status": "queued",
             "started_at": None, "list_token": None, "inserted": 0, "skipped": 0,
             "error": None, "created_at": now,
         })
@@ -289,7 +307,7 @@ async def import_from_minio(source_id: str, body: ImportIn, user: dict = Depends
     if sub_folders and loose_files:
         await _sync_import_files(
             batch_id, source_id,
-            [(f["key"], f) for f in loose_files],
+            [(f["key"], f) for f in loose_files], dt,
         )
 
     await log_action(user["username"], AuditAction.GCN_IMPORT_MINIO, batch_id, {

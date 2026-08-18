@@ -35,10 +35,12 @@ async def claim_import_job(mongo: AsyncMongo, proc_ttl: int) -> dict | None:
     )
 
 
-def _gcn_doc(batch_id: str, source_id: str, key: str, now) -> dict:
+def _gcn_doc(batch_id: str, source_id: str, key: str, now,
+             doc_type: str = "gcn") -> dict:
     return {
         "_id": str(uuid.uuid4()), "batch_id": batch_id,
         "filename": key.rsplit("/", 1)[-1], "s3_key": key,
+        "doc_type": doc_type,
         "status": "queued", "page_count": 0, "extractions": [],
         "extracted_so_phat_hanhs": [], "group_key": None, "summary": {},
         "review": {"display_name": None, "overrides": {}, "status": "unreviewed",
@@ -59,6 +61,7 @@ async def _fail(mongo: AsyncMongo, job_id: str, batch_id: str, message: str) -> 
 async def process_import_job(mongo: AsyncMongo, job: dict) -> None:
     job_id, batch_id = job["_id"], job["batch_id"]
     source_id, prefix = job["source_connection_id"], job.get("prefix") or ""
+    doc_type = job.get("doc_type") or "gcn"   # job cũ (trước khi có field) → GCN
 
     conn = await mongo.db[config.COLL_S3_CONN].find_one({"_id": source_id})
     if not conn:
@@ -78,7 +81,7 @@ async def process_import_job(mongo: AsyncMongo, job: dict) -> None:
             )
             if keys:
                 now = datetime.now(timezone.utc)
-                docs = [_gcn_doc(batch_id, source_id, k, now) for k in keys]
+                docs = [_gcn_doc(batch_id, source_id, k, now, doc_type) for k in keys]
                 try:
                     res = await mongo.db[config.COLL_GCN].insert_many(docs, ordered=False)
                     n_ins = len(res.inserted_ids)

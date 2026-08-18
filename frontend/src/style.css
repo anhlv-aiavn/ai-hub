@@ -1307,6 +1307,8 @@ label.file-row { width: 100%; }
 .bulk-bar > span:first-child { flex: 1; font-weight: 600; color: var(--text); }
 
 .cb-source-toggle { margin: 12px 0 4px; }
+.cb-doctype { display: flex; align-items: center; gap: 10px; margin: 14px 0 2px; }
+.cb-doctype select { max-width: 280px; }
 .cb-minio { margin-top: 6px; display: flex; flex-direction: column; gap: 8px; }
 
 /* ============ S3 connections table ============ */

@@ -10,3 +10,4 @@ dist/
 # runtime, mount vào container qua docker-compose.yml, không commit nội dung.
 /cache_minio_index/*
 !/cache_minio_index/.gitkeep
+/tmp

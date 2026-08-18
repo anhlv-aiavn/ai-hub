@@ -8,6 +8,8 @@ Concurrency:
 
 File lớn:
 - > AIHUB_MAX_PAGES (mặc định 250) → skip (an toàn RAM/thời gian).
+- Loại giấy (gcn/ddk/pcctt) quyết prompt detect+extract, summary, khóa gom và
+  các bước hậu xử lý — tra ở `app/doc_types.py`, không phải `if` trong file này.
 - Detect = phân loại biên TỪNG TRANG (cover/content/other) song song rồi suy nhóm
   tuyến tính (quyết định cục bộ → không lỗi mốc cửa sổ, không rớt trang)."""
 
@@ -23,15 +25,13 @@ from datetime import datetime, timezone
 import litellm
 from PIL import Image
 
-from app import config, storage
+from app import anh_trung, config, doc_types, storage
 from app.batch_counters import bump
 from app.bus import publish_sync
 from app.storage import DestinationNotConfigured, SourceObjectMissing, SourceObjectUnavailable
 from app.sph_ten_tep import va_sph_tu_ten_tep
-from app.summary import collect_so_phat_hanhs, group_key_of, per_gcn, summarize
 from src.extentions.mongo_helper import AsyncMongo
-from src.extentions.multimodal.detect_gcn import classify_page, groups_from_roles
-from src.extentions.multimodal.extract_gcn import extract
+from src.extentions.multimodal.detect_gcn import groups_from_roles
 from src.extentions.multimodal.make import (
     count_pdf_pages_from_bytes,
     pdf_to_corrected_images,
@@ -40,12 +40,10 @@ from src.extentions.multimodal.chu_cuoi import ALGO_VERSION as CHU_CUOI_VERSION
 from src.extentions.multimodal.chu_cuoi import chu_cuoi_for_entry
 from src.extentions.multimodal.mdsdd import ALGO_VERSION as MDSDD_VERSION
 from src.extentions.multimodal.mdsdd import gan_mdsdd
-from src.extentions.multimodal.normalize_dang_ky import normalize_extractions
 from src.extentions.multimodal.vlm_client import total_vlm_concurrency
 
 log = logging.getLogger(__name__)
 
-DETECT_MIN_PAGES = int(os.getenv("DETECT_MIN_PAGES", "5"))
 RENDER_DPI = int(os.getenv("AIHUB_RENDER_DPI", "200"))
 RENDER_MAX_SIZE = int(os.getenv("AIHUB_RENDER_MAX_SIZE", "2000"))
 MAX_PAGES = int(os.getenv("AIHUB_MAX_PAGES", "250"))
@@ -89,33 +87,61 @@ def _friendly_vlm_error(e: Exception) -> str:
 
 # ── Pipeline ────────────────────────────────────────────────────────────────
 
-async def _detect_groups(images: list[str]) -> list[list[int]]:
-    """Detect = phân loại biên TỪNG TRANG rồi suy nhóm tuyến tính.
+async def _detect_groups(images: list[str], dt: doc_types.LoaiGiay,
+                         bo_qua: set[int] | None = None) -> list[list[int]]:
+    """Phân loại từng trang song song rồi gom nhóm theo CHẾ ĐỘ của loại giấy.
 
-    File rất ngắn (≤ DETECT_MIN_PAGES) → coi là MỘT giấy, khỏi gọi VLM. Còn lại:
-    phân loại song song mỗi trang (cover/content/other) — mỗi call 1 ảnh nên chính
-    xác cao + batch tốt, KHÔNG còn lỗi mốc cửa sổ / nhồi nhiều ảnh / rớt trang."""
+    File ngắn (≤ ngưỡng của loại) → coi là một hồ sơ, khỏi gọi VLM. Mỗi call chỉ 1
+    ảnh nên chính xác cao + batch tốt, KHÔNG có lỗi mốc cửa sổ / rớt trang.
+
+    `bo_qua` = index các trang đã bị loại vì trùng lặp (xem app/anh_trung.py) —
+    không phân loại, không đưa vào nhóm nào.
+
+    Hai chế độ (xem docstring app/doc_types.py):
+    - gcn:        cover mở giấy mới → nhóm tuyến tính, mỗi nhóm một lần extract.
+    - mot_ho_so:  vứt trang "dinh_kem", gộp MỌI trang biểu mẫu vào MỘT nhóm — thứ
+                  tự trang trong hồ sơ giấy tờ hành chính không đáng tin (mặt sau
+                  của tờ khai có thể nằm sau cả tập đính kèm).
+    """
     n = len(images)
-    if n == 0:
+    bo_qua = bo_qua or set()
+    con_lai = [i for i in range(n) if i not in bo_qua]
+    if not con_lai:
         return []
-    if n <= DETECT_MIN_PAGES:
-        return [list(range(n))]
+    if len(con_lai) <= dt.detect_min_pages:
+        return [con_lai]
 
     async def _cls(i: int) -> str:
         async with _vlm_sem():
             try:
-                return await classify_page(images[i])
+                return await dt.classify(images[i])
             except Exception as e:  # noqa: BLE001
-                log.warning("classify_page trang %d lỗi: %s", i, e)
-                return "content"  # fail-safe: giữ trang, không cắt nhầm
+                log.warning("classify trang %d lỗi: %s", i, e)
+                # fail-safe: giữ trang. Với GCN là "content" (không cắt nhầm giấy
+                # mới), với biểu mẫu là "bieu_mau" (không vứt mất trang dữ liệu).
+                return "content" if dt.che_do_gom == doc_types.GOM_GCN else "bieu_mau"
 
-    roles = await asyncio.gather(*(_cls(i) for i in range(n)))
-    return groups_from_roles(list(roles))
+    roles = await asyncio.gather(*(_cls(i) for i in con_lai))
+
+    if dt.che_do_gom == doc_types.GOM_MOT_HO_SO:
+        giu = [i for i, r in zip(con_lai, roles) if r != "dinh_kem"]
+        # Không nhận ra trang biểu mẫu nào (ảnh mờ, mẫu lạ) → thà extract cả file
+        # còn hơn trả về rỗng rồi ghi "no_gcn" cho một hồ sơ thật sự có dữ liệu.
+        if not giu:
+            log.info("mot_ho_so: không trang nào là biểu mẫu — giữ toàn bộ %d trang", len(con_lai))
+            giu = con_lai
+        return [giu]
+
+    # Chế độ GCN: groups_from_roles đánh chỉ số theo VỊ TRÍ trong list roles nên
+    # phải ánh xạ ngược về index trang thật (con_lai có thể thưa vì bỏ trang trùng).
+    return [[con_lai[j] for j in g] for g in groups_from_roles(list(roles))]
 
 
-async def _pipeline(pdf_buf: io.BytesIO, timings: dict | None = None) -> tuple[list[dict], list[str]]:
+async def _pipeline(pdf_buf: io.BytesIO, timings: dict | None = None,
+                    dt: doc_types.LoaiGiay | None = None) -> tuple[list[dict], list[str]]:
     """Trả (records, images). images = ảnh đã xoay thẳng (tái dùng để cắt file).
     `timings` (nếu truyền) được điền render/detect/extract để bóc tách nút thắt."""
+    dt = dt or doc_types.GCN
     loop = asyncio.get_running_loop()
     n = await loop.run_in_executor(None, count_pdf_pages_from_bytes, pdf_buf)
     if n == 0:
@@ -134,8 +160,20 @@ async def _pipeline(pdf_buf: io.BytesIO, timings: dict | None = None) -> tuple[l
     if not images:
         return [], []
     page_count = len(images)
+
+    # Loại trang trùng TRƯỚC khi gọi VLM: kho mẫu có file scan mỗi tờ hai lần (bản
+    # màu + bản xám xoay ngang) — 58 trang thực chất ~29 tờ. Chỉ trả về INDEX bị
+    # loại, `images` giữ nguyên vị trí vì page_indices/cắt trang đánh chỉ số theo nó.
+    bo_qua: set[int] = set()
+    if dt.dedup_trang and len(images) > 1:
+        _t = time.monotonic()
+        bo_qua = await loop.run_in_executor(None, anh_trung.trang_trung, images)
+        if timings is not None:
+            timings["dedup"] = round(time.monotonic() - _t, 3)
+            timings["trang_trung"] = len(bo_qua)
+
     _t = time.monotonic()
-    groups = await _detect_groups(images)
+    groups = await _detect_groups(images, dt, bo_qua)
     if timings is not None:
         timings["detect"] = round(time.monotonic() - _t, 3)
     if not groups:
@@ -157,7 +195,7 @@ async def _pipeline(pdf_buf: io.BytesIO, timings: dict | None = None) -> tuple[l
                 cho_slot.append(time.monotonic() - _t_cho)
                 _t_goi = time.monotonic()
                 try:
-                    base["result"] = await asyncio.wait_for(extract(imgs), timeout=EXTRACT_TIMEOUT)
+                    base["result"] = await asyncio.wait_for(dt.extract(imgs), timeout=EXTRACT_TIMEOUT)
                 finally:
                     goi_that.append(time.monotonic() - _t_goi)
         except asyncio.TimeoutError:
@@ -207,7 +245,8 @@ def _entry_sph(rec: dict) -> str | None:
     return None
 
 
-async def _build_cuts(gcn_id: str, batch_id, images: list[str], records: list) -> list[dict]:
+async def _build_cuts(gcn_id: str, batch_id, images: list[str], records: list,
+                      dt: doc_types.LoaiGiay) -> list[dict]:
     cuts: list[dict] = []
     for ri, rec in enumerate(records):
         pages = rec.get("page_indices") if isinstance(rec, dict) else None
@@ -219,14 +258,16 @@ async def _build_cuts(gcn_id: str, batch_id, images: list[str], records: list) -
             continue
         ckey = f"{batch_id}/{gcn_id}/cut-{ri}.pdf"
         await storage.put_pdf(ckey, pdf_bytes)
-        sph = _entry_sph(rec)
-        # Tên tệp cắt chuẩn: "<Số phát hành>-GCN.pdf". Thiếu Số phát hành → kèm
-        # index để khỏi trùng giữa các bản cắt cùng file.
+        # GCN: khóa = Số phát hành (giữ nguyên hành vi cũ). Biểu mẫu khác: khóa
+        # do registry quyết (số phiếu / số giấy tờ người đứng đơn).
+        sph = _entry_sph(rec) if dt.hau_xu_ly_gcn else dt.cut_stem(rec)
+        # Tên tệp cắt chuẩn: "<khóa>-<LOẠI>.pdf". Thiếu khóa → kèm index để khỏi
+        # trùng giữa các bản cắt cùng file.
         stem = sph if sph else f"{gcn_id}-{ri + 1}"
         cuts.append({
             "index": ri, "s3_key": ckey, "page_indices": pages,
             "page_count": len(group), "so_phat_hanh": sph,
-            "name": f"{stem}-GCN.pdf",
+            "name": f"{stem}-{dt.ma.upper()}.pdf",
         })
     return cuts
 
@@ -283,6 +324,13 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
     gcn_id = doc["_id"]
     batch_id = doc.get("batch_id")
     branch = doc.get("branch")  # nhúng vào event để SSE lọc theo chi nhánh
+    # Loại giấy quyết định prompt detect/extract, cách gom, summary, khóa gom và
+    # những bước hậu xử lý nào được chạy. Doc cũ (trước khi có field) → GCN.
+    dt = doc_types.get(doc.get("doc_type"))
+    # Khóa của biểu mẫu lấy từ đường dẫn tệp nguồn, KHÔNG suy từ nội dung (ba loại
+    # biểu mẫu không in số hiệu, và chữ viết tay thì không đáng làm khóa). GCN vẫn
+    # dùng Số phát hành đọc từ giấy nên tham số này bị bỏ qua ở nhánh đó.
+    khoa = "" if dt.hau_xu_ly_gcn else doc_types.khoa_tu_nguon(doc)
 
     # SSE gộp mức lô (§Quy mô cực lớn 3): lô LỚN bỏ ping per-doc "processing"/
     # "done" bình thường (event "batch" gộp ở _rollup là nguồn tiến độ) — lỗi thì
@@ -311,7 +359,7 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
         if pdf_buf.getvalue()[:4] != b"%PDF":
             raise ValueError("File không phải PDF (magic-byte không khớp)")
         _t = time.monotonic()
-        records, images = await _pipeline(pdf_buf, timings)
+        records, images = await _pipeline(pdf_buf, timings, dt)
         if timings is not None:
             timings["pipeline"] = round(time.monotonic() - _t, 3)
     except Exception as e:  # noqa: BLE001
@@ -341,7 +389,7 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
         return fail_status
 
     records = records or []
-    normalize_extractions(records)
+    dt.normalize(records)
 
     first = records[0] if records else {}
     # records rỗng KHÔNG có nghĩa là không đọc được file — có thể do không phát
@@ -366,10 +414,10 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
         status, err = "done", None
 
     cuts: list[dict] = []
-    if status == "done" and config.BUILD_CUTS:
+    if status == "done" and config.BUILD_CUTS and dt.build_cuts:
         _t = time.monotonic()
         try:
-            cuts = await _build_cuts(gcn_id, batch_id, images, records)
+            cuts = await _build_cuts(gcn_id, batch_id, images, records, dt)
             if timings is not None:
                 timings["cuts"] = round(time.monotonic() - _t, 3)
         except DestinationNotConfigured as e:
@@ -385,12 +433,13 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
     # collect_so_phat_hanhs/group_key_of/summarize để mọi thứ suy ra từ records
     # đều thấy giá trị đã vá. Thuần chuỗi, chỉ động khi phần SỐ trùng khớp
     # (xem app/sph_ten_tep.py) nên không thêm rủi ro bịa dữ liệu.
-    n_va = va_sph_tu_ten_tep(records, doc.get("filename"))
-    if n_va:
-        log.info("va_sph_ten_tep %s: %d SPH lấy tiền tố từ tên tệp %r",
-                 gcn_id, n_va, doc.get("filename"))
+    if dt.hau_xu_ly_gcn:
+        n_va = va_sph_tu_ten_tep(records, doc.get("filename"))
+        if n_va:
+            log.info("va_sph_ten_tep %s: %d SPH lấy tiền tố từ tên tệp %r",
+                     gcn_id, n_va, doc.get("filename"))
 
-    sph_list = collect_so_phat_hanhs(records)
+    sph_list = dt.collect_keys(records, khoa)
 
     # Lỗi trích xuất (timeout VLM, không nhận diện được bìa...) — mặc định
     # "transient", cho phép "retry hàng loạt" thử lại (§Quy mô cực lớn 6).
@@ -399,25 +448,38 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
     # Gắn Mã MĐSD THẲNG vào từng mục đích trong `records` — SỬA TẠI CHỖ, nên
     # phải chạy TRƯỚC khi dựng `update` (mà "extractions" trỏ vào chính records).
     # Thuần chuỗi, không thêm call model nào vào hot path GPU-bound.
-    tt_mdsdd = gan_mdsdd(records)
+    tt_mdsdd = gan_mdsdd(records) if dt.hau_xu_ly_gcn else None
 
     update = {
         "status": status, "error": err, "error_kind": error_kind, "extractions": records,
         "page_count": page_count, "skip_reason": skip_reason,
-        "group_key": group_key_of(records),
-        "extracted_so_phat_hanhs": sph_list,
-        "summary": summarize(records),
-        "gcn_rows": per_gcn(records, cuts), "cuts": cuts,
+        "doc_type": dt.ma,
+        "group_key": dt.group_key(records, khoa),
+        # Index `extracted_so_phat_hanhs` phục vụ dò trùng theo Số phát hành —
+        # CHỈ của GCN. Nhét khóa biểu mẫu vào đây là mời hai loại giấy khác nhau
+        # "trùng" nhau chỉ vì tình cờ chung một dãy số. Khóa của biểu mẫu đi
+        # đường riêng (`extracted_keys`), vẫn tìm được qua gcn_rows.so_phat_hanh.
+        "extracted_so_phat_hanhs": sph_list if dt.hau_xu_ly_gcn else [],
+        "extracted_keys": sph_list,
+        "summary": dt.summarize(records, khoa),
+        "gcn_rows": dt.rows(records, cuts, khoa), "cuts": cuts,
         # Chủ cuối suy ngay trong pipeline (REGEX-only — thuần, không thêm call LLM
         # vào hot path GPU-bound). Ca canh_bao (có chuyển nhượng nhưng chưa rõ chủ)
         # để backfill LLM định kỳ quét sau, không chặn ingest.
-        "chu_cuoi": _chu_cuoi_records(records),
-        "chu_cuoi_version": CHU_CUOI_VERSION,
-        "mdsdd_version": MDSDD_VERSION,
-        "mdsdd_can_ra_tay": tt_mdsdd["can_ra_tay"],
-        "mdsdd_ly_do": tt_mdsdd["ly_do"],
         "finished_at": datetime.now(timezone.utc),
     }
+    # Chủ cuối + mã MĐSD là nghiệp vụ RIÊNG của GCN (suy chủ hiện tại từ chuỗi
+    # biến động, gán mã mục đích sử dụng đất). Biểu mẫu không có hai khái niệm
+    # này — chạy vào chỉ sinh field rỗng rồi làm các script audit/backfill sau
+    # này tưởng là dữ liệu thiếu.
+    if dt.hau_xu_ly_gcn:
+        update.update({
+            "chu_cuoi": _chu_cuoi_records(records),
+            "chu_cuoi_version": CHU_CUOI_VERSION,
+            "mdsdd_version": MDSDD_VERSION,
+            "mdsdd_can_ra_tay": tt_mdsdd["can_ra_tay"],
+            "mdsdd_ly_do": tt_mdsdd["ly_do"],
+        })
     if timings is not None:
         timings["page_count"] = page_count
         timings["n_groups"] = len(records)
@@ -425,7 +487,7 @@ async def process_doc(mongo: AsyncMongo, doc: dict) -> str:
     await mongo.update_one(config.COLL_GCN, {"_id": gcn_id}, {"$set": update})
 
     dup_suspect, dup_candidates = False, []
-    if status == "done" and sph_list:
+    if status == "done" and sph_list and dt.hau_xu_ly_gcn:
         # Đánh dấu nghi trùng nội dung (PLAN_PHASE2.md §⑧): unique index chống
         # trùng theo KEY, không theo NỘI DUNG — 2 lần scan cùng GCN dưới 2 tên
         # khác nhau vẫn ra 2 doc. Không chặn cứng (2 bản scan có thể khác chất

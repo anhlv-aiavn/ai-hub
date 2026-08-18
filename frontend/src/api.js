@@ -217,11 +217,12 @@ async function handle(res) {
 
 // ── Lô ──────────────────────────────────────────────────────────────────────
 // Upload 1 file (XHR để có tiến độ byte thực). batchId rỗng = tạo lô mới.
-function uploadOne({ file, name, batchId, onBytes }) {
+function uploadOne({ file, name, batchId, docType, onBytes }) {
   return new Promise((resolve, reject) => {
     const form = new FormData();
     if (name) form.append("name", name);
     if (batchId) form.append("batch_id", batchId);
+    if (docType) form.append("doc_type", docType);
     form.append("files", file);
 
     const xhr = new XMLHttpRequest();
@@ -241,7 +242,7 @@ function uploadOne({ file, name, batchId, onBytes }) {
 
 // Upload TỪNG file một (cùng batch_id) → né giới hạn body nginx khi lô nặng, file
 // lỗi không kéo đổ cả lô. onProgress(pct 0..100, {index, count, name}).
-export async function createBatch({ files, name, onProgress }) {
+export async function createBatch({ files, name, docType, onProgress }) {
   const list = Array.from(files || []);
   const total = list.reduce((s, f) => s + (f.size || 0), 0) || 1;
   let doneBytes = 0;
@@ -257,6 +258,7 @@ export async function createBatch({ files, name, onProgress }) {
         file: f,
         name: batchId ? undefined : (name || undefined),
         batchId,
+        docType,
         onBytes: (loaded) => onProgress?.(
           Math.round(((doneBytes + loaded) / total) * 100),
           { index: i + 1, count: list.length, name: f.name },

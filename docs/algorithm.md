@@ -192,6 +192,106 @@ queued → processing → done | no_gcn | skip | error
 
 ---
 
+## 7b. Nhiều LOẠI GIẤY trên cùng một pipeline — `doc_type`
+
+Bốn loại đầu vào, khai ở registry [`app/doc_types.py`](../backend/app/doc_types.py):
+
+| mã | tên trên giấy | chế độ gom |
+|---|---|---|
+| `gcn` | Giấy chứng nhận QSDĐ | `gcn` |
+| `ddk` | Đơn đăng ký đất đai, tài sản gắn liền với đất (Mẫu 15 + 15a/15b/15c) | `mot_ho_so` |
+| `kqdk` | Giấy xác nhận đăng ký đất đai (Chi nhánh VPĐK cấp) | `mot_ho_so` |
+| `pcctt` | Phiếu thu thập thông tin đất đai | `mot_ho_so` |
+
+Khung worker KHÔNG đổi — vẫn claim → render → detect → extract → ghi; chỉ tra
+registry ở các điểm rẽ: `classify · extract · normalize · summarize · group_key ·
+collect_keys · rows · cut_stem · detect_min_pages · dedup_trang`.
+
+### Hai chế độ gom trang
+
+`gcn` — một PDF chứa NHIỀU giấy: phân loại biên từng trang (cover/content/other) →
+`groups_from_roles` suy nhóm tuyến tính → mỗi nhóm một lần extract. Không đổi.
+
+`mot_ho_so` — một PDF là MỘT hồ sơ, các trang còn lại là tài liệu đính kèm (CCCD,
+sơ đồ kỹ thuật, ảnh chuyển khoản, giấy viết tay cũ). Phân loại từng trang thành
+`bieu_mau`/`dinh_kem`, VỨT phần đính kèm, đưa TOÀN BỘ trang biểu mẫu vào MỘT lần
+extract.
+
+> **Vì sao không gom tuyến tính**: khảo sát 90 file mẫu thật (2026-08-18) cho thấy
+> thứ tự trang không đáng tin. `Đơn ĐK/1054768.pdf` xếp Mẫu 15 mặt trước (tr.1),
+> 15a (tr.2), 15c (tr.3), CCCD (tr.4–5), rồi **Mẫu 15 mặt sau ở tr.6** — gom theo
+> vị trí sẽ cắt mất đúng phần "Đề nghị cấp Giấy chứng nhận" và danh sách giấy tờ
+> nộp kèm. Gom-tất-cả-trang-biểu-mẫu miễn nhiễm với thứ tự.
+
+Fail-safe hai tầng: classify lỗi → giữ trang; không nhận ra trang biểu mẫu nào →
+extract cả file (thà thừa còn hơn ghi `no_gcn` cho hồ sơ có dữ liệu thật).
+
+### Loại trang trùng — [`app/anh_trung.py`](../backend/app/anh_trung.py)
+
+Kho mẫu có file scan mỗi tờ HAI lần (bản màu + bản xám xoay ngang; `Kết quả
+ĐK/583572.pdf` 58 trang ≈ 29 tờ). dHash 16×16 (256 bit), ngưỡng Hamming 18, giữ bản
+đầu tiên. aHash 8×8 đã thử và LOẠI: hai tờ khác loại chỉ lệch 4/64 bit vì trang nào
+cũng "trắng là chính" → loại nhầm trang thật.
+
+Chỉ trả về INDEX bị loại; `images` giữ nguyên vị trí vì `page_indices` và khâu cắt
+trang đều đánh chỉ số theo nó.
+
+### Khóa nghiệp vụ
+
+GCN dùng Số phát hành đọc từ giấy. Ba loại biểu mẫu dùng **khóa nguồn** —
+`khoa_tu_nguon(doc)`: đường dẫn MinIO (doc import) hoặc tên tệp upload, bỏ đuôi
+`.pdf`. Chốt cùng khách: ddk/pcctt không in số hiệu nào, dữ liệu lại gần như toàn
+bộ là chữ viết tay, nên khóa suy từ nội dung sẽ sai; khóa nguồn thì chính xác tuyệt
+đối và nối ngược được về hệ thống gốc.
+
+### Cờ đi vào hệ thống ở đâu
+
+```
+POST /v1/batches            doc_type=<gcn|ddk|kqdk|pcctt>   (Form, mặc định gcn)
+POST /v1/browse/{id}/import {"doc_type": "..."}             (JSON, mặc định gcn)
+GET  /v1/gcn?doc_type=ddk                                   (lọc bảng)
+```
+Ghi lên **từng gcn doc** (không chỉ lên lô) → lô trộn nhiều loại vẫn xử lý đúng.
+`import_jobs` mang `doc_type` xuống các doc nó sinh ra.
+
+**Tương thích ngược**: doc/job cũ không có field → `doc_types.get(None)` trả GCN;
+lọc `?doc_type=gcn` khớp cả doc thiếu field (`{"$in": ["gcn", None]}`).
+
+**Chỉ GCN mới chạy** (gate `dt.hau_xu_ly_gcn`): vá SPH theo tên tệp, `gan_mdsdd`,
+`chu_cuoi`, `_refresh_dup_group`, ghi `extracted_so_phat_hanhs`. Khóa biểu mẫu đi
+đường riêng qua `extracted_keys` — nhét chung vào index Số phát hành là mời hai loại
+giấy khác nhau "nghi trùng" nhau chỉ vì chung một dãy số.
+
+**Cột bảng**: summary/rows của biểu mẫu tái dùng ĐÚNG tên khóa của GCN
+(`so_phat_hanh`/`chu_su_dung`/`ngay_cap`/`to_ban_do`/`so_thua`) nên bảng trích xuất,
+tìm kiếm và export CSV chạy được ngay; `khoa_chinh` + `doc_type` là phần bổ sung để
+sau tách cột riêng mà không phải chạy lại kho.
+
+⚠️ **Chưa chạy live** với vLLM thật — prompt của 3 loại mới soạn từ mẫu giấy, chưa
+đo trên GPU. Dữ liệu cần bóc gần như toàn bộ là CHỮ VIẾT TAY nên tỷ lệ phải hậu kiểm
+tay sẽ cao hơn GCN đáng kể.
+
+### Smoke
+
+```bash
+# PURE (không cần hạ tầng)
+docker compose exec api python -m app.doc_types      # registry: 42 KILL
+docker compose exec api python -m app.anh_trung      # dedup trang: 12 KILL
+
+# E2E qua API thật — đẩy PDF lên, chờ worker, soi kết quả
+python3 backend/app/scripts/smoke_e2e_doc_types.py --tu-kiem        # tự kiểm, không cần server
+docker compose exec api python -m app.scripts.smoke_e2e_doc_types \
+    --api http://localhost:8000 -u admin -p '***' --loai pcctt tmp/mau --so-luong 5
+```
+
+E2E tách hai tầng kết luận: **KILL** = bất biến kỹ thuật vỡ (sai loại giấy, khóa
+không bằng tên tệp nguồn, một file ra nhiều hồ sơ, thân JSON sai hình dạng, trang
+trỏ ngoài phạm vi) → lỗi code, exit ≠ 0. **Độ điền** = tỉ lệ % từng trường bóc được
+→ KHÔNG kill, vì ba loại này viết tay và ô trống có thể là dân bỏ trống thật; dùng
+để so trước/sau mỗi lần sửa prompt.
+
+---
+
 ## 8. Vận hành (đã có nút/endpoint)
 
 - **Retry lỗi**: `POST /v1/gcn/retry-errors` — `error→queued`, mọi lô (admin) hoặc 1 lô,

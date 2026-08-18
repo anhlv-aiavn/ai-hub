@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pymongo import ReturnDocument
 
-from app import config, storage
+from app import config, doc_types, storage
 from app.audit import AuditAction, log_action
 from app.batch_counters import bump
 from app.bus import publish
@@ -23,7 +23,6 @@ from app.deps import (
 )
 from app.storage import DestinationNotConfigured, SourceObjectUnavailable
 from app.flatten import COLUMNS as FLAT_COLUMNS, effective_extractions, flatten_doc
-from app.summary import collect_so_phat_hanhs, group_key_of, per_gcn, summarize
 from app.vn_text import ci_pattern, strip_diacritics
 
 router = APIRouter(prefix="/v1/gcn", tags=["gcn"], dependencies=[Depends(current_user)])
@@ -76,6 +75,10 @@ async def list_gcn(
     canh_bao: bool | None = Query(default=None, description=(
         "true → CHỈ hồ sơ có cảnh báo 'có chuyển nhượng nhưng chưa rõ chủ' (cần "
         "chuyên viên xác minh); false → chỉ hồ sơ KHÔNG có cảnh báo")),
+    doc_type: str | None = Query(default=None, description=(
+        "Lọc theo loại giấy: gcn | ddk (đơn đăng ký) | pcctt (phiếu cung cấp "
+        "thông tin). Bỏ trống → mọi loại. Doc cũ không có field này được coi là "
+        "'gcn' nên lọc 'gcn' vẫn ra đủ dữ liệu cũ")),
     page: int = 1,
     page_size: int = 50,
     user: dict = Depends(current_user),
@@ -98,6 +101,15 @@ async def list_gcn(
         flt["review.status"] = review
     if reviewer:
         flt["review.reviewer"] = reviewer
+    if doc_type:
+        try:
+            dt_loc = doc_types.hop_le(doc_type)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        # Doc tạo TRƯỚC khi có field `doc_type` không có key này — chúng đều là
+        # GCN, nên lọc "gcn" phải bắt cả trường hợp thiếu field.
+        flt["doc_type"] = ({"$in": [dt_loc, None]} if dt_loc == doc_types.MAC_DINH
+                           else dt_loc)
     if canh_bao is not None:
         # Hàng đợi "cần xác minh": có chuyển nhượng nhưng không moi được chủ mới
         # (tên không nằm trong dữ liệu) — xem chu_cuoi.canh_bao.
@@ -808,18 +820,29 @@ async def put_review(gcn_id: str, body: ReviewIn, user: dict = Depends(require_v
         ext = effective_extractions(doc.get("extractions"), review.get("overrides"), deleted)
         cuts = [c for c in (doc.get("cuts") or [])
                 if not (isinstance(c, dict) and c.get("index") in deleted)]
-        # Tên tệp cắt bám theo Số phát hành ĐÃ override: "<SPH>-GCN.pdf".
+        # Tính lại phải đi qua ĐÚNG loại giấy của doc, nếu không hậu kiểm một
+        # lá đơn/phiếu sẽ ghi đè summary bằng bộ suy diễn của GCN → mất sạch cột.
+        dt = doc_types.get(doc.get("doc_type"))
+        khoa = "" if dt.hau_xu_ly_gcn else doc_types.khoa_tu_nguon(doc)
+        # Tên tệp cắt bám theo khóa ĐÃ override: "<khóa>-<LOẠI>.pdf".
         for c in cuts:
             ri = c.get("index")
-            sph = _sph_at(ext, ri) if isinstance(ri, int) else None
+            if not isinstance(ri, int):
+                sph = None
+            elif dt.hau_xu_ly_gcn:
+                sph = _sph_at(ext, ri)
+            else:
+                sph = dt.cut_stem(ext[ri]) if 0 <= ri < len(ext) else None
             stem = sph if sph else f"{gcn_id}-{(ri or 0) + 1}"
             c["so_phat_hanh"] = sph
-            c["name"] = f"{stem}-GCN.pdf"
+            c["name"] = f"{stem}-{dt.ma.upper()}.pdf"
+        keys = dt.collect_keys(ext, khoa)
         update.update({
-            "group_key": group_key_of(ext),
-            "extracted_so_phat_hanhs": collect_so_phat_hanhs(ext),
-            "summary": summarize(ext),
-            "gcn_rows": per_gcn(ext, cuts),
+            "group_key": dt.group_key(ext, khoa),
+            "extracted_so_phat_hanhs": keys if dt.hau_xu_ly_gcn else [],
+            "extracted_keys": keys,
+            "summary": dt.summarize(ext, khoa),
+            "gcn_rows": dt.rows(ext, cuts, khoa),
             "cuts": cuts,
         })
 

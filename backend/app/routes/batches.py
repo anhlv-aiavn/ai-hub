@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
-from app import config, storage
+from app import config, doc_types, storage
 from app.audit import AuditAction, log_action
 from app.batch_counters import bump, init_counts
 from app.db import batches, gcns, users
@@ -24,6 +24,7 @@ async def create_batch(
     files: list[UploadFile] = File(...),
     name: str | None = Form(default=None),
     batch_id: str | None = Form(default=None),
+    doc_type: str | None = Form(default=None),
     user: dict = Depends(require_operator),
 ):
     """Tạo lô MỚI hoặc THÊM file vào lô có sẵn (truyền batch_id, hoặc trùng tên).
@@ -34,9 +35,18 @@ async def create_batch(
     `name` trùng với 1 lô đã có (trong phạm vi user được truy cập) → cũng coi là
     nối thêm vào lô đó thay vì tạo lô mới trùng tên (ưu tiên batch_id trước, name
     sau — batch_id luôn thắng nếu có).
+
+    `doc_type`: loại giấy của các file trong request này — "gcn" (mặc định),
+    "ddk" (đơn đăng ký) hay "pcctt" (phiếu cung cấp thông tin). Ghi lên TỪNG file
+    chứ không chỉ lên lô, nên một lô trộn nhiều loại vẫn xử lý đúng: worker tra
+    `doc_type` của doc để chọn prompt/schema (xem app/doc_types.py).
     """
     if not files:
         raise HTTPException(status_code=400, detail="Không có tệp nào")
+    try:
+        dt = doc_types.hop_le(doc_type)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     try:
         await storage.ensure_destination_configured()
     except storage.DestinationNotConfigured as e:
@@ -82,6 +92,7 @@ async def create_batch(
             "batch_id": batch_id,
             "filename": f.filename or f"{gcn_id}.pdf",
             "s3_key": s3_key,
+            "doc_type": dt,
             "status": "queued",
             "page_count": pages,
             "extractions": [],
@@ -114,6 +125,7 @@ async def create_batch(
             "name": name or now.strftime("Lô %d/%m %H:%M"),
             "created_at": now,
             "file_count": len(created),
+            "doc_type": dt,   # mặc định của lô; từng file vẫn có thể khác
             "status": "processing",
         })
         await init_counts(batches(), batch_id, queued=len(created))

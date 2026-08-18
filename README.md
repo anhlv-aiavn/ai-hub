@@ -56,6 +56,9 @@ phóng job kẹt** (Admin → Lỗi) hoặc `POST /v1/gcn/release-stuck`.
 - **Retry lỗi**: Admin → tab Lỗi (mọi lô + lọc thời gian) hoặc `app/scripts/retry_errors_all.py`.
 - **Giải phóng job kẹt**: Admin → tab Lỗi → "Giải phóng job kẹt".
 - **Đo hiệu năng**: `docker compose exec worker python -m app.scripts.bench_pipeline tmp/*.pdf --duration 60`.
+- **Thử loại giấy mới** (đơn đăng ký · giấy xác nhận đăng ký · phiếu thu thập thông tin):
+  `docker compose exec api python -m app.scripts.smoke_e2e_doc_types --api http://localhost:8000 -u admin -p '***' --loai ddk <thư-mục-pdf> --so-luong 5`
+  — đẩy PDF qua API thật rồi in bảng KILL + độ điền từng trường. Xem `docs/algorithm.md#7b`.
 
 ## Tài liệu (`docs/`)
 
