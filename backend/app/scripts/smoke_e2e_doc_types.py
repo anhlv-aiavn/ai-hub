@@ -520,7 +520,18 @@ def main() -> int:
 
     api = Api(args.api, args.bo_qua_ssl)
     print(f"API {args.api} · đăng nhập {args.user}…")
-    api.dang_nhap(args.user, args.password)
+    try:
+        api.dang_nhap(args.user, args.password)
+    except Kill as e:
+        # Không nhả traceback: lỗi ở đây là cấu hình (sai cổng / sai mật khẩu),
+        # thông báo đã đủ rõ, stack chỉ làm loãng.
+        print(f"\nKHÔNG ĐĂNG NHẬP ĐƯỢC: {e}")
+        if "401" in str(e):
+            print("  → mật khẩu admin nằm ở AIHUB_ADMIN_PASS trong .env CỦA SERVER "
+                  "(không phải .env.example): grep AIHUB_ADMIN .env")
+            print("  → nếu mật khẩu đã đổi qua UI thì .env là giá trị cũ, dùng tài "
+                  "khoản bạn đang đăng nhập web.")
+        return 2
 
     tong_kill = tong_done = 0
     for ma, duong in viec:
@@ -543,4 +554,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Kill as e:
+        print(f"\nDỪNG: {e}")
+        sys.exit(2)
+    except KeyboardInterrupt:
+        print("\nĐã huỷ. Lô đã tạo vẫn nằm trên hệ thống — xoá tay trên UI nếu cần.")
+        sys.exit(130)
