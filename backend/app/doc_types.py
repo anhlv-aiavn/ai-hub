@@ -276,10 +276,20 @@ def _extract_ho_so(prompt_sys: str, prompt_user: str, key: str):
         if isinstance(than, list):   # model trả mảng dù prompt yêu cầu object
             dau = next((x for x in than if isinstance(x, dict)), {})
             return {key: dau}
+        # vlm_client trả {"raw": ...} khi KHÔNG parse nổi JSON. Trước đây chỗ này
+        # nuốt thành thân rỗng, nên một hồ sơ mất trắng hiện ra y hệt một tờ phiếu
+        # dân bỏ trống: status=done, error=None, 0 ô. Đã đo nhầm vì nó (1319332,
+        # 1329445 chạy 30s rồi báo "0/11"). Ném lỗi để run_job ghi vào `error` —
+        # dữ liệu hỏng phải nhìn thấy được, thà đỏ còn hơn im lặng.
+        if "raw" in d:
+            raw = d.get("raw")
+            n = len(raw) if isinstance(raw, str) else 0
+            raise ValueError(
+                f"model không trả JSON hợp lệ ({n} ký tự) — thường do sinh lặp vòng "
+                f"rồi bị cắt ở BIEU_MAU_MAX_TOKENS")
         # Model bỏ luôn khóa bọc ngoài, trả thẳng nội dung → bọc lại cho đồng nhất
-        # thay vì bắt cả tầng dưới phòng thủ hai dạng. {"raw": ...} = JSON hỏng.
-        noi_dung = {k: v for k, v in d.items() if k != "raw"}
-        return {key: noi_dung}
+        # thay vì bắt cả tầng dưới phòng thủ hai dạng.
+        return {key: dict(d)}
     return _fn
 
 
@@ -631,9 +641,14 @@ def _smoke() -> None:
             os.environ.pop(k, None)
 
         async def _hong(**k):
-            return {"raw": "JSON hỏng"}
+            return {"raw": "JSON hỏng vì bị cắt giữa chừng"}
         chat_json = _hong
-        assert asyncio.run(fn(["img"])) == {"Phiếu thu thập": {}}, "KILL [38] JSON hỏng → thân rỗng"
+        try:
+            asyncio.run(fn(["img"]))
+        except ValueError as e:
+            assert "MAX_TOKENS" in str(e), f"KILL [38] lỗi phải chỉ ra chỗ chỉnh: {e}"
+        else:
+            raise AssertionError("KILL [38] JSON hỏng phải NÉM LỖI, không trả thân rỗng")
         assert asyncio.run(fn([])) == {}, "KILL [39] không ảnh → {}"
 
         # classify: nhãn lạ / lỗi → GIỮ trang (vứt nhầm là mất dữ liệu im lặng)

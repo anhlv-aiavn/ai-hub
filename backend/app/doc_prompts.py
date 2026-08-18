@@ -91,8 +91,21 @@ Hướng dẫn từng mục (đánh số bám đúng biểu mẫu):
 Cuối đơn: 'Địa danh', 'Ngày ký', 'Người kê khai'.
 
 Phụ lục (chỉ điền nếu ảnh có trang tương ứng, không có thì để mảng rỗng):
-- Mẫu 15a 'Người sử dụng chung': mỗi DÒNG của bảng là một người — tên, năm sinh,
-  loại giấy tờ, số, ngày cấp, cơ quan cấp, địa chỉ. Bỏ qua dòng trống/bị gạch chéo.
+- Mẫu 15a 'Người sử dụng chung': mỗi DÒNG của bảng là một người. Bảng có 8 cột
+  ĐÁNH SỐ SẴN ở hàng dưới tiêu đề — đọc theo ĐÚNG SỐ CỘT, đừng đọc theo thứ tự
+  giá trị nhìn thấy:
+    (1) Số thứ tự  (2) Tên  (3) Năm sinh
+    (4) Loại giấy tờ  (5) Số  (6) Ngày cấp  (7) Cơ quan cấp   ← 4 cột này nằm
+        chung dưới tiêu đề gộp "Giấy tờ pháp nhân, nhân thân"
+    (8) Địa chỉ
+  Ô nào trống thì trả "" cho ĐÚNG cột đó, TUYỆT ĐỐI không kéo giá trị của cột sau
+  lấp vào. Lỗi đã gặp thật: cột (4) bỏ trống, model dồn cả hàng sang trái nên số
+  căn cước rơi vào 'Loại giấy tờ', ngày cấp rơi vào 'Số giấy tờ' — sai toàn bộ hàng
+  mà nhìn qua vẫn thấy "có dữ liệu".
+  Kiểm chéo trước khi trả: 'Loại giấy tờ' chỉ được là CHỮ (CCCD, CMND, Hộ chiếu,
+  Giấy khai sinh…); 'Số giấy tờ' chỉ được là DÃY SỐ; 'Ngày cấp' chỉ được là NGÀY.
+  Nếu thấy dãy số nằm ở 'Loại giấy tờ' thì bạn đã lệch cột — đọc lại.
+  Bỏ qua dòng trống/bị gạch chéo.
 - Mẫu 15b 'Danh sách thửa': mỗi dòng một thửa.
 - Mẫu 15c 'Danh sách tài sản': mỗi dòng một tài sản.
 

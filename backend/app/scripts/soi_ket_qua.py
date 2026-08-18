@@ -77,6 +77,12 @@ def dung_dang(truong: str, v: Any) -> bool | None:
         return bool(_RE_SO_GIAY_TO.match(v.strip()))
     if "Diện tích" in ten:
         return bool(_RE_SO.match(v.strip()))
+    # Cột "Loại giấy tờ" của bảng Mẫu 15a phải là CHỮ (CCCD/CMND/Hộ chiếu). Thấy
+    # dãy số ở đây nghĩa là model đọc lệch cột, cả hàng trượt sang trái — đã gặp
+    # thật ở ddk 1369423/1369458. Kiểm được vì nó là lỗi KIỂU, không cần biết
+    # giá trị đúng là gì.
+    if "Loại giấy tờ" in ten:
+        return not v.strip().replace(".", "").replace(" ", "").isdigit()
     return None
 
 
@@ -231,6 +237,9 @@ def _smoke() -> None:
     assert dung_dang("x.Giấy tờ nhân thân", "033064004030") is True, "KILL [6]"
     assert dung_dang("a.b[].Số giấy tờ", "03017001916") is False, "KILL [7] 11 số"
     assert dung_dang("x.Địa chỉ", "Thôn 9") is None, "KILL [8] không có luật"
+    assert dung_dang("a[].Loại giấy tờ", "CCCD") is True, "KILL [8a] loại giấy tờ là chữ"
+    assert dung_dang("a[].Loại giấy tờ", "001078002126") is False, \
+        "KILL [8b] dãy số ở cột Loại giấy tờ = model lệch cột"
     # Đúng chỗ từng hụt: luật phải chạm được trường nằm SÂU trong mảng lồng.
     assert dung_dang("Đơn.Người sử dụng chung[].Số giấy tờ", "abc") is False, \
         "KILL [9] trường lồng trong mảng vẫn phải bị kiểm"
@@ -275,7 +284,7 @@ def _smoke() -> None:
 
     kq2 = phan_tich([hs[0]])
     assert not kq2["cccd_lap"], "KILL [20] một hồ sơ thì không thể gọi là lặp"
-    print("soi_ket_qua PURE: 24 KILL ✓")
+    print("soi_ket_qua PURE: 26 KILL ✓")
 
 
 if __name__ == "__main__":
