@@ -11,6 +11,8 @@ import copy
 import re
 from typing import Any
 
+from app import doc_types
+
 from app.summary import format_page_range
 
 _TOKEN = re.compile(r"\[(\d+)\]|([^.\[\]]+)")
@@ -138,12 +140,22 @@ def flatten_doc(doc: dict) -> list[dict]:
         "_gcn_id": gcn_id,
     }
 
+    # ddk/pcctt/kqdk không có khối "Đăng ký" — map từ khối gốc ở ĐÂY, lúc đọc.
+    # Không lưu bản map vào Mongo: hậu kiểm sửa trường gốc (qua overrides, đã áp
+    # ở `ext` phía trên) thì bản map phải đổi theo; lưu sẵn là bên nhận đọc phải
+    # giá trị TRƯỚC khi sửa mà không hay biết.
+    #
+    # Trước khi có chỗ này, một hồ sơ pcctt xuất CSV ra ĐÚNG MỘT HÀNG với cả 23
+    # cột dữ liệu rỗng — trông y như bóc hỏng, trong khi JSON có đủ.
+    ma = doc.get("doc_type") or ""
+    khoa = "" if doc_types.get(ma).hau_xu_ly_gcn else doc_types.khoa_tu_nguon(doc)
+
     rows = []
     for ri, rec in enumerate(ext):
         if not isinstance(rec, dict):
             continue
         res = rec.get("result")
-        entries = res.get("Đăng ký", []) if isinstance(res, dict) else []
+        entries = doc_types.dang_ky_view(res, ma, khoa)
         cut = cuts.get(ri)
         page_idx = rec.get("page_indices") or (cut or {}).get("page_indices") or []
         recbase = {

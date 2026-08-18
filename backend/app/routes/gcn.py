@@ -1012,7 +1012,28 @@ async def _enrich_dup_candidates(items: list[dict]) -> None:
 
 
 def _detail(doc: dict) -> dict:
+    # `dang_ky` = khối "Đăng ký" hình dạng GCN, TÍNH LÚC ĐỌC cho ddk/kqdk/pcctt
+    # (doc GCN thì chính là khối gốc). Dành cho bên tích hợp chỉ đọc trường GCN.
+    #
+    # Cố ý ĐỂ RIÊNG, không nhét vào `extractions`: Reconcile.jsx clone thẳng
+    # extractions thành bản làm việc của hậu kiểm, nên trộn vào là người hậu kiểm
+    # thấy một khối PHÁI SINH sửa được — sửa xong lưu thành override trên đường
+    # dẫn phái sinh rồi lần đọc sau bị tính lại đè mất, mà không báo gì.
+    #
+    # Cũng vì tính lúc đọc nên nó luôn phản ánh bản ĐÃ hậu kiểm.
+    dt = doc_types.get(doc.get("doc_type"))
+    khoa = "" if dt.hau_xu_ly_gcn else doc_types.khoa_tu_nguon(doc)
+    review = doc.get("review") or {}
+    ext_hieu_luc = effective_extractions(
+        doc.get("extractions"), review.get("overrides"), review.get("deleted"))
+    dang_ky = [
+        {"rec_index": i,
+         "page_indices": (r or {}).get("page_indices") or [],
+         "Đăng ký": doc_types.dang_ky_view((r or {}).get("result"), dt.ma, khoa)}
+        for i, r in enumerate(ext_hieu_luc) if isinstance(r, dict)
+    ]
     return {
+        "dang_ky": dang_ky,
         "gcn_id": doc["_id"],
         "batch_id": doc.get("batch_id"),
         "filename": doc.get("filename"),

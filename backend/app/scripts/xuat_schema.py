@@ -219,6 +219,23 @@ vì dữ liệu đã bóc trước đó vẫn nằm trong hệ thống và vẫn
 lấy từ **tên tệp/prefix nguồn**, không phải từ nội dung giấy — mấy loại này
 không có số hiệu riêng nào đáng tin trên mặt giấy.
 
+## Chỉ muốn dùng các trường của Giấy chứng nhận?
+
+Không cần đọc schema riêng của từng loại. Với `ddk`/`kqdk`/`pcctt`, hệ thống map
+sẵn sang **đúng hình dạng `gcn`** ở hai chỗ:
+
+- `GET /v1/gcn/{{id}}` → trường **`dang_ky`**: `[{{rec_index, page_indices, "Đăng ký": [...]}}]`,
+  khối `"Đăng ký"` theo đúng [gcn.schema.json](gcn.schema.json).
+- `GET /v1/gcn/rows` và `export.csv` → cùng bộ cột phẳng như `gcn`, không phải xử lý riêng.
+
+Bản map **tính lúc đọc**, nên luôn phản ánh dữ liệu đã hậu kiểm. `extractions[].result`
+vẫn giữ nguyên khối gốc của từng loại giấy (dùng cho hậu kiểm và đối chiếu).
+
+Những gì đơn/phiếu KHÔNG có thì để **rỗng, không bịa**: `Mã vạch`, `Ngày cấp`
+(của giấy chứng nhận), `Biến động`, và `Số vào sổ` (trừ `kqdk` — văn bản này có
+số vào sổ ĐKĐĐ thật). `Số phát hành` = **khóa nguồn** (đường dẫn/tên tệp trên kho
+S3), vì mấy loại này không in số hiệu nào trên giấy.
+
 ## Ba điều bên nhận cần biết trước khi lập trình
 
 **Ô trống trả `""`, không phải `null`.** Mảng rỗng là `[]`. Không có key nào bị

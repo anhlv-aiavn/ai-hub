@@ -228,6 +228,9 @@ class LoaiGiay:
     # Hậu xử lý CHỈ có nghĩa với GCN (mã MĐSD, chủ cuối, vá SPH theo tên tệp, đánh
     # dấu nghi trùng theo Số phát hành). Bật cho biểu mẫu = sinh field rác.
     hau_xu_ly_gcn: bool = False
+    # Khóa bọc ngoài của `result` ("Phiếu thu thập", "Đơn đăng ký"…). GCN dùng
+    # "Đăng ký" và là mảng, nên để rỗng — chỗ nào cần thì kiểm hau_xu_ly_gcn.
+    khoa_than: str = ""
     # False = TẠM TẮT: không cho chọn khi tạo lô, không hiện trên UI, không nằm
     # trong --bo-ba. Vẫn ở lại registry để doc CŨ đã gắn mã này đọc đúng prompt
     # và summary của nó — gỡ hẳn khỏi registry thì get() sẽ rơi về GCN và bóc
@@ -362,6 +365,186 @@ def _summary_ho_so(than: dict, khoa: str, ngay: str, nguon_ten: tuple) -> dict:
     }
 
 
+# ── Mapping biểu mẫu → hình dạng GCN ────────────────────────────────────────
+#
+# Bên dùng API chỉ đọc các trường của GCN, nên ddk/pcctt cũng phải trả ra khối
+# "Đăng ký" đúng hình dạng ấy. Ba điều quyết định thiết kế:
+#
+# 1. TÍNH LÚC ĐỌC, KHÔNG LƯU. Lưu thêm một bản vào Mongo thì sau khi hậu kiểm
+#    sửa trường gốc, bản map giữ nguyên giá trị cũ — bên nhận đọc phải dữ liệu
+#    trước khi sửa mà không hay biết. Tính lúc đọc thì nguồn sự thật luôn là
+#    khối gốc, và override của hậu kiểm tự động phản ánh sang.
+# 2. KHÔNG BỊA. Số phát hành/Số vào sổ/Mã vạch/Ngày cấp của GIẤY CHỨNG NHẬN và
+#    Biến động đều không tồn tại trên đơn/phiếu — để rỗng. Riêng "Số phát hành"
+#    dùng KHÓA NGUỒN, thống nhất với `_summary_ho_so` (đã chốt với khách: mấy
+#    loại này không in số hiệu nào nên lấy tên tệp/prefix làm khóa).
+# 3. MAP THEO Ý NGHĨA, KHÔNG THEO TÊN. Ba cái bẫy đã gặp thật khi đối chiếu dữ
+#    liệu: pcctt "Ngày cấp" là ngày cấp CCCD (→ "Ngày cấp định danh", KHÔNG phải
+#    "Ngày cấp" của sổ); "Ngày lập" là ngày điền phiếu, không phải ngày cấp; ddk
+#    "Sở hữu chung" là DIỆN TÍCH ("52") còn GCN "Hình thức sở hữu" là CHỮ
+#    ("Chung"). Map theo tên là hỏng cả ba.
+
+_GCN_TRONG = {"Số phát hành": "", "Mã vạch": "", "Số vào sổ": "", "Ngày cấp": ""}
+
+
+def _md(loai: str, dien_tich: str = "", chung: str = "", thoi_han: str = "",
+        nguon: str = "") -> list[dict]:
+    """Một dòng "Mục đích sử dụng" theo khung GCN. Rỗng hết thì trả [] — mảng
+    một phần tử toàn rỗng làm bảng phẳng sinh ra hàng trắng."""
+    if not any((loai, dien_tich, nguon)):
+        return []
+    return [{"Loại mục đích": loai, "Diện tích": dien_tich, "Sử dụng chung": chung,
+             "Thời hạn sử dụng": thoi_han, "Ngày hết hạn sử dụng": "",
+             "Nguồn gốc chi tiết": nguon}]
+
+
+def _thua_gcn(t: dict, so="Thửa đất số", to="Tờ bản đồ số") -> dict:
+    return {
+        "Số thứ tự thửa": _lay(t, so),
+        "Số hiệu tờ bản đồ": _lay(t, to),
+        "Diện tích": _lay(t, "Diện tích"),
+        "Địa chỉ": _lay(t, "Địa chỉ"),
+        "Mục đích sử dụng": _md(_lay(t, "Mục đích sử dụng"), _lay(t, "Diện tích"),
+                                _lay(t, "Sử dụng chung"),
+                                _lay(t, "Thời hạn đề nghị") or _lay(t, "Thời hạn sử dụng"),
+                                _lay(t, "Nguồn gốc sử dụng")),
+    }
+
+
+def _chu_gcn(ten: str, so_giay_to: str = "", nam_sinh: str = "", loai_gt: str = "",
+             ngay_cap: str = "", noi_cap: str = "", dia_chi: str = "") -> dict:
+    return {
+        "Loại đối tượng": "", "Tên chủ": ten, "Năm sinh": nam_sinh, "Giới tính": "",
+        "Loại giấy tờ": loai_gt, "Số giấy tờ": so_giay_to,
+        # CHÚ Ý: "Ngày cấp định danh" là ngày cấp CCCD/CMND, KHÁC "Ngày cấp" của
+        # giấy chứng nhận ở khối trên. Đây là chỗ dễ map nhầm nhất.
+        "Ngày cấp định danh": ngay_cap, "Nơi cấp": noi_cap, "Địa chỉ": dia_chi,
+    }
+
+
+def _sang_gcn_pcctt(than: dict, khoa: str) -> list[dict]:
+    nsd = than.get("Người sử dụng đất") if isinstance(than.get("Người sử dụng đất"), dict) else {}
+    thua = than.get("Thửa đất") if isinstance(than.get("Thửa đất"), dict) else {}
+    chu = _chu_gcn(_lay(nsd, "Họ và tên người đại diện"), _lay(nsd, "Số giấy tờ"),
+                   ngay_cap=_lay(nsd, "Ngày cấp"), noi_cap=_lay(nsd, "Nơi cấp"),
+                   dia_chi=_lay(nsd, "Địa chỉ"))
+    return [{
+        "Giấy chứng nhận": {**_GCN_TRONG, "Số phát hành": khoa},
+        "Chủ sử dụng": [chu] if chu["Tên chủ"] else [],
+        "Thửa đất": [_thua_gcn(thua)] if thua else [],
+        "Thông tin nhà ở": [],
+        "Biến động": [],
+    }]
+
+
+def _sang_gcn_ddk(than: dict, khoa: str) -> list[dict]:
+    nsd = than.get("Người sử dụng đất") if isinstance(than.get("Người sử dụng đất"), dict) else {}
+    thua = than.get("Thửa đất") if isinstance(than.get("Thửa đất"), dict) else {}
+    nha = than.get("Nhà ở, công trình xây dựng")
+    nha = nha if isinstance(nha, dict) else {}
+
+    chu = []
+    dung = _lay(nsd, "Họ và tên")
+    if dung:
+        chu.append(_chu_gcn(dung, _lay(nsd, "Giấy tờ nhân thân"), dia_chi=_lay(nsd, "Địa chỉ")))
+    # Mẫu 15a thường lặp lại chính người đứng đơn ở dòng 1 — bỏ trùng theo tên
+    # đã bỏ dấu, giữ thứ tự, giống hệt cách `_ten_nguoi` gộp cho cột tóm tắt.
+    da_co = {strip_diacritics(dung).lower()} if dung else set()
+    for n in than.get("Người sử dụng chung") or []:
+        if not isinstance(n, dict):
+            continue
+        ten = _lay(n, "Tên")
+        if not ten or strip_diacritics(ten).lower() in da_co:
+            continue
+        da_co.add(strip_diacritics(ten).lower())
+        chu.append(_chu_gcn(ten, _lay(n, "Số giấy tờ"), _lay(n, "Năm sinh"),
+                            _lay(n, "Loại giấy tờ"), _lay(n, "Ngày cấp"),
+                            _lay(n, "Cơ quan cấp"), _lay(n, "Địa chỉ")))
+
+    ds_thua = [_thua_gcn(thua)] if thua else []
+    for t in than.get("Danh sách thửa") or []:       # phụ lục Mẫu 15b
+        if isinstance(t, dict) and any(t.values()):
+            ds_thua.append(_thua_gcn(t))
+
+    def _ts(loai, dt_xd, dt_san, hinh_thuc, so_tang, thoi_han):
+        return {"Loại tài sản gắn liền với đất": loai, "Khu nhà chung cư, nhà hỗn hợp": "",
+                "Địa chỉ": "", "Nhà chung cư": "", "Số căn hộ": "",
+                "Diện tích xây dựng": dt_xd, "Diện tích sàn": dt_san,
+                "Hình thức sở hữu": hinh_thuc, "Thời hạn sở hữu": thoi_han,
+                "Cấp hạng": "", "Kết cấu": "", "Số tầng": so_tang}
+
+    # Mẫu 15c KHI CÓ thì THAY mục 3, không cộng thêm. Biểu mẫu quy định vậy: có
+    # nhiều tài sản thì mục 3 chỉ ghi thông tin chung và tổng diện tích, còn liệt
+    # kê từng cái ở 15c. Cộng cả hai là đếm đúp — đo trên 30 đơn thật: 20 đơn có
+    # CẢ hai (cùng một tài sản), 10 đơn chỉ có mục 3, KHÔNG đơn nào chỉ có 15c.
+    # (Thửa đất thì ngược lại: 0/30 đơn có cả mục 2 lẫn 15b, nên nối thẳng.)
+    ds_15c = [t for t in (than.get("Danh sách tài sản") or [])
+              if isinstance(t, dict) and _lay(t, "Loại")]
+    nha_o = []
+    if ds_15c:
+        for t in ds_15c:
+            nha_o.append(_ts(_lay(t, "Loại"), _lay(t, "Diện tích xây dựng"),
+                             _lay(t, "Diện tích sàn"), _lay(t, "Hình thức sở hữu"),
+                             _lay(t, "Số tầng"), _lay(t, "Thời hạn sở hữu")))
+    elif _lay(nha, "Loại"):
+        # "Sở hữu chung"/"Sở hữu riêng" của ddk là DIỆN TÍCH (m²), không phải chữ
+        # chung/riêng — suy ra hình thức từ ô NÀO được điền, chứ không chép giá trị.
+        hinh_thuc = ("Chung" if _lay(nha, "Sở hữu chung")
+                     else "Riêng" if _lay(nha, "Sở hữu riêng") else "")
+        nha_o.append(_ts(_lay(nha, "Loại"), _lay(nha, "Diện tích xây dựng"),
+                         _lay(nha, "Diện tích sàn"), hinh_thuc, _lay(nha, "Số tầng"),
+                         _lay(nha, "Thời hạn sở hữu đến")))
+
+    return [{
+        "Giấy chứng nhận": {**_GCN_TRONG, "Số phát hành": khoa},
+        "Chủ sử dụng": chu,
+        "Thửa đất": ds_thua,
+        "Thông tin nhà ở": nha_o,
+        "Biến động": [],
+    }]
+
+
+def _sang_gcn_kqdk(than: dict, khoa: str) -> list[dict]:
+    thua = than.get("Thửa đất") if isinstance(than.get("Thửa đất"), dict) else {}
+    tt = than.get("Thông tin văn bản") if isinstance(than.get("Thông tin văn bản"), dict) else {}
+    chu = []
+    for n in than.get("Người sử dụng đất") or []:
+        if isinstance(n, dict) and _lay(n, "Họ và tên"):
+            chu.append(_chu_gcn(_lay(n, "Họ và tên"), _lay(n, "Số giấy tờ"),
+                                dia_chi=_lay(n, "Địa chỉ")))
+    return [{
+        # kqdk là văn bản xác nhận ĐÃ đăng ký nên CÓ số vào sổ ĐKĐĐ thật — trường
+        # duy nhất trong ba loại biểu mẫu điền được vào khối "Giấy chứng nhận".
+        "Giấy chứng nhận": {**_GCN_TRONG, "Số phát hành": khoa,
+                            "Số vào sổ": _lay(tt, "Số vào sổ ĐKĐĐ")},
+        "Chủ sử dụng": chu,
+        "Thửa đất": [_thua_gcn(thua)] if thua else [],
+        "Thông tin nhà ở": [],
+        "Biến động": [],
+    }]
+
+
+_SANG_GCN = {"pcctt": _sang_gcn_pcctt, "ddk": _sang_gcn_ddk, "kqdk": _sang_gcn_kqdk}
+
+
+def dang_ky_view(result: Any, ma: str, khoa: str) -> list:
+    """`result` của một bản ghi → khối "Đăng ký" theo hình dạng GCN.
+
+    Trả về nguyên khối "Đăng ký" nếu đã có (doc GCN thật). Với biểu mẫu thì map
+    từ khối gốc. Không đọc được gì → [] chứ không phải một phần tử rỗng: một
+    phần tử toàn rỗng sẽ đẻ ra hàng trắng trong CSV, nhìn y như hồ sơ bóc hỏng."""
+    if not isinstance(result, dict):
+        return []
+    if isinstance(result.get("Đăng ký"), list):
+        return result["Đăng ký"]
+    dt = DOC_TYPES.get(ma)
+    fn = _SANG_GCN.get(ma)
+    if not dt or not fn:
+        return []
+    than = result.get(dt.khoa_than)
+    return fn(than, khoa) if isinstance(than, dict) and than else []
+
+
 def _rows_ho_so(records, cuts, khoa: str, key: str, ngay_fn, nguon_ten) -> list[dict]:
     """1 hàng / 1 hồ sơ — gương của `summary.per_gcn` cho chế độ mot_ho_so."""
     cutmap = {c.get("index"): c for c in (cuts or []) if isinstance(c, dict)}
@@ -392,6 +575,7 @@ def _lam_loai_ho_so(ma: str, nhan: str, key: str, prompts: dict, ngay_fn,
     return LoaiGiay(
         ma=ma,
         bat=bat,
+        khoa_than=key,
         nhan=nhan,
         che_do_gom=GOM_MOT_HO_SO,
         detect_min_pages=_DETECT_MIN_HO_SO,
@@ -676,6 +860,75 @@ def _smoke() -> None:
     for k in ("BIEU_MAU_TEMPERATURE", "BIEU_MAU_REPETITION_PENALTY", "BIEU_MAU_MAX_TOKENS"):
         os.environ.pop(k, None)
 
+    # ── Map biểu mẫu → hình dạng GCN ────────────────────────────────────────
+    KH = "2026/Phieu CCTT/576827"
+    pc = {"Phiếu thu thập": {
+        "Người sử dụng đất": {"Họ và tên người đại diện": "Nguyễn Văn Luyến",
+                              "Số giấy tờ": "001074010045", "Ngày cấp": "13/06/2022",
+                              "Nơi cấp": "Cục Cảnh sát", "Địa chỉ": "Thôn Kim Ninh"},
+        "Thửa đất": {"Thửa đất số": "299", "Tờ bản đồ số": "386", "Diện tích": "194.0",
+                     "Địa chỉ": "Thôn Kim Ninh", "Mục đích sử dụng": "Đất ao",
+                     "Nguồn gốc sử dụng": "Nhận chuyển nhượng"},
+        "Ngày lập": "14/08/2026"}}
+    e = dang_ky_view(pc, "pcctt", KH)[0]
+    assert e["Giấy chứng nhận"]["Số phát hành"] == KH, \
+        "KILL [43] Số phát hành = khóa nguồn, thống nhất với _summary_ho_so"
+    assert e["Giấy chứng nhận"]["Ngày cấp"] == "", (
+        "KILL [44] 'Ngày cấp' của GCN phải TRỐNG — giấy chứng nhận chưa tồn tại. "
+        "Nhét ngày cấp CCCD hay ngày lập phiếu vào đây là bịa ngày cấp sổ")
+    chu = e["Chủ sử dụng"][0]
+    assert chu["Ngày cấp định danh"] == "13/06/2022" and chu["Số giấy tờ"] == "001074010045", \
+        f"KILL [45] ngày cấp CCCD về đúng 'Ngày cấp định danh': {chu}"
+    t = e["Thửa đất"][0]
+    assert (t["Số thứ tự thửa"], t["Số hiệu tờ bản đồ"], t["Diện tích"]) == ("299", "386", "194.0"), \
+        f"KILL [46] thửa map đúng cột: {t}"
+    assert t["Mục đích sử dụng"][0]["Nguồn gốc chi tiết"] == "Nhận chuyển nhượng", \
+        "KILL [47] nguồn gốc → Nguồn gốc chi tiết (mdsdd gán mã từ Loại mục đích)"
+    assert e["Thông tin nhà ở"] == [] and e["Biến động"] == [], \
+        "KILL [48] pcctt không có tài sản/biến động → mảng RỖNG, không phải phần tử rỗng"
+
+    dd = {"Đơn đăng ký": {
+        "Người sử dụng đất": {"Họ và tên": "HOÀNG THĂNG LONG",
+                              "Giấy tờ nhân thân": "001085015315", "Địa chỉ": "Số 5"},
+        "Thửa đất": {"Thửa đất số": "39", "Tờ bản đồ số": "393", "Diện tích": "74.375"},
+        "Nhà ở, công trình xây dựng": {"Loại": "Căn hộ", "Diện tích sàn": "52",
+                                       "Sở hữu chung": "52", "Sở hữu riêng": ""},
+        "Người sử dụng chung": [{"Tên": "Hoàng Thăng Long"},        # trùng người đứng đơn
+                                {"Tên": "NGUYỄN THỊ HUYỀN", "Số giấy tờ": "001185002222",
+                                 "Năm sinh": "1985", "Loại giấy tờ": "CCCD",
+                                 "Cơ quan cấp": "CA Hà Nội"}],
+        "Danh sách thửa": [{"Thửa đất số": "40", "Tờ bản đồ số": "393"}]}}
+    e = dang_ky_view(dd, "ddk", "k")[0]
+    assert [c["Tên chủ"] for c in e["Chủ sử dụng"]] == ["HOÀNG THĂNG LONG", "NGUYỄN THỊ HUYỀN"], \
+        f"KILL [49] Mẫu 15a lặp lại người đứng đơn → bỏ trùng (không phân biệt dấu/hoa): {e['Chủ sử dụng']}"
+    assert e["Chủ sử dụng"][1]["Nơi cấp"] == "CA Hà Nội", "KILL [50] 'Cơ quan cấp' 15a → 'Nơi cấp'"
+    assert [t["Số thứ tự thửa"] for t in e["Thửa đất"]] == ["39", "40"], \
+        f"KILL [51] mục 2 + Mẫu 15b nối lại (đo thật: 0/30 đơn có cả hai nên nối là an toàn)"
+    assert e["Thông tin nhà ở"][0]["Hình thức sở hữu"] == "Chung", (
+        "KILL [52] ddk 'Sở hữu chung' là DIỆN TÍCH (m²) còn GCN 'Hình thức sở hữu' là CHỮ — "
+        "suy ra từ ô nào được điền, TUYỆT ĐỐI không chép giá trị sang")
+
+    dd2 = {"Đơn đăng ký": {**dd["Đơn đăng ký"],
+                           "Danh sách tài sản": [{"Loại": "Chung cư", "Diện tích sàn": "52",
+                                                  "Hình thức sở hữu": "Chung"}]}}
+    ts = dang_ky_view(dd2, "ddk", "k")[0]["Thông tin nhà ở"]
+    assert [x["Loại tài sản gắn liền với đất"] for x in ts] == ["Chung cư"], (
+        "KILL [53] có Mẫu 15c thì 15c THAY mục 3, không cộng — đo thật 20/30 đơn có cả hai "
+        f"mà là CÙNG một tài sản: {ts}")
+
+    kq = {"Giấy xác nhận": {"Thông tin văn bản": {"Số vào sổ ĐKĐĐ": "852.2018"},
+                            "Người sử dụng đất": [{"Họ và tên": "TRẦN KIM DUY"}],
+                            "Thửa đất": {"Thửa đất số": "7"}}}
+    e = dang_ky_view(kq, "kqdk", "k")[0]
+    assert e["Giấy chứng nhận"]["Số vào sổ"] == "852.2018", \
+        "KILL [54] kqdk CÓ số vào sổ ĐKĐĐ thật — trường duy nhất điền được vào khối GCN"
+
+    assert dang_ky_view({"Đăng ký": [{"x": 1}]}, "gcn", "k") == [{"x": 1}], \
+        "KILL [55] doc GCN thật thì trả nguyên khối, không map lại"
+    for xau in ({}, {"Phiếu thu thập": {}}, {"Phiếu thu thập": "chuỗi"}, None, []):
+        assert dang_ky_view(xau, "pcctt", "k") == [], \
+            f"KILL [56] không đọc được → [] (một phần tử rỗng sẽ đẻ hàng trắng trong CSV): {xau}"
+
     # ── Bọc kết quả model trả sai hình dạng ─────────────────────────────────
     global chat_json
     that = chat_json
@@ -765,7 +1018,7 @@ def _smoke() -> None:
     finally:
         chat_json = that
 
-    print("doc_types PURE: 63 KILL ✓")
+    print("doc_types PURE: 77 KILL ✓")
 
 
 if __name__ == "__main__":
