@@ -147,10 +147,14 @@ Smoke tách **2 tầng kết luận**: `KILL` = bất biến kỹ thuật vỡ (
 
 `kqdk` là loại **sạch nhất** cho tới giờ: 100% điền và 100% đúng định dạng trên cả 3 trường có luật.
 
-**Đã sửa từ lượt chạy này** (commit `906ab39`): bảng báo `Giấy tờ nhân thân` chỉ 40% đúng định dạng — **lỗi code, không phải lỗi model**. `_normalize_bieu_mau` bắt theo tên `"Số giấy tờ"`, nhưng Mẫu 15 mục 1b in là `"Giấy tờ nhân thân"`, nên CCCD trên `ddk` không hề được chuẩn hoá. Nay gom vào `_TEN_SO_GIAY_TO`, có KILL [17a] ghim lại. **CHƯA xác nhận được trên máy thật**: lượt đo lại chỉ `restart` chứ không `build`, nên vẫn là code cũ (xem §9). Phải build lại rồi chạy `ddk` lần nữa.
+**Đã sửa xong, đã xác nhận trên máy thật** (`906ab39` + `9e82322`): trường `Giấy tờ nhân thân` đi từ 40% → 80% đúng định dạng qua hai bug tách biệt.
+1. `_normalize_bieu_mau` bắt theo tên `"Số giấy tờ"`, nhưng Mẫu 15 mục 1b in là `"Giấy tờ nhân thân"` → CCCD trên `ddk` chưa từng được chuẩn hoá. Gom vào `_TEN_SO_GIAY_TO`, KILL [17a].
+2. Ô mục 1b là dòng kẻ trống nên hay bị viết cả câu (`"CCCD số 033064004050 cấp ngày 22/11/2021"`). Nay nhặt cụm 9/12 số trong câu, **chỉ nhận khi có đúng một cụm** — nhiều cụm thì giữ nguyên văn, khỏi đoán; mã số thuế 10 số của pháp nhân cũng không bị nhận nhầm. KILL [16h]–[16k]. Ngày cấp bị bỏ có chủ ý (schema không có ô; Mẫu 15a đã có cột riêng) — **khách chưa xác nhận có cần giữ không**.
+
+**20% còn lại KHÔNG phải bug — đừng đi sửa.** `1095196` ra `001057035688` (12 số) ở lượt này, `01010703688` (11 số) ở lượt sau: cùng tờ giấy, model đọc khác nhau mỗi lần. Bộ chuẩn hoá **cố ý không** đắp cho đủ 12 số — biến một số căn cước sai thành số trông hợp lệ thì nguy hiểm hơn để nó lộ ra là sai. Cột 80% ở đây là tín hiệu đúng, không phải lỗi cần vá.
 
 **Còn phải soi**:
-- `1134303.pdf` (`ddk`) lệch hẳn phần còn lại: 10/15 trường, thiếu trọn cụm Thửa đất (Địa chỉ/Diện tích/Mục đích/Nguồn gốc) và chạy 12s trong khi các file kia 16–17s. Nghi trang chứa mục 2 bị bộ lọc xếp nhầm `dinh_kem` → mở `--json` xem `page_indices` trước khi động vào prompt.
+- `1134303.pdf` (`ddk`) chỉ 10–11/15 trường, thiếu cụm Thửa đất. **Giả thuyết "bộ lọc trang loại nhầm" đã BỊ BÁC BỎ**: `page_indices = [0,1,5,6]`, trang chứa mục 2 vào VLM đầy đủ. Giả thuyết còn lại: đơn này đăng ký **căn hộ chung cư** (`"Căn hộ số 307A"`, tài sản loại "Chỗ ở", sàn 52m²) nên mục 2 để trống thật trên giấy → `11/15` là con số trung thực. **Cần mở trang 2 của PDF xác nhận — khách chưa trả lời.** Trong cùng file còn hai giá trị nhảm không liên quan: `Số tầng: "0.3"`, `Sở hữu chung: "52"` (lẽ ra là chung/riêng, không phải diện tích).
 - `1319369.pdf` (`pcctt`) `Số giấy tờ` sai định dạng: trường này CÓ được chuẩn hoá, nên số chữ số không phải 9/12 → hoặc model đọc sót/thừa chữ số, hoặc giấy ghi vậy thật. Phải đối chiếu ảnh.
 - Chưa có con số độ chính xác **nội dung** cho `ddk`/`kqdk` — mới chỉ biết cấu trúc và định dạng đúng.
 
