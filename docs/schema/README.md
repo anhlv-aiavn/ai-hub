@@ -9,15 +9,18 @@ python -m app.scripts.xuat_schema
 
 ## Bốn loại giấy
 
-| `doc_type` | Tên giấy | Khoá bọc ngoài của `result` | Schema |
-|---|---|---|---|
-| `gcn` | Giấy chứng nhận | `Đăng ký` | [gcn.schema.json](gcn.schema.json) · [gcn.example.json](gcn.example.json) |
-| `ddk` | Đơn đăng ký | `Đơn đăng ký` | [ddk.schema.json](ddk.schema.json) · [ddk.example.json](ddk.example.json) |
-| `kqdk` | Giấy xác nhận đăng ký | `Giấy xác nhận` | [kqdk.schema.json](kqdk.schema.json) · [kqdk.example.json](kqdk.example.json) |
-| `pcctt` | Phiếu thu thập thông tin | `Phiếu thu thập` | [pcctt.schema.json](pcctt.schema.json) · [pcctt.example.json](pcctt.example.json) |
+| `doc_type` | Tên giấy | Khoá bọc ngoài của `result` | Trạng thái | Schema |
+|---|---|---|---|---|
+| `gcn` | Giấy chứng nhận | `Đăng ký` | ✅ | [gcn.schema.json](gcn.schema.json) · [gcn.example.json](gcn.example.json) |
+| `ddk` | Đơn đăng ký | `Đơn đăng ký` | ✅ | [ddk.schema.json](ddk.schema.json) · [ddk.example.json](ddk.example.json) |
+| `kqdk` | Giấy xác nhận đăng ký | `Giấy xác nhận` | ⏸ tạm tắt | [kqdk.schema.json](kqdk.schema.json) · [kqdk.example.json](kqdk.example.json) |
+| `pcctt` | Phiếu thu thập thông tin | `Phiếu thu thập` | ✅ | [pcctt.schema.json](pcctt.schema.json) · [pcctt.example.json](pcctt.example.json) |
 
 `doc_type` là tham số của API, mặc định `gcn` nếu không truyền (giữ tương thích
 với dữ liệu cũ). Giá trị lạ → HTTP 400.
+
+Loại **tạm tắt** không gửi lên được nữa (API trả 400) nhưng schema vẫn giữ ở đây,
+vì dữ liệu đã bóc trước đó vẫn nằm trong hệ thống và vẫn theo đúng cấu trúc này.
 
 - `POST /v1/batches` — form field `doc_type`
 - `POST /v1/browse/{source_id}/import` — JSON field `doc_type`

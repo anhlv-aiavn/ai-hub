@@ -88,7 +88,7 @@ Hướng dẫn từng mục (đánh số bám đúng biểu mẫu):
    'Đăng ký đất đai, tài sản gắn liền với đất' (a), 'Cấp Giấy chứng nhận' (b),
    'Ghi nợ tiền sử dụng đất' (c), và 'Đề nghị khác' (d) ghi nội dung nếu có.
 5. 'Giấy tờ nộp kèm theo': liệt kê từng dòng (1)(2)(3).
-Cuối đơn: 'Địa danh', 'Ngày ký', 'Người kê khai'.
+Cuối đơn: chỉ lấy 'Ngày ký'. KHÔNG trích địa danh và tên người kê khai.
 
 Phụ lục (chỉ điền nếu ảnh có trang tương ứng, không có thì để mảng rỗng):
 - Mẫu 15a 'Người sử dụng chung': mỗi DÒNG của bảng là một người. Bảng có 8 cột
@@ -117,9 +117,7 @@ Trả ĐÚNG cấu trúc JSON sau:
   "Đơn đăng ký": {
     "Thông tin đơn": {
       "Kính gửi": "",
-      "Địa danh": "",
-      "Ngày ký": "",
-      "Người kê khai": ""
+      "Ngày ký": ""
     },
     "Người sử dụng đất": {
       "Họ và tên": "",
@@ -337,7 +335,6 @@ Trả ĐÚNG cấu trúc JSON sau:
   "Phiếu thu thập": {
     "Người sử dụng đất": {
       "Họ và tên người đại diện": "",
-      "Loại giấy tờ": "",
       "Số giấy tờ": "",
       "Ngày cấp": "",
       "Nơi cấp": "",

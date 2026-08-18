@@ -10,9 +10,6 @@
             "Họ và tên người đại diện": {
               "type": "string"
             },
-            "Loại giấy tờ": {
-              "type": "string"
-            },
             "Số giấy tờ": {
               "type": "string",
               "description": "Chuẩn hoá về dãy số trần 9 (CMND) hoặc 12 (CCCD) chữ số, bỏ dấu phân nhóm; nhặt được cả khi người viết ghi thêm chữ quanh số. Không ra đúng 9/12 số → GIỮ NGUYÊN VĂN. Giá trị không đúng 9/12 số là tín hiệu cần hậu kiểm, KHÔNG được tự sửa cho đủ."
@@ -30,7 +27,6 @@
           },
           "required": [
             "Họ và tên người đại diện",
-            "Loại giấy tờ",
             "Số giấy tờ",
             "Ngày cấp",
             "Nơi cấp",

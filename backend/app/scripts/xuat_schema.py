@@ -158,6 +158,7 @@ def _prompt(ma: str) -> str:
 def _readme() -> str:
     dong = "\n".join(
         f"| `{ma}` | {doc_types.get(ma).nhan} | `{list(khung_tu_prompt(_prompt(ma)))[0]}` "
+        f"| {'✅' if doc_types.get(ma).bat else '⏸ tạm tắt'} "
         f"| [{ma}.schema.json]({ma}.schema.json) · [{ma}.example.json]({ma}.example.json) |"
         for ma in LOAI
     )
@@ -172,12 +173,15 @@ python -m app.scripts.xuat_schema
 
 ## Bốn loại giấy
 
-| `doc_type` | Tên giấy | Khoá bọc ngoài của `result` | Schema |
-|---|---|---|---|
+| `doc_type` | Tên giấy | Khoá bọc ngoài của `result` | Trạng thái | Schema |
+|---|---|---|---|---|
 {dong}
 
 `doc_type` là tham số của API, mặc định `gcn` nếu không truyền (giữ tương thích
 với dữ liệu cũ). Giá trị lạ → HTTP 400.
+
+Loại **tạm tắt** không gửi lên được nữa (API trả 400) nhưng schema vẫn giữ ở đây,
+vì dữ liệu đã bóc trước đó vẫn nằm trong hệ thống và vẫn theo đúng cấu trúc này.
 
 - `POST /v1/batches` — form field `doc_type`
 - `POST /v1/browse/{{source_id}}/import` — JSON field `doc_type`

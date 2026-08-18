@@ -10,10 +10,11 @@ import MinioBrowser from "./MinioBrowser.jsx";
 // Loại giấy quyết định prompt + schema bóc tách ở backend (xem app/doc_types.py).
 // Chọn sai loại thì VLM vẫn trả JSON nhưng theo cấu trúc của loại khác → bảng
 // trích xuất trống, nên để mặc định GCN và hiện rõ đang chọn gì.
+// Danh sách này phải khớp doc_types.MA_HOP_LE ở backend (loại tắt thì bỏ ra,
+// backend trả 400 nếu vẫn gửi lên). kqdk tạm tắt theo yêu cầu khách 2026-08-18.
 const LOAI_GIAY = [
   { ma: "gcn", nhan: "Giấy chứng nhận" },
   { ma: "ddk", nhan: "Đơn đăng ký" },
-  { ma: "kqdk", nhan: "Giấy xác nhận đăng ký" },
   { ma: "pcctt", nhan: "Phiếu thu thập thông tin" },
 ];
 

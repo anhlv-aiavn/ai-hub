@@ -119,6 +119,11 @@ LOAI = {
 # Tên thư mục trong bộ mẫu khách gửi → mã loại (dùng cho --bo-ba).
 THU_MUC_BO_BA = {"Phiếu CCTT": "pcctt", "Đơn ĐK": "ddk", "Kết quả ĐK": "kqdk"}
 
+# Loại tạm tắt: vẫn giữ định nghĩa trường ở trên để soi lại kết quả CŨ, nhưng
+# không cho chọn và không nằm trong --bo-ba. Đồng bộ với cờ `bat` ở doc_types.
+TAM_TAT = {"kqdk"}
+LOAI_CHON = tuple(m for m in LOAI if m not in TAM_TAT)
+
 
 # ── Luật định dạng: suy từ TÊN trường, không phải khai riêng từng loại giấy ──
 #
@@ -663,7 +668,8 @@ def main() -> int:
                    help="Gốc API. Trong container: http://localhost:8000 (mặc định: %(default)s)")
     p.add_argument("-u", "--user", default=os.getenv("AIHUB_USER", "admin"))
     p.add_argument("-p", "--password", default=os.getenv("AIHUB_PASSWORD"))
-    p.add_argument("--loai", choices=sorted(LOAI), help="Loại giấy của các đường dẫn truyền vào.")
+    p.add_argument("--loai", choices=sorted(LOAI_CHON),
+                   help="Loại giấy của các đường dẫn truyền vào.")
     p.add_argument("duong", nargs="*", help="Tệp PDF hoặc thư mục chứa PDF.")
     p.add_argument("--bo-ba", metavar="THƯ_MỤC",
                    help="Thư mục chứa 3 thư mục con 'Phiếu CCTT' / 'Đơn ĐK' / 'Kết quả ĐK' "
@@ -694,6 +700,9 @@ def main() -> int:
     viec: list[tuple[str, list[str]]] = []
     if args.bo_ba:
         for ten_tm, ma in THU_MUC_BO_BA.items():
+            if ma in TAM_TAT:
+                print(f"bỏ qua {ten_tm} — loại {ma!r} đang tạm tắt")
+                continue
             d = os.path.join(args.bo_ba, ten_tm)
             if os.path.isdir(d):
                 viec.append((ma, [d]))

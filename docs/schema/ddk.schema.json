@@ -10,22 +10,14 @@
             "Kính gửi": {
               "type": "string"
             },
-            "Địa danh": {
-              "type": "string"
-            },
             "Ngày ký": {
               "type": "string",
               "description": "Chuẩn hoá về \"dd/mm/yyyy\" khi đọc được (nhận cả dạng \"ngày 10 tháng 8 năm 2026\"). Ô bỏ trống trên giấy → \"\". Không nhận dạng được → GIỮ NGUYÊN VĂN chữ trên giấy, KHÔNG phải chuỗi rỗng."
-            },
-            "Người kê khai": {
-              "type": "string"
             }
           },
           "required": [
             "Kính gửi",
-            "Địa danh",
-            "Ngày ký",
-            "Người kê khai"
+            "Ngày ký"
           ],
           "additionalProperties": false
         },

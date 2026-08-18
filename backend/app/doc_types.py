@@ -225,6 +225,11 @@ class LoaiGiay:
     # Hậu xử lý CHỈ có nghĩa với GCN (mã MĐSD, chủ cuối, vá SPH theo tên tệp, đánh
     # dấu nghi trùng theo Số phát hành). Bật cho biểu mẫu = sinh field rác.
     hau_xu_ly_gcn: bool = False
+    # False = TẠM TẮT: không cho chọn khi tạo lô, không hiện trên UI, không nằm
+    # trong --bo-ba. Vẫn ở lại registry để doc CŨ đã gắn mã này đọc đúng prompt
+    # và summary của nó — gỡ hẳn khỏi registry thì get() sẽ rơi về GCN và bóc
+    # lại/hiển thị sai toàn bộ hồ sơ cũ.
+    bat: bool = True
     phien_ban: str = "v1"
 
 
@@ -380,9 +385,10 @@ def _rows_ho_so(records, cuts, khoa: str, key: str, ngay_fn, nguon_ten) -> list[
 
 
 def _lam_loai_ho_so(ma: str, nhan: str, key: str, prompts: dict, ngay_fn,
-                    nguon_ten: tuple) -> LoaiGiay:
+                    nguon_ten: tuple, bat: bool = True) -> LoaiGiay:
     return LoaiGiay(
         ma=ma,
+        bat=bat,
         nhan=nhan,
         che_do_gom=GOM_MOT_HO_SO,
         detect_min_pages=_DETECT_MIN_HO_SO,
@@ -445,6 +451,7 @@ KQDK = _lam_loai_ho_so(
      "extract_user": doc_prompts.kqdk_extract_user_prompt},
     ngay_fn=lambda than: _lay(than, "Thông tin văn bản", "Ngày ký"),
     nguon_ten=(("Người sử dụng đất",),),
+    bat=False,   # khách tạm dừng loại này (2026-08-18) — xem cờ `bat`
 )
 
 PCCTT = _lam_loai_ho_so(
@@ -483,7 +490,8 @@ def khoa_tu_nguon(doc: dict) -> str:
 # ── Tra cứu ─────────────────────────────────────────────────────────────────
 
 DOC_TYPES: dict[str, LoaiGiay] = {d.ma: d for d in (GCN, DDK, KQDK, PCCTT)}
-MA_HOP_LE = tuple(DOC_TYPES)
+# Chỉ loại đang BẬT mới được chọn. Doc cũ mang mã đã tắt vẫn tra được qua get().
+MA_HOP_LE = tuple(m for m, d in DOC_TYPES.items() if d.bat)
 
 
 def get(ma: str | None) -> LoaiGiay:
@@ -495,6 +503,8 @@ def get(ma: str | None) -> LoaiGiay:
 def hop_le(ma: str | None) -> str:
     """Validate cho tầng API. Rỗng → mặc định; lạ → ValueError."""
     v = (ma or "").strip().lower() or MAC_DINH
+    if v in DOC_TYPES and not DOC_TYPES[v].bat:
+        raise ValueError(f"doc_type {v!r} đang tạm tắt. Chọn một trong: {', '.join(MA_HOP_LE)}")
     if v not in DOC_TYPES:
         raise ValueError(
             f"doc_type không hợp lệ: {ma!r}. Chọn một trong: {', '.join(MA_HOP_LE)}")
@@ -511,6 +521,18 @@ def _smoke() -> None:
     assert get("  KQDK ").ma == "kqdk", "KILL [2] chuẩn hoá hoa/thường + trắng"
     assert get("lung tung").ma == "gcn", "KILL [3] giá trị lạ → GCN, không nổ worker"
     assert hop_le(None) == "gcn", "KILL [4] API rỗng → mặc định"
+
+    # Loại TẮT: không chọn được nữa, nhưng doc cũ mang mã đó vẫn phải tra đúng —
+    # gỡ khỏi registry thì get() rơi về GCN và hiển thị sai toàn bộ hồ sơ cũ.
+    assert "kqdk" not in MA_HOP_LE, "KILL [4a] loại đã tắt không được nằm trong danh sách chọn"
+    assert get("kqdk") is KQDK, "KILL [4b] doc CŨ mang mã đã tắt vẫn phải tra ra đúng loại"
+    try:
+        hop_le("kqdk")
+    except ValueError as e:
+        assert "tạm tắt" in str(e), f"KILL [4c] báo rõ là tắt, khác với mã sai: {e}"
+    else:
+        raise AssertionError("KILL [4d] API phải từ chối loại đang tắt")
+    assert all(DOC_TYPES[m].bat for m in MA_HOP_LE), "KILL [4e] danh sách chọn chỉ gồm loại bật"
     try:
         hop_le("xyz")
         raise AssertionError("KILL [5] hop_le phải từ chối giá trị lạ")
@@ -726,7 +748,7 @@ def _smoke() -> None:
     finally:
         chat_json = that
 
-    print("doc_types PURE: 56 KILL ✓")
+    print("doc_types PURE: 61 KILL ✓")
 
 
 if __name__ == "__main__":
