@@ -107,8 +107,19 @@ def doc_thu_muc(d: str) -> list[dict]:
     return ho_so
 
 
+def _co_gia_tri(v: Any) -> bool:
+    """Ô tick trả true/false — CẢ HAI đều là dữ liệu model đã đọc được, khác hẳn
+    ô bỏ trống. Đếm sót boolean thì mục "trống ở mọi hồ sơ" báo nhầm cả nhóm
+    'Đề nghị' của ddk trong khi JSON có true."""
+    if isinstance(v, bool):
+        return True
+    if isinstance(v, str):
+        return bool(v.strip())
+    return v is not None
+
+
 def _o_da_dien(o: dict[str, list]) -> int:
-    return sum(1 for vs in o.values() for v in vs if isinstance(v, str) and v.strip())
+    return sum(1 for vs in o.values() for v in vs if _co_gia_tri(v))
 
 
 def phan_tich(ho_so: list[dict]) -> dict:
@@ -168,8 +179,7 @@ def phan_tich(ho_so: list[dict]) -> dict:
             # trường nào cũng dính vì luôn có vài tờ dân bỏ trống.
             "trong_het": sorted(
                 d for d in set().union(*[set(h["o"]) for h in ds])
-                if all(not any(isinstance(v, str) and v.strip() for v in h["o"].get(d, []))
-                       for h in ds)),
+                if all(not any(_co_gia_tri(v) for v in h["o"].get(d, [])) for h in ds)),
         }
         for h in ds:
             for duong, vs in h["o"].items():
@@ -282,9 +292,17 @@ def _smoke() -> None:
     ngan3 = ngan + [dict(hs[0], ten="C", o=phang({"P": {"Thửa đất số": "5"}}))]
     assert phan_tich(ngan3)["trung_gia_tri"], "KILL [20d] trùng 3 lần thì phải nêu"
 
+    # Ô tick false vẫn là dữ liệu: model đã nhìn thấy ô và xác định là chưa tick.
+    tick = [dict(hs[0], ten=t, o=phang({"P": {"Cấp GCN": c, "Ghi nợ": False}}))
+            for t, c in (("A", True), ("B", False))]
+    assert phan_tich(tick)["loai"]["pcctt"]["trong_het"] == [], \
+        "KILL [20e] boolean là giá trị, KHÔNG phải ô trống"
+    assert _o_da_dien(phang({"x": False})) == 1, "KILL [20f] false vẫn tính là đã điền"
+    assert _o_da_dien(phang({"x": ""})) == 0, "KILL [20g] chuỗi rỗng thì không"
+
     kq2 = phan_tich([hs[0]])
     assert not kq2["cccd_lap"], "KILL [20] một hồ sơ thì không thể gọi là lặp"
-    print("soi_ket_qua PURE: 26 KILL ✓")
+    print("soi_ket_qua PURE: 29 KILL ✓")
 
 
 if __name__ == "__main__":
