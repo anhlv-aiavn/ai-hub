@@ -326,8 +326,7 @@ Hướng dẫn từng mục (đánh số bám đúng phiếu):
      tranh chấp", "không vi phạm pháp luật đất đai", "không có giấy tờ về đất" —
      phải giữ đủ cả phần cam đoan đó.
 3. 'Giấy tờ nộp kèm theo' — liệt kê từng dòng.
-Cuối phiếu: 'Địa danh' + 'Ngày tháng năm lập' (dạng "…, ngày … tháng … năm …", ngày có thể bỏ
-trống → để tháng/năm), 'Người cung cấp thông tin' (tên ghi rõ dưới chữ ký).
+Cuối phiếu: 'Địa danh' + 'Ngày tháng lập phiếu' (dạng "…, ngày … tháng … năm …"), 'Người cung cấp thông tin' (tên ghi rõ dưới chữ ký).
 
 !đôi khi có gạch xoá => lấy thông tin không bị gạch ấy nhé.
 Trả ĐÚNG cấu trúc JSON sau:
@@ -351,7 +350,7 @@ Trả ĐÚNG cấu trúc JSON sau:
     },
     "Giấy tờ nộp kèm": [],
     "Địa danh": "",
-    "Ngày tháng năm lập": "",
+    "Ngày tháng lập phiếu": "",
     "Người cung cấp thông tin": ""
   }
 }
