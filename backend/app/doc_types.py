@@ -228,13 +228,32 @@ class LoaiGiay:
     phien_ban: str = "v1"
 
 
+def _sampling() -> dict:
+    """Tham số sinh cho nhánh BIỂU MẪU (ddk/kqdk/pcctt). Đọc env ở mỗi lần gọi
+    chứ không cache lúc import: mỗi lần `docker compose exec -e VAR=... ` là một
+    tiến trình mới, nên dò tham số được ngay mà khỏi build lại image.
+
+    KHÔNG đụng nhánh GCN — nhánh đó gọi extract_gcn của src/extentions và đang
+    chạy sản xuất, đổi sampling là đổi kết quả hàng triệu bản ghi.
+
+    max_tokens là cái chặn treo, không phải cái chỉnh chất lượng: model lặp vòng
+    sẽ sinh tới khi hết ngữ cảnh, giữ chỗ GPU hàng phút và kéo tụt cả hàng đợi
+    (đã gặp: 5 request cùng lảm nhảm ở 460 tok/s, cả lô 90 tệp đứng im). 0 = không
+    đặt trần, để server quyết như cũ."""
+    return {
+        "temperature": float(os.getenv("BIEU_MAU_TEMPERATURE", "0")),
+        "repetition_penalty": float(os.getenv("BIEU_MAU_REPETITION_PENALTY", "1.0")),
+        "max_tokens": int(os.getenv("BIEU_MAU_MAX_TOKENS", "0")) or None,
+    }
+
+
 def _classify_ho_so(prompt_sys: str, prompt_user: str):
     """Phân loại một trang: thuộc biểu mẫu hay là tài liệu đính kèm."""
     async def _fn(image_b64: str) -> str:
         if not image_b64:
             return "bieu_mau"
         d = await chat_json(system_prompt=prompt_sys, user_text=prompt_user,
-                            images_b64=[image_b64])
+                            images_b64=[image_b64], **_sampling())
         role = (d.get("role") or "").strip().lower() if isinstance(d, dict) else ""
         # Nhãn lạ → giữ trang. Vứt nhầm một trang biểu mẫu là mất dữ liệu im lặng;
         # giữ nhầm một trang đính kèm chỉ tốn thêm chút ngữ cảnh.
@@ -248,7 +267,7 @@ def _extract_ho_so(prompt_sys: str, prompt_user: str, key: str):
         if not images_b64:
             return {}
         d = await chat_json(system_prompt=prompt_sys, user_text=prompt_user,
-                            images_b64=images_b64)
+                            images_b64=images_b64, **_sampling())
         if not isinstance(d, dict):
             return {key: {}}
         than = d.get(key)
@@ -563,6 +582,21 @@ def _smoke() -> None:
             f"KILL [34] {dt.ma} thân không phải dict"
         dt.normalize([{"result": {"x": ["không", "phải", "dict"]}}])   # KILL [35] không raise
 
+    # ── Tham số sinh: mặc định phải y hệt hành vi trước khi có env ──────────
+    for k in ("BIEU_MAU_TEMPERATURE", "BIEU_MAU_REPETITION_PENALTY", "BIEU_MAU_MAX_TOKENS"):
+        os.environ.pop(k, None)
+    assert _sampling() == {"temperature": 0.0, "repetition_penalty": 1.0, "max_tokens": None}, \
+        f"KILL [42a] không đặt env → tất định, không trần: {_sampling()}"
+    os.environ["BIEU_MAU_TEMPERATURE"] = "0.2"
+    os.environ["BIEU_MAU_REPETITION_PENALTY"] = "1.05"
+    os.environ["BIEU_MAU_MAX_TOKENS"] = "3000"
+    assert _sampling() == {"temperature": 0.2, "repetition_penalty": 1.05, "max_tokens": 3000}, \
+        f"KILL [42b] env phải vào thẳng: {_sampling()}"
+    os.environ["BIEU_MAU_MAX_TOKENS"] = "0"
+    assert _sampling()["max_tokens"] is None, "KILL [42c] 0 = không đặt trần, KHÔNG phải trần 0"
+    for k in ("BIEU_MAU_TEMPERATURE", "BIEU_MAU_REPETITION_PENALTY", "BIEU_MAU_MAX_TOKENS"):
+        os.environ.pop(k, None)
+
     # ── Bọc kết quả model trả sai hình dạng ─────────────────────────────────
     global chat_json
     that = chat_json
@@ -579,6 +613,22 @@ def _smoke() -> None:
         chat_json = _tran
         assert asyncio.run(fn(["img"])) == {"Phiếu thu thập": {"Thửa đất": {"Thửa đất số": "9"}}}, \
             "KILL [37] model bỏ khóa bọc ngoài → bọc lại"
+
+        os.environ["BIEU_MAU_REPETITION_PENALTY"] = "1.07"
+        os.environ["BIEU_MAU_MAX_TOKENS"] = "2500"
+        nhan = {}
+        async def _bat(**k):
+            nhan.update(k)
+            return {"Phiếu thu thập": {}}
+        chat_json = _bat
+        asyncio.run(fn(["img"]))
+        assert nhan.get("repetition_penalty") == 1.07 and nhan.get("max_tokens") == 2500, \
+            f"KILL [37a] sampling phải tới tận chat_json, không dừng ở _sampling(): {nhan}"
+        nhan.clear()
+        asyncio.run(_classify_ho_so("s", "u")("img"))
+        assert nhan.get("max_tokens") == 2500, f"KILL [37b] classify cũng phải có trần: {nhan}"
+        for k in ("BIEU_MAU_REPETITION_PENALTY", "BIEU_MAU_MAX_TOKENS"):
+            os.environ.pop(k, None)
 
         async def _hong(**k):
             return {"raw": "JSON hỏng"}
@@ -600,7 +650,7 @@ def _smoke() -> None:
     finally:
         chat_json = that
 
-    print("doc_types PURE: 47 KILL ✓")
+    print("doc_types PURE: 52 KILL ✓")
 
 
 if __name__ == "__main__":

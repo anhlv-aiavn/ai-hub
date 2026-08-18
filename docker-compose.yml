@@ -69,6 +69,12 @@ services:
       # 0 = KHÔNG đặt trần token (để server quyết). Đặt trần làm JSON bị cắt dở.
       SPH_LUOT_HAI_MAX_TOKENS: ${SPH_LUOT_HAI_MAX_TOKENS:-0}
       EXTRACT_RETRY_THINKING: ${EXTRACT_RETRY_THINKING:-false}
+      # Sampling nhánh BIỂU MẪU (ddk/kqdk/pcctt) — KHÔNG ảnh hưởng GCN.
+      # MAX_TOKENS là chặn treo: model lặp vòng sẽ sinh tới hết ngữ cảnh, giữ chỗ
+      # GPU hàng phút và làm đứng cả lô. 0 = không đặt trần (để server quyết).
+      BIEU_MAU_TEMPERATURE: ${BIEU_MAU_TEMPERATURE:-0}
+      BIEU_MAU_REPETITION_PENALTY: ${BIEU_MAU_REPETITION_PENALTY:-1.0}
+      BIEU_MAU_MAX_TOKENS: ${BIEU_MAU_MAX_TOKENS:-0}
     ports: ["18002:8000"]
     # tmp/ của repo mount READ-ONLY vào /work: sửa prompt thử nghiệm bằng VS Code
     # trên máy serve là container thấy ngay, khỏi cp/build. CHỈ service api —
