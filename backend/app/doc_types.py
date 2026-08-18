@@ -59,15 +59,42 @@ _DETECT_MIN_HO_SO = int(os.getenv("DETECT_MIN_PAGES_HO_SO", "1"))
 # ── Chuẩn hoá nhẹ cho biểu mẫu ──────────────────────────────────────────────
 
 _DATE_RE = re.compile(r"\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})\b")
+# Dạng chữ trên biểu mẫu: "Trung Giã, ngày 10 tháng 8 năm 2026". Ô ngày thường bị
+# BỎ TRỐNG ("ngày .... tháng 7 năm 2026") nên phần ngày để optional.
+_NGAY_CHU_RE = re.compile(r"(?:ngày\s*)?(\d{1,2})?\s*tháng\s*(\d{1,2})\s*năm\s*(\d{4})",
+                          re.IGNORECASE)
 _SO_RE = re.compile(r"-?\d+(?:[.,]\d+)?")
+# Số CC/CCCD hay bị chấm phân nhóm: "001085.015.315".
+_CHI_SO_RE = re.compile(r"[^\d]")
 
 
 def _chuan_ngay(v: str) -> str:
+    """Về dd/mm/yyyy. Nhận cả dạng số (10/8/2026) lẫn dạng chữ của biểu mẫu
+    ("Trung Giã, ngày 10 tháng 8 năm 2026").
+
+    Ngày bị bỏ trống trên giấy → trả "" chứ KHÔNG giữ nguyên câu. Một ô ngày
+    không dùng được thì phải hiện ra là trống để hậu kiểm biết mà điền; giữ lại
+    nguyên văn "ngày .... tháng 7 năm 2026" chỉ làm cột thống kê báo 'đã điền'
+    trong khi thực tế không có dữ liệu."""
     m = _DATE_RE.search(v)
+    if m:
+        d, mo, y = m.groups()
+        return f"{int(d):02d}/{int(mo):02d}/{y}"
+    m = _NGAY_CHU_RE.search(v)
     if not m:
         return v
     d, mo, y = m.groups()
+    if not d:
+        return ""
     return f"{int(d):02d}/{int(mo):02d}/{y}"
+
+
+def _chuan_so_giay_to(v: str) -> str:
+    """Bỏ dấu phân nhóm khỏi CMND/CCCD ("001085.015.315" → "001085015315"), CHỈ
+    khi phần số còn lại đúng 9 hoặc 12 chữ số. Không khớp → giữ nguyên văn, để
+    người hậu kiểm thấy đúng thứ model đọc được."""
+    so = _CHI_SO_RE.sub("", v)
+    return so if len(so) in (9, 12) else v
 
 
 def _chuan_dien_tich(v: str) -> str:
@@ -91,6 +118,8 @@ def _normalize_bieu_mau(node: Any) -> Any:
                     v = _chuan_ngay(v.strip())
                 elif "Diện tích" in k:
                     v = _chuan_dien_tich(v.strip())
+                elif "Số giấy tờ" in k:
+                    v = _chuan_so_giay_to(v.strip())
             out[k] = _normalize_bieu_mau(v)
         return out
     if isinstance(node, list):
@@ -439,6 +468,16 @@ def _smoke() -> None:
     than = recs[0]["result"]["Đơn đăng ký"]
     assert than["Thông tin đơn"]["Ngày ký"] == "31/07/2026", f"KILL [16] ngày: {than}"
     assert than["Thửa đất"]["Diện tích"] == "74.375", f"KILL [17] diện tích: {than}"
+
+    # Ngày dạng chữ trên biểu mẫu + ô ngày bỏ trống (gặp thật ở pcctt 1218602).
+    assert _chuan_ngay("Trung Giã, ngày 10 tháng 8 năm 2026") == "10/08/2026", "KILL [16a] ngày chữ"
+    assert _chuan_ngay("30 tháng 7 năm 2026") == "30/07/2026", "KILL [16b] thiếu chữ 'ngày'"
+    assert _chuan_ngay("Trung Giã, ngày .... tháng 7 năm 2026") == "", \
+        "KILL [16c] ô ngày bỏ trống → rỗng, KHÔNG giữ nguyên câu"
+    assert _chuan_ngay("bạ nhạ") == "bạ nhạ", "KILL [16d] không nhận ra → giữ nguyên văn"
+    assert _chuan_so_giay_to("001085.015.315") == "001085015315", "KILL [16e] bỏ chấm CCCD"
+    assert _chuan_so_giay_to("019084001782") == "019084001782", "KILL [16f] đã sạch thì giữ"
+    assert _chuan_so_giay_to("12345") == "12345", "KILL [16g] không đủ 9/12 số → giữ nguyên"
 
     KHOA = "2026/Don DK/1054768"
     s = DDK.summarize(recs, KHOA)

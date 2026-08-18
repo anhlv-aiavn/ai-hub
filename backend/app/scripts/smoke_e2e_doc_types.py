@@ -46,6 +46,7 @@ import argparse
 import json
 import mimetypes
 import os
+import re
 import ssl
 import sys
 import time
@@ -117,6 +118,32 @@ LOAI = {
 
 # Tên thư mục trong bộ mẫu khách gửi → mã loại (dùng cho --bo-ba).
 THU_MUC_BO_BA = {"Phiếu CCTT": "pcctt", "Đơn ĐK": "ddk", "Kết quả ĐK": "kqdk"}
+
+
+# ── Luật định dạng: suy từ TÊN trường, không phải khai riêng từng loại giấy ──
+#
+# Vì sao cần: cột "điền" chỉ đếm ô khác rỗng nên nó báo 100% kể cả khi model trả
+# "Trung Giã, ngày .... tháng 7 năm 2026" cho một ô ngày, hay "001085.015.315"
+# cho số CCCD. Đo thêm ĐỊNH DẠNG biến những ca đó thành con số nhìn thấy được.
+# Không bắt được lỗi BỊA NỘI DUNG (giá trị đúng dạng nhưng sai sự thật) — chỗ đó
+# chỉ có đối chiếu tay hoặc lượt hai bằng model.
+_RE_NGAY = re.compile(r"^\d{2}/\d{2}/\d{4}$")
+_RE_SO_GIAY_TO = re.compile(r"^\d{9}$|^\d{12}$")
+_RE_SO = re.compile(r"^\d+(?:\.\d+)?$")
+
+
+def dung_dang(truong: str, v) -> bool | None:
+    """True/False nếu trường có luật định dạng, None nếu không có luật nào."""
+    if not isinstance(v, str) or not v.strip():
+        return None
+    ten = truong.split(".")[-1].replace("[]", "")
+    if "Ngày" in ten:
+        return bool(_RE_NGAY.match(v.strip()))
+    if "Số giấy tờ" in ten or "Giấy tờ nhân thân" in ten:
+        return bool(_RE_SO_GIAY_TO.match(v.strip()))
+    if "Diện tích" in ten:
+        return bool(_RE_SO.match(v.strip()))
+    return None
 
 
 class Kill(Exception):
@@ -237,8 +264,8 @@ def lay(node, duong: str):
 
 # ── Kiểm tra một hồ sơ ──────────────────────────────────────────────────────
 
-def kiem_tra(doc: dict, ma_loai: str, ten_tep: str) -> tuple[list[str], dict]:
-    """Trả (danh sách KILL, {trường: có/không}). KHÔNG raise — gom hết lỗi của mọi
+def kiem_tra(doc: dict, ma_loai: str, ten_tep: str) -> tuple[list[str], dict, dict]:
+    """Trả (KILL, {trường: có giá trị?}, {trường có luật: đúng định dạng?}). KHÔNG raise — gom hết lỗi của mọi
     file rồi báo một lượt, chạy 30 file mà chết ở file thứ 2 thì mất công chờ."""
     kills: list[str] = []
     cfg = LOAI[ma_loai]
@@ -283,8 +310,14 @@ def kiem_tra(doc: dict, ma_loai: str, ten_tep: str) -> tuple[list[str], dict]:
         if xau:
             kills.append(f"page_indices ngoài phạm vi 0..{n_trang - 1}: {xau}")
 
-    dien = {t: _co_gia_tri(lay(than, t)) for t in cfg["truong"]}
-    return kills, dien
+    dien, dang = {}, {}
+    for t in cfg["truong"]:
+        v = lay(than, t)
+        dien[t] = _co_gia_tri(v)
+        d = dung_dang(t, v)
+        if d is not None:
+            dang[t] = d
+    return kills, dien, dang
 
 
 # ── Chạy một loại ───────────────────────────────────────────────────────────
@@ -327,6 +360,7 @@ def bao_cao(docs: list[dict], ma_loai: str, args, kills_dau: list[str] = None) -
     kết quả hai đường với nhau."""
     kills = list(kills_dau or [])
     thong_ke: dict[str, int] = {}
+    tk_dang: dict[str, list[int]] = {}   # trường → [số đúng dạng, số đã điền]
     n_ok = 0
     print(f"\n  {'tệp':<26}{'trạng thái':<11}{'trang':>10}  {'giây':>6}  điền")
     print(f"  {'-' * 74}")
@@ -345,16 +379,22 @@ def bao_cao(docs: list[dict], ma_loai: str, args, kills_dau: list[str] = None) -
             print(f"  {ten[:25]:<26}{str(tt):<11}{n_trang:>10}  {'-':>6}  ✗ {doc.get('error') or ''}")
             continue
 
-        k, dien = kiem_tra(doc, ma_loai, ten)
+        k, dien, dang = kiem_tra(doc, ma_loai, ten)
         kills += [f"[{ma_loai}] {ten}: {x}" for x in k]
         for truong, co in dien.items():
             thong_ke[truong] = thong_ke.get(truong, 0) + (1 if co else 0)
+        for truong, ok in dang.items():
+            o = tk_dang.setdefault(truong, [0, 0])
+            o[0] += 1 if ok else 0
+            o[1] += 1
         n_ok += 1
 
         tr = f"{n_dung}/{n_trang}" + (f" -{n_trung}" if n_trung else "")
         tick = "✗" if k else "·"
+        sai_dang = [t.split(".")[-1] for t, ok in dang.items() if not ok]
         print(f"  {ten[:25]:<26}{tt:<11}{tr:>10}  {giay:>6.0f}  "
-              f"{tick} {sum(dien.values())}/{len(dien)}")
+              f"{tick} {sum(dien.values())}/{len(dien)}"
+              + (f"  ⚠ sai dạng: {', '.join(sai_dang)}" if sai_dang else ""))
 
         if args.json:
             os.makedirs(args.json, exist_ok=True)
@@ -371,6 +411,16 @@ def bao_cao(docs: list[dict], ma_loai: str, args, kills_dau: list[str] = None) -
             pct = thong_ke.get(truong, 0) / n_ok * 100
             thanh = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
             print(f"    {thanh} {pct:5.1f}%  {truong}")
+
+    if tk_dang:
+        print("\n  ĐÚNG ĐỊNH DẠNG (trên số ô ĐÃ ĐIỀN) — dưới 100% là lỗi bóc tách "
+              "hoặc lỗi chuẩn hoá, KHÁC hẳn ô để trống:")
+        for truong, (ok, tong) in tk_dang.items():
+            pct = ok / tong * 100
+            thanh = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
+            print(f"    {thanh} {pct:5.1f}%  {truong}  ({ok}/{tong})")
+        print("  ⚠ Định dạng đúng KHÔNG có nghĩa nội dung đúng. Model có thể trả một "
+              "giá trị hợp lệ mà sai sự thật — phải mở --json đối chiếu ảnh gốc.")
     return kills
 
 
@@ -541,7 +591,7 @@ def _tu_kiem() -> None:
                           "Mục đích sử dụng": "Đất ở", "Nguồn gốc sử dụng": "Các cụ để lại"},
             "Ngày lập": "", "Người cung cấp thông tin": "Lê Văn Trường"}}}],
     }
-    k, dien = kiem_tra(tot, "pcctt", "1218602.pdf")
+    k, dien, dang = kiem_tra(tot, "pcctt", "1218602.pdf")
     assert k == [], f"KILL [12] hồ sơ hợp lệ không được báo lỗi: {k}"
     assert dien["Ngày lập"] is False, "KILL [13] ô trống → chưa điền"
     assert dien["Thửa đất.Diện tích"] is True, "KILL [14] ô có giá trị → đã điền"
@@ -551,7 +601,7 @@ def _tu_kiem() -> None:
     def hong(sua: dict, manh: str, ten_tep="1218602.pdf"):
         d = json.loads(json.dumps(tot))
         d.update(sua)
-        loi, _ = kiem_tra(d, "pcctt", ten_tep)
+        loi, _, _ = kiem_tra(d, "pcctt", ten_tep)
         assert any(manh in x for x in loi), f"KILL bỏ sót {manh!r}: {loi}"
 
     hong({"doc_type": "ddk"}, "doc_type trả về")                       # KILL [16]
@@ -576,12 +626,27 @@ def _tu_kiem() -> None:
           "extractions": [{"page_indices": [0, 1], "result": {"Giấy xác nhận": {
               "Thông tin văn bản": {"Số văn bản": "108/GXN-VPĐKĐĐTT"},
               "Người sử dụng đất": [{"Họ và tên": "TRẦN KIM DUY"}]}}}]}
-    k2, d2 = kiem_tra(kq, "kqdk", "253008.pdf")
+    k2, d2, _ = kiem_tra(kq, "kqdk", "253008.pdf")
     assert k2 == [], f"KILL [26] kqdk hợp lệ: {k2}"
     assert d2["Người sử dụng đất[].Họ và tên"] is True, "KILL [27] đọc qua mảng người"
     assert d2["Thửa đất.Thửa đất số"] is False, "KILL [28] thiếu thửa → chưa điền"
 
-    print("smoke_e2e_doc_types tự kiểm: 28 KILL ✓")
+    # Luật định dạng — mấy ca gặp thật ngày 18/08.
+    assert dung_dang("x.Ngày lập", "10/08/2026") is True, "KILL [29] ngày chuẩn"
+    assert dung_dang("x.Ngày lập", "Trung Giã, ngày .... tháng 7 năm 2026") is False, \
+        "KILL [30] cả câu KHÔNG phải ngày hợp lệ"
+    assert dung_dang("x.Ngày lập", "20 tháng 8 năm 2026") is False, "KILL [31] chưa chuẩn hoá"
+    assert dung_dang("x.Số giấy tờ", "001085.015.315") is False, "KILL [32] CCCD còn dấu chấm"
+    assert dung_dang("x.Số giấy tờ", "001085015315") is True, "KILL [33] CCCD 12 số"
+    assert dung_dang("x.Số giấy tờ", "019084001") is True, "KILL [34] CMND 9 số"
+    assert dung_dang("Thửa đất.Diện tích", "4512.18") is True, "KILL [35] số hợp lệ"
+    assert dung_dang("Thửa đất.Diện tích", "4512,8 m2") is False, "KILL [36] còn đơn vị/dấu phẩy"
+    assert dung_dang("x.Địa chỉ", "Thôn Đo") is None, "KILL [37] trường không có luật"
+    assert dung_dang("x.Ngày lập", "") is None, "KILL [38] ô trống không tính vào định dạng"
+    assert dang["Người sử dụng đất.Số giấy tờ"] is True, "KILL [39] map định dạng theo trường"
+    assert "Người sử dụng đất.Địa chỉ" not in dang, "KILL [40] trường không luật không vào map"
+
+    print("smoke_e2e_doc_types tự kiểm: 40 KILL ✓")
 
 
 def main() -> int:

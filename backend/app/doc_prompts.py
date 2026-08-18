@@ -31,6 +31,19 @@ _CHUNG = """- Return JSON ONLY. No explanation, no markdown.
   với phần thôn/xóm viết tay thành địa chỉ đầy đủ).
 - Chữ viết tay khó đọc: đọc được bao nhiêu ghi bấy nhiêu, KHÔNG đoán thêm ký tự.
   Ô bỏ trống → "" (đừng chép nhãn in sẵn vào đó).
+- CẤM THAY NỘI DUNG THẬT BẰNG CỤM MẪU. Các trường mô tả dài (nguồn gốc sử dụng
+  đất, nội dung xác nhận) phải CHÉP NGUYÊN VĂN chữ trên giấy, kể cả khi câu văn
+  lủng củng, sai chính tả hay thiếu ý. TUYỆT ĐỐI không viết lại thành công thức
+  pháp lý quen thuộc ("Nhà nước giao", "Nhà nước công nhận quyền sử dụng đất",
+  "cây lấy gỗ, cây cảnh quan, cây trồng khác"…) nếu chữ trên giấy không phải vậy.
+  Ví dụ SAI đã gặp: giấy ghi "Do Bà mẹ để lại cho sử dụng vào mục đích trồng cây
+  lâu năm" mà trả về "Đất do Nhà nước giao…" — hai nguồn gốc pháp lý khác hẳn
+  nhau, ghi sai là làm hỏng hồ sơ. Đọc được đến đâu chép đến đó; chỗ không đọc
+  nổi thì bỏ, KHÔNG chế thêm.
+- DẤU PHẨY TRONG SỐ LÀ DẤU THẬP PHÂN, KHÔNG PHẢI CHỮ SỐ. "4512,8" là bốn nghìn
+  năm trăm mười hai phẩy tám → trả "4512.8", KHÔNG phải "4512.18". "204,6" →
+  "204.6", KHÔNG phải "204.16". Đọc kỹ phần sau dấu phẩy: diện tích thửa đất
+  thường chỉ có MỘT chữ số thập phân.
 - Số CC/CCCD là 9 hoặc 12 chữ số — không nhầm với số điện thoại, số thửa, mã vạch.
 - Các ảnh đưa vào có thể là những trang KHÔNG liền nhau của cùng một hồ sơ (mặt
   sau của tờ khai có thể nằm ở ảnh cuối). Hãy ghép chúng thành MỘT hồ sơ duy nhất."""
@@ -289,7 +302,11 @@ Hướng dẫn từng mục (đánh số bám đúng phiếu):
      Đo (cũ)" + in sẵn "xã Trung Giã, thành phố Hà Nội").
    - 'Diện tích' (c), 'Mục đích sử dụng' (d).
    - 'Nguồn gốc sử dụng đất' (e) — khối nhiều dòng viết tay, CHÉP NGUYÊN VĂN toàn bộ,
-     nối các dòng bằng dấu cách, không tóm tắt, không sửa chính tả.
+     nối các dòng bằng dấu cách, không tóm tắt, không sửa chính tả, không thay bằng
+     cụm pháp lý mẫu. Người dân thường viết kiểu "Do bà mẹ để lại…", "Các cụ để
+     lại", "Nhận chuyển nhượng của ông X năm 2013", kèm các câu cam đoan "không có
+     tranh chấp", "không vi phạm pháp luật đất đai", "không có giấy tờ về đất" —
+     phải giữ đủ cả phần cam đoan đó.
 3. 'Giấy tờ nộp kèm theo' — liệt kê từng dòng.
 Cuối phiếu: 'Địa danh' + 'Ngày lập' (dạng "…, ngày … tháng … năm …", ngày có thể bỏ
 trống → để ""), 'Người cung cấp thông tin' (tên ghi rõ dưới chữ ký).
