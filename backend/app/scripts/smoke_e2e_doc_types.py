@@ -7,6 +7,14 @@ Khác `app/scripts/smoke.py` (đọc Mongo, đọc-only): script này **gọi AP
 Không import gì của app, chỉ dùng thư viện chuẩn — chạy được từ máy server, từ
 laptop, hay trong container, miễn là với tới được API.
 
+HAI CHẾ ĐỘ:
+  (mặc định)   qua API thật — cần Mongo + MinIO đích + worker. Đây là đường người
+               dùng đi, kiểm luôn cả phần lưu trữ và hàng đợi.
+  --truc-tiep  gọi thẳng `_pipeline` trong process: KHÔNG API, KHÔNG MinIO, KHÔNG
+               Mongo, không lưu gì. Dùng khi kho đích chết, hoặc khi thử prompt mà
+               không muốn rác hoá kho. Phải chạy trong container (cần thư viện +
+               với tới vLLM).
+
     # trong container
     docker compose exec api python -m app.scripts.smoke_e2e_doc_types \
         --api http://localhost:8000 -u admin -p '***' \
@@ -313,7 +321,61 @@ def cho_xong(api: Api, batch_id: str, tong: int, timeout: int) -> dict:
                f"kiểm tra `docker compose logs -f worker`")
 
 
+def bao_cao(docs: list[dict], ma_loai: str, args, kills_dau: list[str] = None) -> list[str]:
+    """In bảng kết quả + độ điền cho một danh sách hồ sơ. Dùng CHUNG cho cả hai
+    chế độ (qua API và chạy thẳng) — báo cáo phải giống hệt nhau thì mới so được
+    kết quả hai đường với nhau."""
+    kills = list(kills_dau or [])
+    thong_ke: dict[str, int] = {}
+    n_ok = 0
+    print(f"\n  {'tệp':<26}{'trạng thái':<11}{'trang':>10}  {'giây':>6}  điền")
+    print(f"  {'-' * 74}")
+    for doc in docs:
+        ten = doc.get("filename") or doc.get("_id") or "?"
+        tt = doc.get("status")
+        recs = doc.get("extractions") or []
+        tm = doc.get("timings") or {}
+        n_trang = doc.get("page_count") or 0
+        n_dung = len(recs[0].get("page_indices") or []) if recs else 0
+        n_trung = tm.get("trang_trung", 0)
+        giay = tm.get("pipeline") or 0
+
+        if tt != "done":
+            kills.append(f"[{ma_loai}] {ten}: status={tt} · {doc.get('error')}")
+            print(f"  {ten[:25]:<26}{str(tt):<11}{n_trang:>10}  {'-':>6}  ✗ {doc.get('error') or ''}")
+            continue
+
+        k, dien = kiem_tra(doc, ma_loai, ten)
+        kills += [f"[{ma_loai}] {ten}: {x}" for x in k]
+        for truong, co in dien.items():
+            thong_ke[truong] = thong_ke.get(truong, 0) + (1 if co else 0)
+        n_ok += 1
+
+        tr = f"{n_dung}/{n_trang}" + (f" -{n_trung}" if n_trung else "")
+        tick = "✗" if k else "·"
+        print(f"  {ten[:25]:<26}{tt:<11}{tr:>10}  {giay:>6.0f}  "
+              f"{tick} {sum(dien.values())}/{len(dien)}")
+
+        if args.json:
+            os.makedirs(args.json, exist_ok=True)
+            with open(os.path.join(args.json, f"{ma_loai}-{os.path.splitext(ten)[0]}.json"),
+                      "w", encoding="utf-8") as f:
+                json.dump({"summary": doc.get("summary"), "timings": tm,
+                           "extractions": recs}, f, ensure_ascii=False, indent=2)
+
+    print("\n  cột trang = số trang đưa vào VLM / tổng số trang (-N = số trang trùng đã loại)")
+    if n_ok:
+        print(f"\n  ĐỘ ĐIỀN từng trường ({n_ok} hồ sơ) — thấp không phải lỗi code, "
+              f"xem lại prompt hoặc do dân bỏ trống:")
+        for truong in LOAI[ma_loai]["truong"]:
+            pct = thong_ke.get(truong, 0) / n_ok * 100
+            thanh = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
+            print(f"    {thanh} {pct:5.1f}%  {truong}")
+    return kills
+
+
 def chay_loai(api: Api, ma_loai: str, duong: list[str], args) -> tuple[int, int]:
+    """Chế độ QUA API — đường người dùng thật đi (cần MinIO đích + Mongo + worker)."""
     teps = _tep_pdf(duong, args.so_luong)
     if not teps:
         print(f"\n[{ma_loai}] không tìm thấy PDF nào trong {duong} — bỏ qua")
@@ -331,74 +393,120 @@ def chay_loai(api: Api, ma_loai: str, duong: list[str], args) -> tuple[int, int]
         except Kill as e:
             gui_loi.append(f"{os.path.basename(t)}: {e}")
     if not batch_id:
-        raise Kill(f"[{ma_loai}] không tải lên được tệp nào:\n  " + "\n  ".join(gui_loi))
+        raise Kill(f"[{ma_loai}] không tải lên được tệp nào:\n  " + "\n  ".join(gui_loi)
+                   + "\n  → 500 ở bước này thường là KHO ĐÍCH (MinIO) không ghi được. "
+                     "Không có kho thì dùng --truc-tiep để bỏ qua API và MinIO.")
     print(f"  batch_id = {batch_id}")
 
     dem = cho_xong(api, batch_id, len(teps) - len(gui_loi), args.timeout)
-
-    # Lấy id mọi doc trong lô rồi đọc chi tiết từng cái.
     ds = api.get("/v1/gcn", batch_id=batch_id, page_size=200, doc_type=ma_loai)
     ids = list(dict.fromkeys(r["gcn_id"] for r in ds.get("gcn", []) if r.get("gcn_id")))
+    docs = [api.get(f"/v1/gcn/{gid}") for gid in ids]
 
-    kills: list[str] = [f"[{ma_loai}] tải lên thất bại — {x}" for x in gui_loi]
-    thong_ke: dict[str, int] = {}
-    n_ok = 0
-    print(f"\n  {'tệp':<26}{'trạng thái':<11}{'trang':>10}  {'giây':>6}  điền")
-    print(f"  {'-' * 74}")
-    for gid in ids:
-        doc = api.get(f"/v1/gcn/{gid}")
-        ten = doc.get("filename") or gid
-        tt = doc.get("status")
-        recs = doc.get("extractions") or []
-        tm = doc.get("timings") or {}
-        n_trang = doc.get("page_count") or 0
-        n_dung = len(recs[0].get("page_indices") or []) if recs else 0
-        n_trung = tm.get("trang_trung", 0)
-        giay = tm.get("pipeline")
-
-        if tt != "done":
-            kills.append(f"[{ma_loai}] {ten}: status={tt} · {doc.get('error')}")
-            print(f"  {ten[:25]:<26}{tt:<11}{n_trang:>10}  {'-':>6}  ✗ {doc.get('error') or ''}")
-            continue
-
-        k, dien = kiem_tra(doc, ma_loai, ten)
-        kills += [f"[{ma_loai}] {ten}: {x}" for x in k]
-        for truong, co in dien.items():
-            thong_ke[truong] = thong_ke.get(truong, 0) + (1 if co else 0)
-        n_ok += 1
-
-        tr = f"{n_dung}/{n_trang}" + (f" -{n_trung}" if n_trung else "")
-        tick = "✗" if k else "·"
-        print(f"  {ten[:25]:<26}{tt:<11}{tr:>10}  {giay or 0:>6.0f}  "
-              f"{tick} {sum(dien.values())}/{len(dien)}")
-
-        if args.json:
-            os.makedirs(args.json, exist_ok=True)
-            with open(os.path.join(args.json, f"{ma_loai}-{os.path.splitext(ten)[0]}.json"),
-                      "w", encoding="utf-8") as f:
-                json.dump({"summary": doc.get("summary"), "timings": tm,
-                           "extractions": recs}, f, ensure_ascii=False, indent=2)
-
-    print(f"\n  cột trang = số trang đưa vào VLM / tổng số trang (-N = số trang trùng đã loại)")
-
-    if n_ok:
-        print(f"\n  ĐỘ ĐIỀN từng trường ({n_ok} hồ sơ) — thấp không phải lỗi code, "
-              f"xem lại prompt hoặc do dân bỏ trống:")
-        for truong in LOAI[ma_loai]["truong"]:
-            c = thong_ke.get(truong, 0)
-            pct = c / n_ok * 100
-            thanh = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
-            print(f"    {thanh} {pct:5.1f}%  {truong}")
+    kills = bao_cao(docs, ma_loai, args,
+                    [f"[{ma_loai}] tải lên thất bại — {x}" for x in gui_loi])
 
     if args.xoa:
         api.delete(f"/v1/batches/{batch_id}")
         print(f"\n  đã xoá lô {batch_id}")
     else:
         print(f"\n  lô GIỮ LẠI để soi trên UI: {batch_id}  (thêm --xoa để tự dọn)")
-
     for x in kills:
         print(f"  KILL {x}")
     return len(kills), dem.get("done", 0)
+
+
+# ── Chế độ CHẠY THẲNG: gọi _pipeline trong process, không API, không MinIO ──
+
+def chay_truc_tiep(ma_loai: str, duong: list[str], args) -> tuple[int, int]:
+    """Đọc PDF từ đĩa → `_pipeline` → dựng doc y như worker dựng → báo cáo.
+
+    Vì sao chạy được mà không cần hạ tầng: `_pipeline` (app/worker/run_job.py) chỉ
+    nhận BYTES và trả (records, images) — mọi thứ đụng Mongo/S3 nằm ở `process_doc`
+    bao ngoài nó. Chế độ này tái dùng đúng hàm production đó, cộng đúng các bước
+    hậu xử lý mà `process_doc` chạy cho biểu mẫu (normalize → summarize → rows),
+    nên kết quả bóc tách giống hệt đường thật; chỉ khác là không lưu gì cả.
+
+    Dùng khi kho MinIO đích chết, hoặc khi muốn thử prompt mà không rác hoá kho.
+    PHẢI chạy trong container (cần litellm/PIL/onnx + với tới được vLLM):
+        docker compose exec api python -m app.scripts.smoke_e2e_doc_types --truc-tiep ...
+    """
+    import asyncio
+    import io
+
+    try:
+        from app import doc_types
+        from app.worker.run_job import _pipeline
+    except ImportError as e:
+        raise Kill(
+            f"--truc-tiep cần import được app + litellm/pdfium/onnx (thiếu {e.name!r}).\n"
+            f"  → trong container:  docker compose exec api python -m "
+            f"app.scripts.smoke_e2e_doc_types --truc-tiep …\n"
+            f"  → từ host (nếu máy đã có đủ thư viện): chạy từ thư mục backend/ với "
+            f"PYTHONPATH=. python3 app/scripts/smoke_e2e_doc_types.py --truc-tiep …") from e
+
+    teps = _tep_pdf(duong, args.so_luong)
+    if not teps:
+        print(f"\n[{ma_loai}] không tìm thấy PDF nào trong {duong} — bỏ qua")
+        return 0, 0
+    dt = doc_types.get(ma_loai)
+    print(f"\n{'=' * 78}\n[{ma_loai}] {len(teps)} tệp · CHẠY THẲNG (không API, không MinIO)"
+          f"\n{'=' * 78}")
+
+    async def mot_tep(duong_tep: str) -> dict:
+        ten = os.path.basename(duong_tep)
+        khoa = os.path.splitext(ten)[0]
+        with open(duong_tep, "rb") as f:
+            data = f.read()
+        doc = {"_id": khoa, "filename": ten, "doc_type": ma_loai,
+               "extracted_so_phat_hanhs": []}
+        if data[:4] != b"%PDF":
+            return {**doc, "status": "error", "error": "không phải PDF (magic-byte)"}
+        timings: dict = {}
+        t0 = time.monotonic()
+        try:
+            records, images = await _pipeline(io.BytesIO(data), timings, dt)
+        except Exception as e:  # noqa: BLE001
+            return {**doc, "status": "error", "error": f"{type(e).__name__}: {e}"}
+        timings["pipeline"] = round(time.monotonic() - t0, 3)
+
+        # Từ đây lặp lại ĐÚNG những bước process_doc làm cho biểu mẫu.
+        records = records or []
+        dt.normalize(records)
+        dau = records[0] if records else {}
+        loi = next((r.get("error") for r in records if isinstance(r, dict) and r.get("error")), None)
+        if dau.get("skip_reason"):
+            tt, loi = "skip", dau.get("error")
+        elif loi:
+            tt = "error"
+        elif not records:
+            tt, loi = "no_gcn", "no_gcn_in_document"
+        else:
+            tt = "done"
+        return {**doc, "status": tt, "error": loi,
+                "page_count": dau.get("page_count") or len(images),
+                "group_key": dt.group_key(records, khoa),
+                "summary": dt.summarize(records, khoa),
+                "gcn_rows": dt.rows(records, None, khoa),
+                "extractions": records, "timings": timings}
+
+    async def tat_ca() -> list[dict]:
+        # Chạy song song vài file: _VLM_SEM trong run_job đã chặn fan-out tới vLLM,
+        # nhưng vẫn giới hạn ở tầng này để RAM ảnh render không phình theo số file.
+        sem = asyncio.Semaphore(max(1, args.song_song))
+
+        async def _bao(t):
+            async with sem:
+                print(f"    → {os.path.basename(t)}", flush=True)
+                return await mot_tep(t)
+        return list(await asyncio.gather(*(_bao(t) for t in teps)))
+
+    docs = asyncio.run(tat_ca())
+    kills = bao_cao(docs, ma_loai, args)
+    print(f"\n  (chạy thẳng: KHÔNG lưu gì vào Mongo/MinIO — dùng --json để giữ kết quả)")
+    for x in kills:
+        print(f"  KILL {x}")
+    return len(kills), sum(1 for d in docs if d.get("status") == "done")
 
 
 # ── Tự kiểm bộ kiểm tra (không cần server) ──────────────────────────────────
@@ -495,6 +603,11 @@ def main() -> int:
     p.add_argument("--json", metavar="THƯ_MỤC", help="Lưu kết quả JSON từng tệp để soi tay.")
     p.add_argument("--xoa", action="store_true", help="Xoá lô sau khi kiểm tra xong.")
     p.add_argument("--bo-qua-ssl", action="store_true", help="Bỏ kiểm chứng chỉ HTTPS.")
+    p.add_argument("--truc-tiep", action="store_true",
+                   help="Bỏ qua API và MinIO: gọi thẳng _pipeline trong process. PHẢI chạy "
+                        "trong container (docker compose exec api …). Không lưu gì cả.")
+    p.add_argument("--song-song", type=int, default=4,
+                   help="Số file chạy song song ở chế độ --truc-tiep (%(default)s).")
     p.add_argument("--tu-kiem", action="store_true",
                    help="Tự kiểm bộ kiểm tra bằng doc giả rồi thoát — không cần server, "
                         "không cần GPU. Chạy cái này trước khi thử thật.")
@@ -503,8 +616,9 @@ def main() -> int:
     if args.tu_kiem:
         _tu_kiem()
         return 0
-    if not args.password:
-        p.error("thiếu mật khẩu: dùng -p hoặc biến môi trường AIHUB_PASSWORD")
+    if not args.password and not args.truc_tiep:
+        p.error("thiếu mật khẩu: dùng -p, biến môi trường AIHUB_PASSWORD, "
+                "hoặc --truc-tiep để bỏ qua API")
     viec: list[tuple[str, list[str]]] = []
     if args.bo_ba:
         for ten_tm, ma in THU_MUC_BO_BA.items():
@@ -517,6 +631,18 @@ def main() -> int:
         viec.append((args.loai, args.duong))
     else:
         p.error("cần --bo-ba THƯ_MỤC, hoặc --loai <ma> kèm danh sách tệp/thư mục")
+
+    if args.truc_tiep:
+        tong_kill = tong_done = 0
+        for ma, duong in viec:
+            try:
+                k, d = chay_truc_tiep(ma, duong, args)
+            except Kill as e:
+                print(f"  KILL [{ma}] {e}")
+                k, d = 1, 0
+            tong_kill += k
+            tong_done += d
+        return _ket_luan(tong_kill, tong_done)
 
     api = Api(args.api, args.bo_qua_ssl)
     print(f"API {args.api} · đăng nhập {args.user}…")
@@ -543,6 +669,10 @@ def main() -> int:
         tong_kill += k
         tong_done += d
 
+    return _ket_luan(tong_kill, tong_done)
+
+
+def _ket_luan(tong_kill: int, tong_done: int) -> int:
     print(f"\n{'=' * 78}")
     if tong_kill:
         print(f"KẾT LUẬN: ✗ {tong_kill} KILL · {tong_done} hồ sơ xử lý xong.")

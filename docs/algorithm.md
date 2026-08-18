@@ -281,8 +281,18 @@ docker compose exec api python -m app.anh_trung      # dedup trang: 12 KILL
 # E2E qua API thật — đẩy PDF lên, chờ worker, soi kết quả
 python3 backend/app/scripts/smoke_e2e_doc_types.py --tu-kiem        # tự kiểm, không cần server
 docker compose exec api python -m app.scripts.smoke_e2e_doc_types \
-    --api http://localhost:8000 -u admin -p '***' --loai pcctt tmp/mau --so-luong 5
+    --api http://localhost:8000 -u admin -p '***' --loai pcctt /work/mau --so-luong 5
+
+# CHẠY THẲNG — không API, không MinIO, không Mongo, không lưu gì.
+# Dùng khi kho đích chết hoặc khi thử prompt mà không muốn rác hoá kho.
+docker compose exec api python -m app.scripts.smoke_e2e_doc_types --truc-tiep \
+    --loai pcctt /work/mau --so-luong 5 --json /tmp/out
 ```
+
+`--truc-tiep` gọi thẳng `_pipeline` — hàm này chỉ nhận bytes, mọi thứ đụng Mongo/S3
+nằm ở `process_doc` bao ngoài — rồi lặp lại đúng các bước hậu xử lý `process_doc`
+chạy cho biểu mẫu (normalize → summarize → rows), nên kết quả bóc tách giống hệt
+đường thật. `./tmp` của repo mount vào container api ở `/work` (read-only).
 
 E2E tách hai tầng kết luận: **KILL** = bất biến kỹ thuật vỡ (sai loại giấy, khóa
 không bằng tên tệp nguồn, một file ra nhiều hồ sơ, thân JSON sai hình dạng, trang

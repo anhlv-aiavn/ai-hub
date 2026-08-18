@@ -58,7 +58,8 @@ phóng job kẹt** (Admin → Lỗi) hoặc `POST /v1/gcn/release-stuck`.
 - **Đo hiệu năng**: `docker compose exec worker python -m app.scripts.bench_pipeline tmp/*.pdf --duration 60`.
 - **Thử loại giấy mới** (đơn đăng ký · giấy xác nhận đăng ký · phiếu thu thập thông tin):
   `docker compose exec api python -m app.scripts.smoke_e2e_doc_types --api http://localhost:8000 -u admin -p '***' --loai ddk <thư-mục-pdf> --so-luong 5`
-  — đẩy PDF qua API thật rồi in bảng KILL + độ điền từng trường. Xem `docs/algorithm.md#7b`.
+  — đẩy PDF qua API thật rồi in bảng KILL + độ điền từng trường. Thêm `--truc-tiep` để chạy
+  không cần MinIO/Mongo (gọi thẳng pipeline, không lưu gì). Xem `docs/algorithm.md#7b`.
 
 ## Tài liệu (`docs/`)
 
