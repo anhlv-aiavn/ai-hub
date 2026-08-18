@@ -72,6 +72,7 @@ async def run(pdf_path: str, pages: list[int] | None) -> None:
     print(f"  {len(images)} ảnh · endpoint {_pool()[0].base_url}\n", flush=True)
     print(f"  {'mode':<13} {'giây':>7} {'prompt_tok':>11} {'compl_tok':>10} "
           f"{'reason_ch':>10} {'json_ch':>8}", flush=True)
+    loi: list[str] = []
     for name, extra in _MODES.items():
         try:
             r = await _call(_pool()[0], images, extra)
@@ -80,6 +81,20 @@ async def run(pdf_path: str, pages: list[int] | None) -> None:
                   f"{r['content_chars']:>8}", flush=True)
         except Exception as e:  # noqa: BLE001
             print(f"  {name:<13} lỗi: {e}", flush=True)
+            loi.append(name)
+
+    # Không đo được thì KHÔNG kết luận. Bản trước in nguyên câu "template reasoning
+    # là thủ phạm" kể cả khi cả 3 mode đều lỗi — một kết luận tự tin về phép đo
+    # chưa từng xảy ra, đúng loại output khiến người đọc truy sai hướng.
+    if len(loi) == len(_MODES):
+        print("\n  → KHÔNG đo được mode nào: mọi call đều lỗi (xem thông báo ở trên). "
+              "Lỗi 'No connected db' là litellm proxy bắt xác thực nhưng không nối DB "
+              "— gửi đúng master key vào VLLM_API_KEY, hoặc trỏ VLLM_ENDPOINTS thẳng "
+              "vào vLLM. Chưa có số liệu nào để kết luận về reasoning.", flush=True)
+        return
+    if loi:
+        print(f"\n  → thiếu {len(loi)}/{len(_MODES)} mode ({', '.join(loi)}) — "
+              "so sánh dưới đây chỉ dựa trên các mode chạy được.", flush=True)
     print("\n  → implicit_off có compl_tok/reason ≈ thinking_on ⇒ template reasoning mặc định"
           " (thủ phạm). explicit_off cắt token ⇒ nhanh hơn (eval chất lượng trước khi đổi).",
           flush=True)
