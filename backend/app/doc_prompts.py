@@ -110,7 +110,7 @@ Phụ lục (chỉ điền nếu ảnh có trang tương ứng, không có thì 
   Bỏ qua dòng trống/bị gạch chéo.
 - Mẫu 15b 'Danh sách thửa': mỗi dòng một thửa.
 - Mẫu 15c 'Danh sách tài sản': mỗi dòng một tài sản.
-
+!đôi khi có gạch xoá => lấy thông tin không bị gạch ấy nhé.
 Trả ĐÚNG cấu trúc JSON sau:
 
 {
@@ -239,7 +239,7 @@ Hướng dẫn từng mục (đánh số bám đúng văn bản):
 5. 'Ghi chú': liệt kê từng gạch đầu dòng; trong đó 'Số vào sổ ĐKĐĐ' tách riêng ra
    trường của nó nếu có ghi.
 Cuối văn bản: 'Người ký' và 'Chức danh' (vd Giám đốc), 'Nơi nhận'.
-
+!đôi khi có gạch xoá => lấy thông tin không bị gạch ấy nhé.
 Trả ĐÚNG cấu trúc JSON sau:
 
 {
@@ -327,8 +327,9 @@ Hướng dẫn từng mục (đánh số bám đúng phiếu):
      phải giữ đủ cả phần cam đoan đó.
 3. 'Giấy tờ nộp kèm theo' — liệt kê từng dòng.
 Cuối phiếu: 'Địa danh' + 'Ngày lập' (dạng "…, ngày … tháng … năm …", ngày có thể bỏ
-trống → để ""), 'Người cung cấp thông tin' (tên ghi rõ dưới chữ ký).
+trống → để tháng/năm), 'Người cung cấp thông tin' (tên ghi rõ dưới chữ ký).
 
+!đôi khi có gạch xoá => lấy thông tin không bị gạch ấy nhé.
 Trả ĐÚNG cấu trúc JSON sau:
 
 {
