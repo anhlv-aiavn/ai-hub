@@ -45,8 +45,8 @@ _CHUNG = """- Return JSON ONLY. No explanation, no markdown.
   "204.6", KHÔNG phải "204.16". Đọc kỹ phần sau dấu phẩy: diện tích thửa đất
   thường chỉ có MỘT chữ số thập phân.
 - Số CC/CCCD là 9 hoặc 12 chữ số — không nhầm với số điện thoại, số thửa, mã vạch.
-  Ô số giấy tờ chỉ ghi DÃY SỐ, không kèm chữ. Giấy viết "CCCD số 033064004050 cấp
-  ngày 22/11/2021" thì trả "033064004050" — bỏ cả chữ "CCCD số" lẫn phần ngày cấp.
+  Ô số giấy tờ chỉ ghi DÃY SỐ ĐỌC ĐƯỢC TRÊN GIẤY, không kèm chữ: bỏ tiền tố
+  "CCCD số"/"CMND số" và bỏ cả phần "cấp ngày …" nếu người viết ghi thêm vào ô.
 - Các ảnh đưa vào có thể là những trang KHÔNG liền nhau của cùng một hồ sơ (mặt
   sau của tờ khai có thể nằm ở ảnh cuối). Hãy ghép chúng thành MỘT hồ sơ duy nhất."""
 
@@ -54,6 +54,9 @@ _CLASSIFY_CHUNG = """Ảnh CÓ THỂ BỊ XOAY NGANG 90° (đọc cả khi xoay,
 Trả đúng một trong hai nhãn:
 - "bieu_mau": trang thuộc chính tờ khai/giấy đang xét (kể cả mặt sau, phần ký, phụ lục bảng kê kèm theo mẫu).
 - "dinh_kem": tài liệu ĐÍNH KÈM hoặc không liên quan — căn cước/CMND, hộ khẩu, sơ đồ/hồ sơ kỹ thuật thửa đất, ảnh chụp màn hình chuyển khoản/hoá đơn, giấy mua bán viết tay, hợp đồng, biên lai, Giấy chứng nhận, trang trắng.
+  Kể cả khi trang VIẾT TAY TOÀN BỘ trên giấy kẻ ngang / giấy vở, không có khung ô hay
+  chữ in sẵn của biểu mẫu — giấy xác nhận, cam kết, tường trình, biên bản họp gia đình
+  đều là "dinh_kem", dù nội dung có nhắc tới chính thửa đất đang xét.
 
 Nghi ngờ → chọn "bieu_mau" (giữ trang, an toàn hơn là vứt). Chỉ trả JSON {"role": "..."}."""
 
@@ -349,3 +352,34 @@ Trang thuộc chính phiếu đang xét: tờ có tiêu đề "PHIẾU THU THẬ
 """ + _CLASSIFY_CHUNG
 
 pcctt_classify_user_prompt = """Trang này là chính phiếu thu thập thông tin đất đai, hay là tài liệu đính kèm? Chỉ trả JSON {"role": "..."}."""
+
+
+def _smoke() -> None:
+    """PURE: canh chính những gì prompt KHÔNG được chứa.
+
+    Vì sao có: một ví dụ minh hoạ trong prompt từng ghi hẳn số CCCD thật
+    ("033064004050") — model chép luôn con số đó ra thay vì đọc giấy, mọi hồ sơ
+    đều trả về cùng một số căn cước trông rất hợp lệ. Ví dụ trong prompt tuyệt
+    đối không được là một giá trị có thể đi thẳng vào ô dữ liệu."""
+    import re
+    _CCCD = re.compile(r"(?<!\d)(\d{9}|\d{12})(?!\d)")
+    prompts = {
+        "_CHUNG": _CHUNG, "_CLASSIFY_CHUNG": _CLASSIFY_CHUNG,
+        "ddk": ddk_extract_system_prompt, "kqdk": kqdk_extract_system_prompt,
+        "pcctt": pcctt_extract_system_prompt,
+    }
+    for ten, noi_dung in prompts.items():
+        thay = _CCCD.findall(noi_dung)
+        assert not thay, f"KILL [1] prompt {ten} chứa dãy 9/12 số như số giấy tờ thật: {thay}"
+
+    assert "dinh_kem" in _CLASSIFY_CHUNG and "VIẾT TAY TOÀN BỘ" in _CLASSIFY_CHUNG, \
+        "KILL [2] luật loại giấy viết tay khỏi biểu mẫu bị mất"
+    for ten, noi_dung in prompts.items():
+        if ten.startswith("_"):
+            continue
+        assert _CHUNG in noi_dung, f"KILL [3] prompt {ten} không còn nhúng ràng buộc chung"
+    print("doc_prompts PURE: 3 KILL ✓")
+
+
+if __name__ == "__main__":
+    _smoke()
